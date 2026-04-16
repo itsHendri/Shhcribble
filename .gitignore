@@ -14,5 +14,6 @@ DerivedData/
 
 # Build output
 build/
-/tmp/FW-build/
-/tmp/FW-dmg/
+/tmp/SC-build/
+/tmp/SC-dmg/
+/tmp/SC-rw/
