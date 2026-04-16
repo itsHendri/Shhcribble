@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+    FieldWhisperer is NOT sandboxed.
+    Reason: App Sandbox blocks CGEventTap (Input Monitoring) and AXUIElement
+    (Accessibility API), both of which are required for core functionality.
+
+    For distribution: notarize with Hardened Runtime enabled (done via
+    ENABLE_HARDENED_RUNTIME=YES in build settings). The audio-input entitlement
+    below is required when Hardened Runtime is active.
+-->
+<dict>
+    <!-- Microphone access under Hardened Runtime -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>

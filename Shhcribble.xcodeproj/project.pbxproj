@@ -1,0 +1,461 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		CF000035000000000000001A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000020000000000000001A /* main.swift */; };
+		CF000036000000000000001A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000021000000000000001A /* AppDelegate.swift */; };
+		CF000037000000000000001A /* HotKeyMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000022000000000000001A /* HotKeyMonitor.swift */; };
+		CF000038000000000000001A /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000023000000000000001A /* AudioRecorder.swift */; };
+		CF000039000000000000001A /* TranscriptionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000024000000000000001A /* TranscriptionEngine.swift */; };
+		CF000040000000000000001A /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000025000000000000001A /* ModelManager.swift */; };
+		CF000041000000000000001A /* TextInserter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000026000000000000001A /* TextInserter.swift */; };
+		CF000042000000000000001A /* SoundwavePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000027000000000000001A /* SoundwavePanel.swift */; };
+		CF000043000000000000001A /* SoundwaveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000028000000000000001A /* SoundwaveView.swift */; };
+		CF000044000000000000001A /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000029000000000000001A /* MenuBarController.swift */; };
+		CF000045000000000000001A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000030000000000000001A /* SettingsView.swift */; };
+		CF000046000000000000001A /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000031000000000000001A /* SettingsWindowController.swift */; };
+		CF000047000000000000001A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CF000034000000000000001A /* Assets.xcassets */; };
+		CF000048000000000000001A /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CF000053000000000000001A /* FluidAudio */; };
+		CF000055000000000000001A /* FillerWordFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000054000000000000001A /* FillerWordFilter.swift */; };
+		CF000056000000000000001A /* shhcribble-scribble-sound.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = CF000057000000000000001A /* shhcribble-scribble-sound.mp3 */; };
+		CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CF000058000000000000001A /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		CF000019000000000000001A /* Shhcribble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shhcribble.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CF000020000000000000001A /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		CF000021000000000000001A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		CF000022000000000000001A /* HotKeyMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyMonitor.swift; sourceTree = "<group>"; };
+		CF000023000000000000001A /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+		CF000024000000000000001A /* TranscriptionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionEngine.swift; sourceTree = "<group>"; };
+		CF000025000000000000001A /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
+		CF000054000000000000001A /* FillerWordFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillerWordFilter.swift; sourceTree = "<group>"; };
+		CF000026000000000000001A /* TextInserter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextInserter.swift; sourceTree = "<group>"; };
+		CF000027000000000000001A /* SoundwavePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundwavePanel.swift; sourceTree = "<group>"; };
+		CF000028000000000000001A /* SoundwaveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundwaveView.swift; sourceTree = "<group>"; };
+		CF000029000000000000001A /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
+		CF000030000000000000001A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		CF000031000000000000001A /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		CF000032000000000000001A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		CF000033000000000000001A /* Shhcribble.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Shhcribble.entitlements; sourceTree = "<group>"; };
+		CF000034000000000000001A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CF000057000000000000001A /* shhcribble-scribble-sound.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "shhcribble-scribble-sound.mp3"; sourceTree = "<group>"; };
+		CF000058000000000000001A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		CF000050000000000000001A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF000048000000000000001A /* FluidAudio in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		CF000009000000000000001A /* Shhcribble */ = {
+			isa = PBXGroup;
+			children = (
+				CF000011000000000000001A /* App */,
+				CF000012000000000000001A /* HotKey */,
+				CF000013000000000000001A /* Audio */,
+				CF000014000000000000001A /* Transcription */,
+				CF000015000000000000001A /* TextInsertion */,
+				CF000016000000000000001A /* UI */,
+				CF000017000000000000001A /* Resources */,
+			);
+			path = Shhcribble;
+			sourceTree = "<group>";
+		};
+		CF000010000000000000001A /* (Main) */ = {
+			isa = PBXGroup;
+			children = (
+				CF000009000000000000001A /* Shhcribble */,
+				CF000018000000000000001A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		CF000011000000000000001A /* App */ = {
+			isa = PBXGroup;
+			children = (
+				CF000020000000000000001A /* main.swift */,
+				CF000021000000000000001A /* AppDelegate.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		CF000012000000000000001A /* HotKey */ = {
+			isa = PBXGroup;
+			children = (
+				CF000022000000000000001A /* HotKeyMonitor.swift */,
+			);
+			path = HotKey;
+			sourceTree = "<group>";
+		};
+		CF000013000000000000001A /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				CF000023000000000000001A /* AudioRecorder.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		CF000014000000000000001A /* Transcription */ = {
+			isa = PBXGroup;
+			children = (
+				CF000024000000000000001A /* TranscriptionEngine.swift */,
+				CF000025000000000000001A /* ModelManager.swift */,
+				CF000054000000000000001A /* FillerWordFilter.swift */,
+			);
+			path = Transcription;
+			sourceTree = "<group>";
+		};
+		CF000015000000000000001A /* TextInsertion */ = {
+			isa = PBXGroup;
+			children = (
+				CF000026000000000000001A /* TextInserter.swift */,
+			);
+			path = TextInsertion;
+			sourceTree = "<group>";
+		};
+		CF000016000000000000001A /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				CF000027000000000000001A /* SoundwavePanel.swift */,
+				CF000028000000000000001A /* SoundwaveView.swift */,
+				CF000029000000000000001A /* MenuBarController.swift */,
+				CF000030000000000000001A /* SettingsView.swift */,
+				CF000031000000000000001A /* SettingsWindowController.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		CF000017000000000000001A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				CF000032000000000000001A /* Info.plist */,
+				CF000033000000000000001A /* Shhcribble.entitlements */,
+				CF000034000000000000001A /* Assets.xcassets */,
+				CF000057000000000000001A /* shhcribble-scribble-sound.mp3 */,
+				CF000058000000000000001A /* PrivacyInfo.xcprivacy */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		CF000018000000000000001A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				CF000019000000000000001A /* Shhcribble.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		CF000002000000000000001A /* Shhcribble */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CF000004000000000000001A /* Build configuration list for PBXNativeTarget "Shhcribble" */;
+			buildPhases = (
+				CF000049000000000000001A /* Sources */,
+				CF000050000000000000001A /* Frameworks */,
+				CF000051000000000000001A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Shhcribble;
+			packageProductDependencies = (
+				CF000053000000000000001A /* FluidAudio */,
+			);
+			productName = Shhcribble;
+			productReference = CF000019000000000000001A /* Shhcribble.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		CF000001000000000000001A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					CF000002000000000000001A = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = CF000003000000000000001A /* Build configuration list for PBXProject "Shhcribble" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = CF000010000000000000001A;
+			packageReferences = (
+				CF000052000000000000001A /* XCRemoteSwiftPackageReference "FluidAudio" */,
+			);
+			productRefGroup = CF000018000000000000001A /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				CF000002000000000000001A /* Shhcribble */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		CF000051000000000000001A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF000047000000000000001A /* Assets.xcassets in Resources */,
+				CF000056000000000000001A /* shhcribble-scribble-sound.mp3 in Resources */,
+				CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		CF000049000000000000001A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF000035000000000000001A /* main.swift in Sources */,
+				CF000036000000000000001A /* AppDelegate.swift in Sources */,
+				CF000037000000000000001A /* HotKeyMonitor.swift in Sources */,
+				CF000038000000000000001A /* AudioRecorder.swift in Sources */,
+				CF000039000000000000001A /* TranscriptionEngine.swift in Sources */,
+				CF000040000000000000001A /* ModelManager.swift in Sources */,
+				CF000041000000000000001A /* TextInserter.swift in Sources */,
+				CF000042000000000000001A /* SoundwavePanel.swift in Sources */,
+				CF000043000000000000001A /* SoundwaveView.swift in Sources */,
+				CF000044000000000000001A /* MenuBarController.swift in Sources */,
+				CF000045000000000000001A /* SettingsView.swift in Sources */,
+				CF000046000000000000001A /* SettingsWindowController.swift in Sources */,
+				CF000055000000000000001A /* FillerWordFilter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		CF000005000000000000001A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_CYCLE = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		CF000006000000000000001A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_CYCLE = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		CF000007000000000000001A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Shhcribble/Resources/Shhcribble.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Shhcribble/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shhcribble.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		CF000008000000000000001A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Shhcribble/Resources/Shhcribble.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Shhcribble/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shhcribble.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CF000003000000000000001A /* Build configuration list for PBXProject "Shhcribble" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CF000005000000000000001A /* Debug */,
+				CF000006000000000000001A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CF000004000000000000001A /* Build configuration list for PBXNativeTarget "Shhcribble" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CF000007000000000000001A /* Debug */,
+				CF000008000000000000001A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CF000052000000000000001A /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.13.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CF000053000000000000001A /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CF000052000000000000001A /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+/* End XCSwiftPackageProductDependency section */
+
+	};
+	rootObject = CF000001000000000000001A /* Project object */;
+}

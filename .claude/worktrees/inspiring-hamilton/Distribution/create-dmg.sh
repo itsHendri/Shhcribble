@@ -1,20 +1,20 @@
 #!/bin/bash
-# Creates a drag-to-Applications DMG for Shhcribble.
+# Creates a drag-to-Applications DMG for FieldWhisperer.
 # Run from the project root: bash Distribution/create-dmg.sh
 set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Shhcribble"
-DERIVED_DATA="/tmp/SC-build"
+APP_NAME="FieldWhisperer"
+DERIVED_DATA="/tmp/FW-build"
 BUILD_APP="${DERIVED_DATA}/Build/Products/Release/${APP_NAME}.app"
-DMG_STAGING="/tmp/SC-dmg"
-DMG_RW="/tmp/SC-rw"        # hdiutil appends .dmg automatically
+DMG_STAGING="/tmp/FW-dmg"
+DMG_RW="/tmp/FW-rw"        # hdiutil appends .dmg automatically
 OUT_DMG=~/Desktop/"${APP_NAME}.dmg"
 
 # ── 1. Build ──────────────────────────────────────────────────────────────────
 echo "▶ Building Release..."
 xcodebuild \
-  -project "${PROJECT_ROOT}/${APP_NAME}.xcodeproj" \
+  -project "${PROJECT_ROOT}/FieldWhisperer.xcodeproj" \
   -scheme "${APP_NAME}" \
   -configuration Release \
   -derivedDataPath "${DERIVED_DATA}" \
@@ -61,4 +61,4 @@ mv "${DMG_RW}.dmg" "${OUT_DMG}"
 echo "✅ Done: ${OUT_DMG}"
 echo ""
 echo "Share this DMG with your friends."
-echo "They open it, drag Shhcribble to Applications, then right-click → Open on first launch."
+echo "They open it, drag FieldWhisperer to Applications, then right-click → Open on first launch."
