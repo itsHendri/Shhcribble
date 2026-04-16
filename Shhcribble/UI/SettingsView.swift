@@ -246,34 +246,6 @@ struct SettingsView: View {
         .padding(.vertical, 2)
     }
 
-    // MARK: - Generic permission row
-
-    private func permissionRow(icon: String,
-                               title: String,
-                               subtitle: String,
-                               granted: Bool,
-                               buttonLabel: String,
-                               action: @escaping () -> Void) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: icon)
-                .foregroundColor(.secondary)
-                .frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).fontWeight(.medium)
-                Text(subtitle).font(.caption).foregroundColor(.secondary)
-            }
-            Spacer()
-            if granted {
-                Label("Granted", systemImage: "checkmark.circle.fill")
-                    .foregroundColor(.green).font(.callout)
-            } else {
-                Button(buttonLabel, action: action)
-                    .controlSize(.small)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
     // MARK: - Helpers
 
     private func checkPermissions() {
