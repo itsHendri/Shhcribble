@@ -147,12 +147,12 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("First time:")
                                 .font(.caption2).fontWeight(.semibold).foregroundColor(.secondary)
-                            Text("Open Settings → find Shhcribble → toggle it on.")
+                            Text("Open Settings → find Shhhcribble → toggle it on.")
                                 .font(.caption2).foregroundColor(.secondary)
                             Text("After a rebuild:")
                                 .font(.caption2).fontWeight(.semibold).foregroundColor(.secondary)
                                 .padding(.top, 2)
-                            Text("If the toggle is already on but not detected, click − to remove Shhcribble then + to re-add the freshly built app.")
+                            Text("If the toggle is already on but not detected, click − to remove Shhhcribble then + to re-add the freshly built app.")
                                 .font(.caption2).foregroundColor(.secondary)
                         }
                         .padding(.leading, 32)
@@ -168,7 +168,7 @@ struct SettingsView: View {
             // MARK: About
             Section("About") {
                 HStack {
-                    Text("Shhcribble").fontWeight(.medium)
+                    Text("Shhhcribble").fontWeight(.medium)
                     Spacer()
                     Text("v1.0").foregroundColor(.secondary)
                 }

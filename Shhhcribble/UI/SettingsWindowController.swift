@@ -9,7 +9,7 @@ final class SettingsWindowController: NSWindowController {
         let hostingVC = NSHostingController(rootView: rootView)
 
         let window = NSWindow(contentViewController: hostingVC)
-        window.title      = "Shhcribble Settings"
+        window.title      = "Shhhcribble Settings"
         window.styleMask  = [.titled, .closable, .miniaturizable]
         window.setContentSize(NSSize(width: 440, height: 600))
         window.center()

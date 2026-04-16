@@ -1,4 +1,4 @@
-# Shhcribble
+# Shhhcribble
 
 A native macOS voice-to-text utility.  
 Hold **⌥Space** to record, release to transcribe — text is automatically pasted into the focused app.
@@ -23,22 +23,22 @@ Powered by [NVIDIA Parakeet V3](https://huggingface.co/FluidInference/parakeet-t
 
 ### From DMG
 
-1. Open the `.dmg`, drag **Shhcribble** to **Applications**
+1. Open the `.dmg`, drag **Shhhcribble** to **Applications**
 2. **Right-click → Open** on first launch (bypasses Gatekeeper — only needed once)
 3. Grant **Microphone** when prompted
 4. Wait for the model to download (~494 MB, one-time)
 
-> If right-click → Open doesn't work, run `xattr -cr /Applications/Shhcribble.app` in Terminal.
+> If right-click → Open doesn't work, run `xattr -cr /Applications/Shhhcribble.app` in Terminal.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/itsHendri/shhcribble.git
-cd shhcribble
-open Shhcribble.xcodeproj
+git clone https://github.com/itsHendri/shhhcribble.git
+cd shhhcribble
+open Shhhcribble.xcodeproj
 ```
 
-1. Select the **Shhcribble** scheme and your Mac as destination
+1. Select the **Shhhcribble** scheme and your Mac as destination
 2. **Signing & Capabilities → Team** — pick your Apple Developer team
 3. **⌘R** to build and run
 
@@ -77,7 +77,7 @@ Click the menu bar icon → **Settings…**
 | **Microphone** | Yes | Prompted automatically |
 | **Accessibility** | Optional | Enables direct text insertion; without it, text goes to clipboard |
 
-> After rebuilding in Xcode, re-grant Accessibility: remove Shhcribble from the list, then re-add it.
+> After rebuilding in Xcode, re-grant Accessibility: remove Shhhcribble from the list, then re-add it.
 
 ---
 
@@ -100,7 +100,7 @@ Build a shareable DMG:
 bash Distribution/create-dmg.sh
 ```
 
-Produces **Shhcribble.dmg** on your Desktop. Recipients right-click → Open on first launch.
+Produces **Shhhcribble.dmg** on your Desktop. Recipients right-click → Open on first launch.
 
 ---
 

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Creates a drag-to-Applications DMG for Shhcribble.
+# Creates a drag-to-Applications DMG for Shhhcribble.
 # Run from the project root: bash Distribution/create-dmg.sh
 set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Shhcribble"
+APP_NAME="Shhhcribble"
 DERIVED_DATA="/tmp/SC-build"
 BUILD_APP="${DERIVED_DATA}/Build/Products/Release/${APP_NAME}.app"
 DMG_STAGING="/tmp/SC-dmg"
@@ -61,4 +61,4 @@ mv "${DMG_RW}.dmg" "${OUT_DMG}"
 echo "✅ Done: ${OUT_DMG}"
 echo ""
 echo "Share this DMG with your friends."
-echo "They open it, drag Shhcribble to Applications, then right-click → Open on first launch."
+echo "They open it, drag Shhhcribble to Applications, then right-click → Open on first launch."

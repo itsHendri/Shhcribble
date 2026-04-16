@@ -48,7 +48,7 @@ final class TranscriptionEngine: ObservableObject {
     func loadModel(variant: String) async {
         currentModelName = variant
         loadingState = .loading
-        print("[Shhcribble] Loading Parakeet model: \(modelDisplayName(variant)) (\(variant))…")
+        print("[Shhhcribble] Loading Parakeet model: \(modelDisplayName(variant)) (\(variant))…")
 
         do {
             let version: AsrModelVersion = (variant == "parakeet-v2") ? .v2 : .v3
@@ -57,11 +57,11 @@ final class TranscriptionEngine: ObservableObject {
             try await asr.loadModels(models)
             asrManager = asr
             loadingState = .ready
-            print("[Shhcribble] ✅ Parakeet model loaded successfully: \(variant)")
+            print("[Shhhcribble] ✅ Parakeet model loaded successfully: \(variant)")
         } catch {
             let msg = error.localizedDescription
             loadingState = .failed(msg)
-            print("[Shhcribble] ❌ Model loading failed: \(msg)")
+            print("[Shhhcribble] ❌ Model loading failed: \(msg)")
         }
     }
 
@@ -83,16 +83,16 @@ final class TranscriptionEngine: ObservableObject {
         // Minimum ~0.5 s of audio to avoid spurious transcriptions
         let minSamples = Int(targetSampleRate * 0.5)
         guard audioSamples.count > minSamples else {
-            print("[Shhcribble] Audio too short (\(audioSamples.count) samples, need >\(minSamples)). Skipping.")
+            print("[Shhhcribble] Audio too short (\(audioSamples.count) samples, need >\(minSamples)). Skipping.")
             return ""
         }
 
-        print("[Shhcribble] Transcribing \(audioSamples.count) samples " +
+        print("[Shhhcribble] Transcribing \(audioSamples.count) samples " +
               "(~\(String(format: "%.1f", Double(audioSamples.count) / targetSampleRate))s of audio)…")
 
         let result = try await asr.transcribe(audioSamples, source: .system)
         let text = result.text
-        print("[Shhcribble] Transcription result: \"\(text)\"")
+        print("[Shhhcribble] Transcription result: \"\(text)\"")
         return text
     }
 

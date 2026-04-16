@@ -66,7 +66,7 @@ final class AudioRecorder {
 
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
             guard granted else {
-                print("[Shhcribble] Microphone permission denied.")
+                print("[Shhhcribble] Microphone permission denied.")
                 DispatchQueue.main.async {
                     self?.errorCallback?("Microphone permission denied")
                 }
@@ -119,13 +119,13 @@ final class AudioRecorder {
         // returns a zero-channel / zero-rate format. `installTap` with this format
         // throws an Obj-C exception that crashes the app — bail out cleanly instead.
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
-            print("[Shhcribble] ❌ No microphone detected (sampleRate=\(inputFormat.sampleRate), channels=\(inputFormat.channelCount))")
+            print("[Shhhcribble] ❌ No microphone detected (sampleRate=\(inputFormat.sampleRate), channels=\(inputFormat.channelCount))")
             errorCallback?("No microphone detected")
             return
         }
 
         guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
-            print("[Shhcribble] Could not create AVAudioConverter.")
+            print("[Shhhcribble] Could not create AVAudioConverter.")
             errorCallback?("Audio converter unavailable")
             return
         }
@@ -173,7 +173,7 @@ final class AudioRecorder {
             try engine.start()
         } catch {
             tapInstalled = false
-            print("[Shhcribble] AVAudioEngine start failed: \(error.localizedDescription)")
+            print("[Shhhcribble] AVAudioEngine start failed: \(error.localizedDescription)")
             errorCallback?("Couldn't start microphone")
         }
     }
@@ -184,7 +184,7 @@ final class AudioRecorder {
     private func handleConfigurationChange() {
         // Only react if we're actively recording — otherwise nothing to do.
         guard tapInstalled, let level = levelCallback else { return }
-        print("[Shhcribble] Audio configuration changed — restarting engine")
+        print("[Shhhcribble] Audio configuration changed — restarting engine")
 
         let onErr = errorCallback
         // Preserve already-captured samples across the restart

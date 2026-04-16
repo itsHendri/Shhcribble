@@ -47,7 +47,7 @@ final class MenuBarController: NSObject {
         let menu = NSMenu()
 
         // Header
-        let header = NSMenuItem(title: "Shhcribble", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Shhhcribble", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
 
@@ -137,7 +137,7 @@ final class MenuBarController: NSObject {
         menu.addItem(.separator())
 
         // Quit
-        let quitItem = NSMenuItem(title: "Quit Shhcribble",
+        let quitItem = NSMenuItem(title: "Quit Shhhcribble",
                                   action: #selector(quit),
                                   keyEquivalent: "q")
         quitItem.target = self
@@ -175,7 +175,7 @@ final class MenuBarController: NSObject {
             image = custom
         } else {
             image = NSImage(systemSymbolName: "mic.fill",
-                            accessibilityDescription: "Shhcribble")
+                            accessibilityDescription: "Shhhcribble")
         }
         image?.isTemplate = !recording   // template = macOS handles dark/light tinting
         button.image = image

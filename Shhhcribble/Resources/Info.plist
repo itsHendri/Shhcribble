@@ -27,9 +27,9 @@
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSAccessibilityUsageDescription</key>
-    <string>Shhcribble uses Accessibility to insert transcribed text directly at the cursor in the focused app.</string>
+    <string>Shhhcribble uses Accessibility to insert transcribed text directly at the cursor in the focused app.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Shhcribble records your voice while you hold the hotkey (⌥Space by default) so it can transcribe your speech and paste the text into the focused field.</string>
+    <string>Shhhcribble records your voice while you hold the hotkey (⌥Space by default) so it can transcribe your speech and paste the text into the focused field.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

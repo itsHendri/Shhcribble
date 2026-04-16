@@ -26,7 +26,7 @@ final class TextInserter {
 
         // Step 2: try direct AX insert
         if tryAccessibilityInsert(text: text) {
-            print("[Shhcribble] ✅ Inserted via Accessibility API")
+            print("[Shhhcribble] ✅ Inserted via Accessibility API")
             return .accessibilityInserted
         }
 
@@ -35,11 +35,11 @@ final class TextInserter {
         // Only skip Finder — it's the sole app that produces a system pop sound for
         // an unhandled paste (desktop/icon selection with nothing to paste into).
         if let pid = targetPid, !isFinderPid(pid), simulateCmdV(targetPid: pid) {
-            print("[Shhcribble] ✅ Pasted via Cmd+V to PID \(pid)")
+            print("[Shhhcribble] ✅ Pasted via Cmd+V to PID \(pid)")
             return .pastedViaKeyboard
         }
 
-        print("[Shhcribble] Text on clipboard — user must press ⌘V manually")
+        print("[Shhhcribble] Text on clipboard — user must press ⌘V manually")
         return .copiedToClipboard
     }
 

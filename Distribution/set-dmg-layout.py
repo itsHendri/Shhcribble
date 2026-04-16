@@ -4,7 +4,7 @@ Write icon positions into the DS_Store of the mounted DMG volume.
 Called after hdiutil attach so the correct /Volumes path is used.
 
 Usage: python3 Distribution/set-dmg-layout.py <mount-point>
-  e.g. python3 Distribution/set-dmg-layout.py /Volumes/Shhcribble
+  e.g. python3 Distribution/set-dmg-layout.py /Volumes/Shhhcribble
 """
 import sys, os, subprocess
 
@@ -39,7 +39,7 @@ if os.path.exists(ds_path):
     os.remove(ds_path)
 
 with DSStore.open(ds_path, "w+") as d:
-    d["Shhcribble.app"]["Iloc"] = (150, 175)
+    d["Shhhcribble.app"]["Iloc"] = (150, 175)
     d["Applications"]["Iloc"]       = (450, 175)
 
 print(f"  .DS_Store written → {ds_path}")

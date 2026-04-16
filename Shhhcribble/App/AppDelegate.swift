@@ -20,10 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let liveTranscriptionInterval: TimeInterval = 3.0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("[Shhcribble] App launched.")
+        print("[Shhhcribble] App launched.")
 
         let axTrusted = requestAccessibilityPermission()
-        print("[Shhcribble] AXIsProcessTrusted = \(axTrusted)")
+        print("[Shhhcribble] AXIsProcessTrusted = \(axTrusted)")
 
         transcriptionEngine = TranscriptionEngine()
         audioRecorder       = AudioRecorder()
@@ -67,11 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func beginRecording() async {
         guard state == .idle else { return }
         guard transcriptionEngine.isReady else {
-            print("[Shhcribble] Model not ready: \(transcriptionEngine.statusText)")
+            print("[Shhhcribble] Model not ready: \(transcriptionEngine.statusText)")
             menuBarController.flashNotReady()
             return
         }
-        print("[Shhcribble] Recording started")
+        print("[Shhhcribble] Recording started")
         state = .recording
         soundwavePanel.show()
         menuBarController.setRecordingIndicator(active: true)
@@ -98,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called from AudioRecorder when setup fails (no mic, permission denied, etc.)
     /// Abort the current recording attempt cleanly and surface the error in the pill.
     private func handleAudioError(_ message: String) {
-        print("[Shhcribble] Audio error: \(message)")
+        print("[Shhhcribble] Audio error: \(message)")
         stopLiveTranscription()
         _ = audioRecorder.stop()
         menuBarController.setRecordingIndicator(active: false)
@@ -119,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? await Task.sleep(for: .milliseconds(350))
 
         let samples = audioRecorder.stop()
-        print("[Shhcribble] Captured \(samples.count) samples (~\(String(format: "%.1f", Double(samples.count)/16000))s)")
+        print("[Shhhcribble] Captured \(samples.count) samples (~\(String(format: "%.1f", Double(samples.count)/16000))s)")
 
         var textToInsert: String? = nil
         do {
@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             textToInsert = trimmed.isEmpty ? nil : trimmed
         } catch {
-            print("[Shhcribble] ❌ Transcription error: \(error.localizedDescription)")
+            print("[Shhhcribble] ❌ Transcription error: \(error.localizedDescription)")
         }
 
         guard let text = textToInsert else {
@@ -143,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ModelManager.addToHistory(text)
         menuBarController.rebuildMenu()
 
-        print("[Shhcribble] Inserting: \"\(text.prefix(80))\"")
+        print("[Shhhcribble] Inserting: \"\(text.prefix(80))\"")
 
         // Panel stays visible (nonactivating — target app keeps focus).
         // Small delay lets any focus changes settle before the insert.
@@ -196,7 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func updateHotkey(_ option: ModelManager.HotkeyOption) {
         ModelManager.selectedHotkeyID = option.id
         hotKeyMonitor.updateHotkey(keyCode: option.keyCode, modifiers: option.modifiers)
-        print("[Shhcribble] Hotkey changed to \(option.label)")
+        print("[Shhhcribble] Hotkey changed to \(option.label)")
     }
 
     // MARK: - Permissions

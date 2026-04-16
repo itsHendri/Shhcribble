@@ -21,11 +21,11 @@ final class SoundwavePanel: NSPanel {
 
     /// Pre-loaded at init so play() fires with zero initialization latency.
     private let completionPlayer: AVAudioPlayer? = {
-        guard let url = Bundle.main.url(forResource: "shhcribble-scribble-sound",
+        guard let url = Bundle.main.url(forResource: "shhhcribble-scribble-sound",
                                         withExtension: "mp3"),
               let player = try? AVAudioPlayer(contentsOf: url)
         else {
-            print("[Shhcribble] ⚠️ completion sound not found in bundle — expected: shhcribble-scribble-sound.mp3")
+            print("[Shhhcribble] ⚠️ completion sound not found in bundle — expected: shhhcribble-scribble-sound.mp3")
             return nil
         }
         player.enableRate = true

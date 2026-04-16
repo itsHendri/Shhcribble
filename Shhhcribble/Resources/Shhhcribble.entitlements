@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <!--
-    Shhcribble is NOT sandboxed.
+    Shhhcribble is NOT sandboxed.
     Reason: App Sandbox blocks CGEventTap (Input Monitoring) and AXUIElement
     (Accessibility API), both of which are required for core functionality.
 
