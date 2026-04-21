@@ -11,6 +11,9 @@
 		CF000036000000000000001A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000021000000000000001A /* AppDelegate.swift */; };
 		CF000037000000000000001A /* HotKeyMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000022000000000000001A /* HotKeyMonitor.swift */; };
 		CF000038000000000000001A /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000023000000000000001A /* AudioRecorder.swift */; };
+		CF000090000000000000001A /* AudioDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000091000000000000001A /* AudioDeviceManager.swift */; };
+		CF000092000000000000001A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000093000000000000001A /* OnboardingView.swift */; };
+		CF000094000000000000001A /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000095000000000000001A /* OnboardingWindowController.swift */; };
 		CF000039000000000000001A /* TranscriptionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000024000000000000001A /* TranscriptionEngine.swift */; };
 		CF000040000000000000001A /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000025000000000000001A /* ModelManager.swift */; };
 		CF000041000000000000001A /* TextInserter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000026000000000000001A /* TextInserter.swift */; };
@@ -23,6 +26,7 @@
 		CF000048000000000000001A /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CF000053000000000000001A /* FluidAudio */; };
 		CF000055000000000000001A /* FillerWordFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000054000000000000001A /* FillerWordFilter.swift */; };
 		CF000056000000000000001A /* shhhcribble-scribble-sound.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */; };
+		CF000098000000000000001A /* shhhcribble-launch-sound.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = CF000099000000000000001A /* shhhcribble-launch-sound.mp3 */; };
 		CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CF000058000000000000001A /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -32,6 +36,9 @@
 		CF000021000000000000001A /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		CF000022000000000000001A /* HotKeyMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyMonitor.swift; sourceTree = "<group>"; };
 		CF000023000000000000001A /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+		CF000091000000000000001A /* AudioDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceManager.swift; sourceTree = "<group>"; };
+		CF000093000000000000001A /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		CF000095000000000000001A /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
 		CF000024000000000000001A /* TranscriptionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionEngine.swift; sourceTree = "<group>"; };
 		CF000025000000000000001A /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
 		CF000054000000000000001A /* FillerWordFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillerWordFilter.swift; sourceTree = "<group>"; };
@@ -45,6 +52,7 @@
 		CF000033000000000000001A /* Shhhcribble.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Shhhcribble.entitlements; sourceTree = "<group>"; };
 		CF000034000000000000001A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "shhhcribble-scribble-sound.mp3"; sourceTree = "<group>"; };
+		CF000099000000000000001A /* shhhcribble-launch-sound.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "shhhcribble-launch-sound.mp3"; sourceTree = "<group>"; };
 		CF000058000000000000001A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -69,6 +77,7 @@
 				CF000014000000000000001A /* Transcription */,
 				CF000015000000000000001A /* TextInsertion */,
 				CF000016000000000000001A /* UI */,
+				CF000096000000000000001A /* Onboarding */,
 				CF000017000000000000001A /* Resources */,
 			);
 			path = Shhhcribble;
@@ -103,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				CF000023000000000000001A /* AudioRecorder.swift */,
+				CF000091000000000000001A /* AudioDeviceManager.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -115,6 +125,15 @@
 				CF000054000000000000001A /* FillerWordFilter.swift */,
 			);
 			path = Transcription;
+			sourceTree = "<group>";
+		};
+		CF000096000000000000001A /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				CF000093000000000000001A /* OnboardingView.swift */,
+				CF000095000000000000001A /* OnboardingWindowController.swift */,
+			);
+			path = Onboarding;
 			sourceTree = "<group>";
 		};
 		CF000015000000000000001A /* TextInsertion */ = {
@@ -144,6 +163,7 @@
 				CF000033000000000000001A /* Shhhcribble.entitlements */,
 				CF000034000000000000001A /* Assets.xcassets */,
 				CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */,
+				CF000099000000000000001A /* shhhcribble-launch-sound.mp3 */,
 				CF000058000000000000001A /* PrivacyInfo.xcprivacy */,
 			);
 			path = Resources;
@@ -223,6 +243,7 @@
 			files = (
 				CF000047000000000000001A /* Assets.xcassets in Resources */,
 				CF000056000000000000001A /* shhhcribble-scribble-sound.mp3 in Resources */,
+				CF000098000000000000001A /* shhhcribble-launch-sound.mp3 in Resources */,
 				CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -238,6 +259,9 @@
 				CF000036000000000000001A /* AppDelegate.swift in Sources */,
 				CF000037000000000000001A /* HotKeyMonitor.swift in Sources */,
 				CF000038000000000000001A /* AudioRecorder.swift in Sources */,
+				CF000090000000000000001A /* AudioDeviceManager.swift in Sources */,
+				CF000092000000000000001A /* OnboardingView.swift in Sources */,
+				CF000094000000000000001A /* OnboardingWindowController.swift in Sources */,
 				CF000039000000000000001A /* TranscriptionEngine.swift in Sources */,
 				CF000040000000000000001A /* ModelManager.swift in Sources */,
 				CF000041000000000000001A /* TextInserter.swift in Sources */,

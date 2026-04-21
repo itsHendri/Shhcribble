@@ -1,6 +1,7 @@
 import SwiftUI
 import ApplicationServices
 import AVFoundation
+import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject var transcriptionEngine: TranscriptionEngine
@@ -8,8 +9,14 @@ struct SettingsView: View {
 
     @State private var selectedModel:        String = ModelManager.selectedModel
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
-    @State private var fillerFilterEnabled: Bool   = ModelManager.fillerFilterEnabled
-    @State private var activationMode:      ModelManager.ActivationMode = ModelManager.activationMode
+    @State private var fillerFilterEnabled:   Bool = ModelManager.fillerFilterEnabled
+    @State private var showLiveTranscription: Bool = ModelManager.showLiveTranscription
+    @State private var playLaunchSound:       Bool = ModelManager.playLaunchSound
+    @State private var launchAtLogin:         Bool = SMAppService.mainApp.status == .enabled
+    @State private var activationMode:        ModelManager.ActivationMode = ModelManager.activationMode
+    @State private var preferredInputUID:     String = ModelManager.preferredInputDeviceUID ?? ""
+
+    @StateObject private var deviceManager = AudioDeviceManager()
 
     @State private var axGranted        = false
     @State private var micGranted       = false
@@ -54,6 +61,25 @@ struct SettingsView: View {
             } footer: {
                 Text("Models are downloaded once and cached on your Mac.\n" +
                      "Parakeet V3 (multilingual) is recommended for most users.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // MARK: Microphone input
+            Section {
+                Picker("Input device", selection: $preferredInputUID) {
+                    Text("System Default").tag("")
+                    ForEach(deviceManager.devices) { device in
+                        Text(device.name).tag(device.id)
+                    }
+                }
+                .onChange(of: preferredInputUID) { _, newValue in
+                    ModelManager.preferredInputDeviceUID = newValue.isEmpty ? nil : newValue
+                }
+            } header: {
+                Text("Microphone")
+            } footer: {
+                Text("Pin a specific mic to avoid macOS silently switching inputs mid-recording (common with AirPods).")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -105,10 +131,25 @@ struct SettingsView: View {
                         ModelManager.fillerFilterEnabled = newValue
                     }
 
+                Toggle("Show live transcription", isOn: $showLiveTranscription)
+                    .onChange(of: showLiveTranscription) { _, newValue in
+                        ModelManager.showLiveTranscription = newValue
+                    }
+
+                Toggle("Play launch sound", isOn: $playLaunchSound)
+                    .onChange(of: playLaunchSound) { _, newValue in
+                        ModelManager.playLaunchSound = newValue
+                    }
+
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, newValue in
+                        setLaunchAtLogin(newValue)
+                    }
+
             } header: {
                 Text("Options")
             } footer: {
-                Text("Removes \"um\", \"uh\", \"hmm\" and similar filler words from transcriptions.")
+                Text("“Show live transcription” types words into the pill as you speak. Turning it off can feel snappier on slower Macs.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -256,6 +297,25 @@ struct SettingsView: View {
         case .notDetermined: micGranted = false; micNotDetermined = true
         default:             micGranted = false; micNotDetermined = false
         }
+
+        // Mirror any external change (e.g. user toggled off via System Settings → Login Items)
+        let currentLaunchState = SMAppService.mainApp.status == .enabled
+        if launchAtLogin != currentLaunchState { launchAtLogin = currentLaunchState }
+    }
+
+    private func setLaunchAtLogin(_ enable: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if enable {
+                if service.status != .enabled { try service.register() }
+            } else {
+                if service.status == .enabled { try service.unregister() }
+            }
+        } catch {
+            print("[Shhhcribble] ⚠️ Failed to update launch-at-login: \(error.localizedDescription)")
+        }
+        // Reflect actual state in case the system rejected the change.
+        launchAtLogin = service.status == .enabled
     }
 
     private func openSystemPrivacy(_ pane: String) {

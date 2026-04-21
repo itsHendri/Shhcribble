@@ -11,6 +11,10 @@ enum ModelManager {
         let displayName: String
     }
 
+    // To add a new model: append an entry here. `id` is the persisted UserDefaults
+    // value; `displayName` is shown in Settings. The id must match a case handled
+    // by TranscriptionEngine.reloadModel(variant:) (currently mapped to FluidAudio's
+    // AsrModels.Version — "parakeet-v3" → .v3, "parakeet-v2" → .v2).
     static let availableModels: [ModelInfo] = [
         ModelInfo(id: "parakeet-v3", displayName: "Parakeet V3 (~494 MB) – Multilingual ✦"),
         ModelInfo(id: "parakeet-v2", displayName: "Parakeet V2 (~476 MB) – English-optimized"),
@@ -79,6 +83,38 @@ enum ModelManager {
             return UserDefaults.standard.bool(forKey: "fillerFilterEnabled")
         }
         set { UserDefaults.standard.set(newValue, forKey: "fillerFilterEnabled") }
+    }
+
+    /// Default true — stream live transcription text in the soundwave pill while recording.
+    /// When false, the 3s snapshot loop is skipped and the pill shows only the waveform.
+    static var showLiveTranscription: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: "showLiveTranscription") != nil else { return true }
+            return UserDefaults.standard.bool(forKey: "showLiveTranscription")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "showLiveTranscription") }
+    }
+
+    /// Whether the user has completed the first-run onboarding flow.
+    static var hasCompletedOnboarding: Bool {
+        get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }
+        set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
+    }
+
+    /// Preferred microphone device UID (matches AVCaptureDevice.uniqueID).
+    /// nil means "follow system default input".
+    static var preferredInputDeviceUID: String? {
+        get { UserDefaults.standard.string(forKey: "preferredInputDeviceUID") }
+        set { UserDefaults.standard.set(newValue, forKey: "preferredInputDeviceUID") }
+    }
+
+    /// Default true — play a short sound when the app launches.
+    static var playLaunchSound: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: "playLaunchSound") != nil else { return true }
+            return UserDefaults.standard.bool(forKey: "playLaunchSound")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "playLaunchSound") }
     }
 
     // MARK: - Transcription history

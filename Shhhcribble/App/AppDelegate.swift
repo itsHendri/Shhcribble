@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var soundwavePanel: SoundwavePanel!
     private var menuBarController: MenuBarController!
     private var settingsWindowController: SettingsWindowController?
+    private var onboardingController: OnboardingWindowController?
 
     private enum AppState { case idle, recording, transcribing }
     private var state: AppState = .idle
@@ -19,11 +20,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var liveTranscriptionTask: Task<Void, Never>?
     private let liveTranscriptionInterval: TimeInterval = 3.0
 
+    /// Global keyDown observer used to catch Escape while recording so the user
+    /// can cancel without pasting. Only active during the .recording state.
+    private var escapeMonitor: Any?
+
+    /// Pre-loaded launch chime; nil if the bundled audio file is missing.
+    private let launchSoundPlayer: AVAudioPlayer? = {
+        guard let url = Bundle.main.url(forResource: "shhhcribble-launch-sound",
+                                        withExtension: "mp3"),
+              let player = try? AVAudioPlayer(contentsOf: url)
+        else { return nil }
+        player.volume = 1.0
+        player.prepareToPlay()
+        return player
+    }()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("[Shhhcribble] App launched.")
 
-        let axTrusted = requestAccessibilityPermission()
-        print("[Shhhcribble] AXIsProcessTrusted = \(axTrusted)")
+        // Skip the launch chime on the very first run — onboarding owns the
+        // audio experience on that pass.
+        if ModelManager.hasCompletedOnboarding, ModelManager.playLaunchSound {
+            launchSoundPlayer?.currentTime = 0
+            launchSoundPlayer?.play()
+        }
+
+        // Only nudge accessibility automatically for returning users; onboarding
+        // drives permission prompts with context on first run.
+        if ModelManager.hasCompletedOnboarding {
+            let axTrusted = requestAccessibilityPermission()
+            print("[Shhhcribble] AXIsProcessTrusted = \(axTrusted)")
+        }
 
         transcriptionEngine = TranscriptionEngine()
         audioRecorder       = AudioRecorder()
@@ -60,6 +87,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         hotKeyMonitor.start(keyCode: hotkey.keyCode, modifiers: hotkey.modifiers)
+
+        if !ModelManager.hasCompletedOnboarding {
+            showOnboarding()
+        }
+    }
+
+    /// Presents the first-run onboarding window. Also invoked from the menu bar's
+    /// "Run Setup Again…" item so users can revisit the flow.
+    func showOnboarding() {
+        if onboardingController == nil {
+            onboardingController = OnboardingWindowController(
+                transcriptionEngine: transcriptionEngine,
+                onFinish: { [weak self] in
+                    self?.onboardingController = nil
+                }
+            )
+        }
+        onboardingController?.show()
     }
 
     // MARK: - Recording state machine
@@ -84,6 +129,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         startLiveTranscription()
+        startEscapeMonitor()
+    }
+
+    /// Cancels the current recording: stops audio, discards samples, hides the panel,
+    /// and returns to idle without pasting anything.
+    private func cancelRecording() {
+        guard state == .recording else { return }
+        print("[Shhhcribble] Recording cancelled (Escape)")
+        stopLiveTranscription()
+        stopEscapeMonitor()
+        _ = audioRecorder.stop()
+        menuBarController.setRecordingIndicator(active: false)
+        soundwavePanel.hide()
+        state = .idle
+    }
+
+    private func startEscapeMonitor() {
+        stopEscapeMonitor()
+        // keyDown = 10; Escape keyCode = 53. Global monitor fires for events
+        // delivered to other apps, letting us observe Escape while the panel is
+        // nonactivating and can't receive key events itself.
+        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return }
+            Task { @MainActor in self?.cancelRecording() }
+        }
+    }
+
+    private func stopEscapeMonitor() {
+        if let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
+        }
     }
 
     /// Toggle activation: tap once to start recording, tap again to stop & paste.
@@ -100,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleAudioError(_ message: String) {
         print("[Shhhcribble] Audio error: \(message)")
         stopLiveTranscription()
+        stopEscapeMonitor()
         _ = audioRecorder.stop()
         menuBarController.setRecordingIndicator(active: false)
         soundwavePanel.showError(message)
@@ -109,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func endRecording() async {
         guard state == .recording else { return }
         stopLiveTranscription()
+        stopEscapeMonitor()
 
         state = .transcribing
         soundwavePanel.showTranscribing()
@@ -165,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Live transcription
 
     private func startLiveTranscription() {
+        guard ModelManager.showLiveTranscription else { return }
         liveTranscriptionTask = Task { [weak self] in
             guard let self else { return }
             // Wait a beat before the first pass so there's audio to transcribe
@@ -226,6 +306,10 @@ extension AppDelegate: MenuBarControllerDelegate {
 
     func menuBarControllerDidRequestQuit(_ controller: MenuBarController) {
         NSApp.terminate(nil)
+    }
+
+    func menuBarControllerDidRequestOnboarding(_ controller: MenuBarController) {
+        showOnboarding()
     }
 
     func menuBarControllerDidRequestRepaste(_ controller: MenuBarController, text: String) {

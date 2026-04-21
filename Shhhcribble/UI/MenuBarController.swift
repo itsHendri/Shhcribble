@@ -6,6 +6,7 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerDidRequestSettings(_ controller: MenuBarController)
     func menuBarControllerDidRequestQuit(_ controller: MenuBarController)
     func menuBarControllerDidRequestRepaste(_ controller: MenuBarController, text: String)
+    func menuBarControllerDidRequestOnboarding(_ controller: MenuBarController)
 }
 
 /// Owns the NSStatusItem (menu bar icon) and rebuilds the menu whenever
@@ -134,6 +135,12 @@ final class MenuBarController: NSObject {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let onboardingItem = NSMenuItem(title: "Run Setup Again…",
+                                        action: #selector(openOnboarding),
+                                        keyEquivalent: "")
+        onboardingItem.target = self
+        menu.addItem(onboardingItem)
+
         menu.addItem(.separator())
 
         // Quit
@@ -186,6 +193,10 @@ final class MenuBarController: NSObject {
 
     @objc private func openSettings() {
         delegate?.menuBarControllerDidRequestSettings(self)
+    }
+
+    @objc private func openOnboarding() {
+        delegate?.menuBarControllerDidRequestOnboarding(self)
     }
 
     @objc private func quit() {

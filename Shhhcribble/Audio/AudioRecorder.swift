@@ -112,7 +112,28 @@ final class AudioRecorder {
         // Guard against double-tap (should not happen, but be defensive)
         guard !tapInstalled else { return }
 
-        let inputNode   = engine.inputNode
+        let inputNode = engine.inputNode
+
+        // If the user has pinned a specific mic, bind the engine's input AU to it.
+        // On failure (device unplugged, translation error), silently fall back to
+        // the system default — the user gets audio from *something* rather than nothing.
+        if let uid = ModelManager.preferredInputDeviceUID,
+           let deviceID = AudioDeviceManager.resolveAudioDeviceID(forUID: uid),
+           let audioUnit = inputNode.audioUnit {
+            var id = deviceID
+            let status = AudioUnitSetProperty(
+                audioUnit,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &id,
+                UInt32(MemoryLayout<AudioDeviceID>.size)
+            )
+            if status != noErr {
+                print("[Shhhcribble] ⚠️ Failed to set input device (status=\(status)); using system default.")
+            }
+        }
+
         let inputFormat = inputNode.outputFormat(forBus: 0)
 
         // No input device (e.g. Mac mini with no built-in mic and nothing connected)
