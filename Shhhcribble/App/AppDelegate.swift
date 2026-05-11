@@ -20,6 +20,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum AppState { case idle, recording, transcribing }
     private var state: AppState = .idle
 
+    /// Hybrid activation: a press shorter than `tapThreshold` latches recording
+    /// on (stop with a second tap); a longer press behaves as push-to-talk
+    /// (release stops). `pressStartedAt` is the keyDown timestamp for the
+    /// currently-held press; `latched` is set on the keyUp that converted the
+    /// press into a tap.
+    private var pressStartedAt: Date?
+    private var latched: Bool = false
+    private static let tapThreshold: TimeInterval = 0.25
+
     // Live transcription: runs Parakeet on the growing buffer every N seconds
     private var liveTranscriptionTask: Task<Void, Never>?
     private let liveTranscriptionInterval: TimeInterval = 3.0
@@ -55,15 +64,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyMonitor = HotKeyMonitor(
             onKeyDown: { [weak self] in
                 guard let self else { return }
-                switch ModelManager.activationMode {
-                case .pushToTalk: await self.beginRecording()
-                case .toggle:     await self.toggleRecording()
+                switch self.state {
+                case .recording where self.latched:
+                    self.latched = false
+                    self.pressStartedAt = nil
+                    await self.endRecording()
+                case .idle:
+                    self.pressStartedAt = Date()
+                    self.latched = false
+                    await self.beginRecording()
+                default:
+                    break
                 }
             },
             onKeyUp: { [weak self] in
                 guard let self else { return }
-                // Toggle mode ignores keyUp — stop is driven by the next keyDown.
-                if ModelManager.activationMode == .pushToTalk {
+                guard self.state == .recording, !self.latched else { return }
+                let elapsed = self.pressStartedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+                if elapsed < Self.tapThreshold {
+                    self.latched = true
+                } else {
+                    self.pressStartedAt = nil
                     await self.endRecording()
                 }
             }
@@ -175,15 +196,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Toggle activation: tap once to start recording, tap again to stop & paste.
-    private func toggleRecording() async {
-        switch state {
-        case .idle:         await beginRecording()
-        case .recording:    await endRecording()
-        case .transcribing: break  // ignore hotkey while we're transcribing
-        }
-    }
-
     /// Called from AudioRecorder when setup fails (no mic, permission denied, etc.)
     /// Abort the current recording attempt cleanly and surface the error in the pill.
     private func handleAudioError(_ message: String) {
@@ -195,6 +207,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController.setRecordingIndicator(active: false)
         soundwavePanel.showError(message)
         state = .idle
+        latched = false
+        pressStartedAt = nil
     }
 
     private func endRecording() async {

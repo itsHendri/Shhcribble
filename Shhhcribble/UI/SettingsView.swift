@@ -10,7 +10,6 @@ struct SettingsView: View {
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
     @State private var fillerFilterEnabled: Bool   = ModelManager.fillerFilterEnabled
     @State private var pauseMusicEnabled:   Bool   = ModelManager.pauseMusicEnabled
-    @State private var activationMode:      ModelManager.ActivationMode = ModelManager.activationMode
 
     @State private var axGranted        = false
     @State private var micGranted       = false
@@ -76,28 +75,7 @@ struct SettingsView: View {
             } header: {
                 Text("Recording Shortcut")
             } footer: {
-                Text(activationMode == .pushToTalk
-                     ? "Hold the shortcut to record, release to transcribe and paste."
-                     : "Tap the shortcut to start recording; tap again to transcribe and paste.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            // MARK: Activation mode
-            Section {
-                Picker("Activation", selection: $activationMode) {
-                    Text("Push-to-talk (hold)").tag(ModelManager.ActivationMode.pushToTalk)
-                    Text("Toggle (tap to start, tap to stop)").tag(ModelManager.ActivationMode.toggle)
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-                .onChange(of: activationMode) { _, newValue in
-                    ModelManager.activationMode = newValue
-                }
-            } header: {
-                Text("Activation Mode")
-            } footer: {
-                Text("Toggle mode is handy for long recordings where holding the shortcut gets tiring.")
+                Text("Tap the shortcut to start recording (tap again to stop), or hold it and release to stop.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -217,12 +195,7 @@ struct SettingsView: View {
 
     private var aboutShortcutHint: String {
         let symbol = ModelManager.availableHotkeys.first(where: { $0.id == selectedHotkeyID })?.symbol ?? "⌥Space"
-        switch activationMode {
-        case .pushToTalk:
-            return "Hold \(symbol) to record, release to transcribe and paste into any text field."
-        case .toggle:
-            return "Tap \(symbol) to start recording, tap again to transcribe and paste into any text field."
-        }
+        return "Tap \(symbol) to start recording (tap again to stop), or hold it and release to stop. Transcription pastes into any text field."
     }
 
     // MARK: - Microphone row (inline to call requestAccess directly)
