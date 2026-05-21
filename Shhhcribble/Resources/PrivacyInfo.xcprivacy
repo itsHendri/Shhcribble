@@ -13,9 +13,9 @@
     <!-- Required Reason APIs used by this app -->
     <key>NSPrivacyAccessedAPITypes</key>
     <array>
-        <!-- UserDefaults: stores user preferences (hotkey, model, activation mode,
+        <!-- UserDefaults: stores user preferences (hotkey, model,
              filler filter toggle). Keys: selectedWhisperModel, selectedHotkeyID,
-             activationMode, fillerFilterEnabled. -->
+             fillerFilterEnabled. -->
         <dict>
             <key>NSPrivacyAccessedAPIType</key>
             <string>NSPrivacyAccessedAPICategoryUserDefaults</string>

@@ -79,7 +79,7 @@ If the result is empty, `showNoResult()` re-presents the pill in a neutral `.noR
 Close timings (post-hotkey-release dwell is ~1.22 s total): `showCopied` and `showNoResult` auto-hide 1.0 s, `showError` 1.6 s, hide spring 0.22 s, `orderOut` 0.3 s.
 
 ### Pause-music-while-recording via AppleScript (Spotify + Apple Music)
-On record-start, `MusicPauser` AppleScripts each known music app: "are you running and currently playing? If yes, pause." Tracks which apps it paused. On record-end (success, cancel, error, app quit), AppleScripts each tracked app to resume. Toggle in Settings, default on. UserDefaults key kept as `audioDuckingEnabled` for legacy migration; surfaced in code as `pauseMusicEnabled`.
+On record-start, `MusicPauser` AppleScripts each known music app: "are you running and currently playing? If yes, pause." Tracks which apps it paused. On record-end (success, cancel, error, app quit), AppleScripts each tracked app to resume. Always on — not a user-facing setting (the `pauseMusicEnabled` pref and its Settings toggle were removed; the orphaned `audioDuckingEnabled` UserDefaults key is harmless).
 
 **Coverage scope:** Spotify and Apple Music only. YouTube and other browser-tab audio are NOT paused. User accepted this trade-off (Spotify is the dominant case). Adding browser-tab JS injection on top is possible without changing the Spotify path if it ever becomes painful.
 
@@ -105,8 +105,8 @@ Global `NSEvent.addGlobalMonitorForEvents(matching: .keyDown)` installed only wh
 
 **Requires Accessibility permission to fire.** Global keyboard monitors are gated on AX trust, and `xcodebuild` invalidates AX on every rebuild (new binary signature), so Escape silently stops working after a rebuild until you remove + re-add Shhhcribble in System Settings → Privacy → Accessibility.
 
-### Activation mode defaults to Toggle
-Push-to-talk is tiring for longer dictations; tap-to-start, tap-to-stop is lower-effort. Fresh installs default to toggle; existing prefs are untouched.
+### Smart activation: hold duration auto-selects the mode
+There is no activation-mode setting. `AppDelegate` measures how long the hotkey is held between keyDown and keyUp. A hold ≥ 500 ms (`holdThreshold`) is read as push-to-talk — releasing the hotkey stops and transcribes. A quick tap (< 500 ms) is read as toggle — recording stays on until the next tap stops it. The keyDown→keyUp branch logic lives in the `HotKeyMonitor` closures; `recordingStartedByKeyDownAt` stores the start timestamp and is cleared on end/cancel/error. The old `ModelManager.ActivationMode` enum and `activationMode` pref were removed (the orphaned `"activationMode"` UserDefaults key is harmless). Edge case: if `beginRecording()` is delayed past keyUp (first-run mic-permission prompt), a long hold falls through to toggle behavior — accepted, cold start is ~100–200 ms vs the 500 ms threshold.
 
 ### About version reads from Info.plist
 `CFBundleShortVersionString` is the single source of truth. Settings → About reads it dynamically; no hardcoded string to bump.
@@ -153,9 +153,7 @@ Only required deadlock protection **if VP-for-BT is ever reintroduced** — VP t
 |---|---|---|---|
 | `selectedParakeetModel` | String | `"parakeet-v3"` | Which FluidAudio model variant to load |
 | `selectedHotkeyID` | String | `"optSpace"` | Which preset hotkey is active |
-| `activationMode` | String | `"toggle"` | `"pushToTalk"` or `"toggle"` |
 | `fillerFilterEnabled` | Bool | `true` | Strip um/uh/hmm before pasting |
-| `audioDuckingEnabled` | Bool | `true` | Pause Spotify and Apple Music during recording, resume on stop. Browser audio (YouTube etc.) is NOT covered. Key name kept from the predecessor ducking impl for migration; surfaced in code as `pauseMusicEnabled`. |
 | `transcriptionHistory` | Data (JSON) | `[]` | Last 10 transcriptions |
 
 ---

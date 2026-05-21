@@ -1,7 +1,7 @@
 # Shhhcribble
 
 A native macOS voice-to-text utility.  
-Hold **⌥Space** to record, release to transcribe — text is automatically pasted into the focused app.
+Press **⌥Space** to record, then transcribe — text is automatically pasted into the focused app. Tap to toggle, or hold and release; Shhhcribble figures out which you meant.
 
 Powered by [NVIDIA Parakeet V3](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml) via [FluidAudio](https://github.com/FluidInference/FluidAudio). Runs entirely on-device — no API keys, no cloud.
 
@@ -9,8 +9,7 @@ Powered by [NVIDIA Parakeet V3](https://huggingface.co/FluidInference/parakeet-t
 
 ## Features
 
-- **⌥Space push-to-talk** — global hotkey, works in any app, no Input Monitoring required
-- **Toggle mode** — tap to start, tap to stop (great for long recordings)
+- **Smart activation** — one global hotkey, works in any app, no Input Monitoring required. Quick tap = toggle (tap again to stop, great for long dictations); press and hold = push-to-talk (release to transcribe). No mode to configure — Shhhcribble detects which you meant from how long you hold
 - **Auto-paste** — text goes directly into the focused field (native apps via Accessibility, everything else via ⌘V, clipboard as fallback)
 - **Clipboard restore** — your prior clipboard is restored ~2 s after paste, so transcribing doesn't clobber the URL / code snippet you had copied
 - **Escape-to-cancel** — press Escape mid-recording to abort without pasting
@@ -19,7 +18,7 @@ Powered by [NVIDIA Parakeet V3](https://huggingface.co/FluidInference/parakeet-t
 - **Transcription history** — last 10 transcriptions accessible from the menu bar, persist across launches
 - **Menu bar only** — no Dock icon
 - **Filler word filter** — optionally strips "um", "uh", "hmm" from transcriptions
-- **Auto-pause music** — Spotify and Apple Music pause while you dictate, resume when you're done. AirPods-aware: waits for the codec to switch back before unmuting so music doesn't bleed through the mic-active route
+- **Auto-pause music** — Spotify and Apple Music pause automatically while you dictate, resume when you're done. AirPods-aware: waits for the codec to switch back before unmuting so music doesn't bleed through the mic-active route
 
 ---
 
@@ -55,11 +54,16 @@ Requires **macOS 14.0+** and **Xcode 15.0+**.
 ## Usage
 
 1. Click into any text field
-2. **Hold ⌥Space** — soundwave panel appears
+2. **Press ⌥Space** — soundwave panel appears
 3. Speak
-4. **Release ⌥Space** — text is transcribed and pasted
+4. Stop the recording — text is transcribed and pasted
 
-> **Toggle mode:** In Settings → Activation, switch to toggle mode. Tap ⌥Space to start, tap again to stop.
+Two ways to record, and Shhhcribble picks based on how long you hold:
+
+- **Hold** ⌥Space while you speak, then **release** — push-to-talk.
+- **Quick tap** ⌥Space to start, **tap again** to stop — toggle mode, handy for longer dictations where holding gets tiring.
+
+> Press **Escape** mid-recording to cancel without pasting.
 
 ---
 
@@ -70,10 +74,8 @@ Click the menu bar icon → **Settings…**
 | Setting | Options |
 |---|---|
 | **Model** | Parakeet V3 (multilingual, 25 langs) ✦ / Parakeet V2 (English-optimized) |
-| **Activation** | Push-to-talk (hold) / Toggle (tap) |
 | **Hotkey** | ⌥Space, ⌃Space, ⌥`, ⌃⌥Space |
 | **Filler filter** | On/Off — removes um, uh, hmm |
-| **Pause music while recording** | On/Off — pauses Spotify and Apple Music during dictation, resumes after |
 
 ---
 
@@ -83,7 +85,7 @@ Click the menu bar icon → **Settings…**
 |---|---|---|
 | **Microphone** | Yes | Prompted automatically |
 | **Accessibility** | Optional | Enables direct text insertion and Escape-to-cancel; without it, text goes via ⌘V and Escape does nothing |
-| **Automation (Spotify / Music)** | Optional | Prompted on first use of Pause-music-while-recording. Approve once → Shhhcribble can pause and resume your music while you dictate. Decline if you don't want this feature, or disable it in Settings |
+| **Automation (Spotify / Music)** | Optional | Prompted the first time you record while Spotify or Music is open. Approve once → Shhhcribble can pause and resume your music while you dictate. Decline if you'd rather it didn't |
 
 > After rebuilding in Xcode, re-grant Accessibility: remove Shhhcribble from the list, then re-add it. AX is tied to the binary signature, which changes on every clean build.
 

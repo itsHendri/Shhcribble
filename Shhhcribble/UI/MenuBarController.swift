@@ -56,16 +56,10 @@ final class MenuBarController: NSObject {
         status.isEnabled = false
         menu.addItem(status)
 
-        // Usage hint (uses the currently selected hotkey symbol + activation mode)
+        // Usage hint (uses the currently selected hotkey symbol)
         if transcriptionEngine.isReady {
             let symbol = ModelManager.selectedHotkey.symbol
-            let hintString: String
-            switch ModelManager.activationMode {
-            case .pushToTalk:
-                hintString = "Hold \(symbol) → speak → release to paste"
-            case .toggle:
-                hintString = "Tap \(symbol) to start · tap again to paste"
-            }
+            let hintString = "Tap \(symbol) to start · tap again · or hold & release"
             let hint = NSMenuItem(title: hintString, action: nil, keyEquivalent: "")
             hint.isEnabled = false
             hint.attributedTitle = NSAttributedString(

@@ -53,23 +53,6 @@ enum ModelManager {
         availableHotkeys.first(where: { $0.id == selectedHotkeyID }) ?? availableHotkeys[0]
     }
 
-    // MARK: - Activation mode
-
-    enum ActivationMode: String {
-        case pushToTalk   // hold hotkey to record, release to transcribe
-        case toggle       // tap to start, tap again to stop & transcribe
-    }
-
-    private static let activationModeKey = "activationMode"
-
-    static var activationMode: ActivationMode {
-        get {
-            ActivationMode(rawValue: UserDefaults.standard.string(forKey: activationModeKey) ?? "")
-                ?? .toggle
-        }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: activationModeKey) }
-    }
-
     // MARK: - Feature flags
 
     /// Default true — strip um/uh/hmm/er and parenthetical fillers before pasting.
@@ -79,20 +62,6 @@ enum ModelManager {
             return UserDefaults.standard.bool(forKey: "fillerFilterEnabled")
         }
         set { UserDefaults.standard.set(newValue, forKey: "fillerFilterEnabled") }
-    }
-
-    /// Default true — pause any currently-playing media (Spotify, YouTube,
-    /// Apple Music, Podcasts…) during recording, resume on stop. UserDefaults
-    /// key is `audioDuckingEnabled` for legacy reasons (the feature was a
-    /// volume-ducker before the AirPods async-bridge bug forced a switch to
-    /// pause/resume). Pre-existing user prefs migrate automatically — same key,
-    /// same boolean meaning ("attenuate background audio while recording").
-    static var pauseMusicEnabled: Bool {
-        get {
-            guard UserDefaults.standard.object(forKey: "audioDuckingEnabled") != nil else { return true }
-            return UserDefaults.standard.bool(forKey: "audioDuckingEnabled")
-        }
-        set { UserDefaults.standard.set(newValue, forKey: "audioDuckingEnabled") }
     }
 
     // MARK: - Transcription history

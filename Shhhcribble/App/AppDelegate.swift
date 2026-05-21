@@ -28,6 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// can cancel without pasting. Only active during .recording state.
     private var escapeMonitor: Any?
 
+    /// Timestamp of the hotkey keyDown that started the current recording.
+    /// On keyUp we measure the elapsed hold: a long hold (≥ holdThreshold) is
+    /// read as push-to-talk and releases stop the recording; a quick tap is
+    /// read as toggle and the recording stays on until the next tap.
+    private var recordingStartedByKeyDownAt: DispatchTime?
+    private let holdThreshold: TimeInterval = 0.5
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("[Shhhcribble] App launched.")
 
@@ -55,15 +62,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyMonitor = HotKeyMonitor(
             onKeyDown: { [weak self] in
                 guard let self else { return }
-                switch ModelManager.activationMode {
-                case .pushToTalk: await self.beginRecording()
-                case .toggle:     await self.toggleRecording()
+                switch self.state {
+                case .idle:
+                    self.recordingStartedByKeyDownAt = .now()
+                    await self.beginRecording()
+                case .recording:
+                    // Second tap of a toggle-style use — stop and transcribe.
+                    await self.endRecording()
+                case .transcribing:
+                    break  // ignore hotkey while we're transcribing
                 }
             },
             onKeyUp: { [weak self] in
                 guard let self else { return }
-                // Toggle mode ignores keyUp — stop is driven by the next keyDown.
-                if ModelManager.activationMode == .pushToTalk {
+                // Only a release that ends an active recording matters. If the
+                // hold lasted ≥ holdThreshold, treat it as push-to-talk and
+                // stop now; a quick tap is left recording (toggle) until the
+                // next keyDown. A keyUp seen in any other state — notably the
+                // release of a toggle "stop" tap, which already moved us to
+                // .transcribing — is ignored.
+                guard self.state == .recording,
+                      let startedAt = self.recordingStartedByKeyDownAt else { return }
+                let heldFor = Double(DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000_000
+                if heldFor >= self.holdThreshold {
                     await self.endRecording()
                 }
             }
@@ -126,9 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func actuallyBeginRecording() {
         print("[Shhhcribble] Recording started")
         state = .recording
-        if ModelManager.pauseMusicEnabled {
-            musicPauser.pauseIfPlaying()
-        }
+        musicPauser.pauseIfPlaying()
         soundwavePanel.show()
         menuBarController.setRecordingIndicator(active: true)
         audioRecorder.start(
@@ -154,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         musicPauser.resumeIfPaused()
         menuBarController.setRecordingIndicator(active: false)
         soundwavePanel.hide()
+        recordingStartedByKeyDownAt = nil
         state = .idle
     }
 
@@ -175,15 +195,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Toggle activation: tap once to start recording, tap again to stop & paste.
-    private func toggleRecording() async {
-        switch state {
-        case .idle:         await beginRecording()
-        case .recording:    await endRecording()
-        case .transcribing: break  // ignore hotkey while we're transcribing
-        }
-    }
-
     /// Called from AudioRecorder when setup fails (no mic, permission denied, etc.)
     /// Abort the current recording attempt cleanly and surface the error in the pill.
     private func handleAudioError(_ message: String) {
@@ -194,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         musicPauser.resumeIfPaused()
         menuBarController.setRecordingIndicator(active: false)
         soundwavePanel.showError(message)
+        recordingStartedByKeyDownAt = nil
         state = .idle
     }
 
@@ -210,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         stopLiveTranscription()
 
+        recordingStartedByKeyDownAt = nil
         state = .transcribing
         menuBarController.setRecordingIndicator(active: false)
 
