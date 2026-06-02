@@ -259,9 +259,8 @@ struct ScrollingLiveText: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(typer.displayedText.isEmpty ? " " : typer.displayedText)
+                styledText
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(.white.opacity(typer.displayedText.isEmpty ? 0 : 0.40))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                     .id("end")
@@ -295,6 +294,43 @@ struct ScrollingLiveText: View {
         .onDisappear {
             typer.reset()
         }
+    }
+
+    /// Renders the typed string with the *just-completed* word (i.e. the
+    /// second-to-last token) at higher opacity than the rest. Highlighting the
+    /// in-progress trailing word looked buggy because horizontal autoscroll
+    /// kept that word under the right-edge fade mask — the emphasis was
+    /// half-hidden. Settled words sit in the visible centre, where emphasis
+    /// reads clean. Pattern borrowed from ABY Journal and Otter.ai on Mobbin.
+    private var styledText: Text {
+        let displayed = typer.displayedText
+        if displayed.isEmpty {
+            return Text(" ").foregroundColor(.white.opacity(0))
+        }
+        let dim = Color.white.opacity(0.40)
+        let lit = Color.white.opacity(0.85)
+
+        guard let lastSpace = displayed.lastIndex(where: { $0.isWhitespace }) else {
+            // Only one token typed so far — render uniform until a space lands.
+            return Text(displayed).foregroundColor(dim)
+        }
+
+        let beforeLastSpace = displayed[..<lastSpace]
+        guard let secondLastSpace = beforeLastSpace.lastIndex(where: { $0.isWhitespace }) else {
+            // Exactly two tokens: first is "just completed", second is in progress.
+            let highlighted = String(beforeLastSpace)
+            let tail = String(displayed[lastSpace...])
+            return Text(highlighted).foregroundColor(lit)
+                 + Text(tail).foregroundColor(dim)
+        }
+
+        // Three or more tokens: head | highlighted just-completed word | trailing in-progress word.
+        let head = String(displayed[..<displayed.index(after: secondLastSpace)])
+        let highlighted = String(displayed[displayed.index(after: secondLastSpace)..<lastSpace])
+        let tail = String(displayed[lastSpace...])
+        return Text(head).foregroundColor(dim)
+             + Text(highlighted).foregroundColor(lit)
+             + Text(tail).foregroundColor(dim)
     }
 }
 

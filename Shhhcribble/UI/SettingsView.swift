@@ -28,10 +28,15 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
+                .disabled(transcriptionEngine.isBusy)
                 .onChange(of: selectedModel) { _, newValue in
                     guard newValue != ModelManager.selectedModel else { return }
                     ModelManager.selectedModel = newValue
                     Task { await transcriptionEngine.reloadModel(variant: newValue) }
+                }
+
+                if transcriptionEngine.isBusy {
+                    InlineWarning(message: "Stop the current recording to change the transcription model.")
                 }
 
                 // Loading state feedback
@@ -243,5 +248,39 @@ struct SettingsView: View {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
         }
+    }
+}
+
+// MARK: - Inline warning
+
+/// Inline amber callout used to explain why a control is disabled. Pattern
+/// borrowed from Base44 on Mobbin — an inset card with a warning glyph and
+/// short body copy, distinct from a destructive-action modal because the
+/// situation is informational, not an error.
+struct InlineWarning: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(Color(red: 0.95, green: 0.66, blue: 0.10))
+                .font(.system(size: 13, weight: .semibold))
+                .padding(.top, 1)
+            Text(message)
+                .font(.caption)
+                .foregroundColor(.primary.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 11)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(red: 0.95, green: 0.66, blue: 0.10).opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(red: 0.95, green: 0.66, blue: 0.10).opacity(0.28), lineWidth: 0.6)
+        )
     }
 }

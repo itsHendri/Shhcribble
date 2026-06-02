@@ -1,8 +1,11 @@
 import AppKit
 import AVFoundation
+import os
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+
+    private static let log = Logger(subsystem: "com.shhhcribble.app", category: "recording")
 
     private var hotKeyMonitor: HotKeyMonitor!
     private var audioRecorder: AudioRecorder!
@@ -147,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func actuallyBeginRecording() {
         print("[Shhhcribble] Recording started")
         state = .recording
+        transcriptionEngine.isBusy = true
         musicPauser.pauseIfPlaying()
         soundwavePanel.show()
         menuBarController.setRecordingIndicator(active: true)
@@ -175,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         soundwavePanel.hide()
         recordingStartedByKeyDownAt = nil
         state = .idle
+        transcriptionEngine.isBusy = false
     }
 
     private func startEscapeMonitor() {
@@ -207,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         soundwavePanel.showError(message)
         recordingStartedByKeyDownAt = nil
         state = .idle
+        transcriptionEngine.isBusy = false
     }
 
     private func endRecording() async {
@@ -220,7 +226,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // recording — see SoundwavePanel.playCompletionSound() docs.
         soundwavePanel.playCompletionSound()
 
-        stopLiveTranscription()
+        // Cancel the live-preview polling task AND wait for it to actually
+        // finish before invoking the final batch transcribe below.
+        // TranscriptionEngine is @MainActor, so Swift-level calls serialize —
+        // but FluidAudio's underlying AsrManager makes no published guarantee
+        // about re-entry safety. Waiting here ensures the next .transcribe()
+        // call has the engine entirely to itself.
+        let liveTask = liveTranscriptionTask
+        liveTranscriptionTask = nil
+        liveTask?.cancel()
+        if liveTask != nil {
+            Self.log.notice("Awaiting live-preview task cancellation before final transcribe…")
+            _ = await liveTask?.value
+            Self.log.notice("Live-preview task settled — proceeding to final transcribe.")
+        }
 
         recordingStartedByKeyDownAt = nil
         state = .transcribing
@@ -287,6 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         state = .idle
+        transcriptionEngine.isBusy = false
     }
 
     // MARK: - Live transcription

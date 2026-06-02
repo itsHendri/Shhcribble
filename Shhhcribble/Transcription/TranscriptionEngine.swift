@@ -27,6 +27,12 @@ final class TranscriptionEngine: ObservableObject {
     @Published var loadingState: LoadingState = .unloaded
     @Published var currentModelName: String = ModelManager.selectedModel
 
+    /// True while a recording is in flight. Set by AppDelegate at recording
+    /// start/end. Settings reads this to disable the model picker — swapping
+    /// models mid-recording orphans `asrManager` and breaks the live-preview
+    /// poll loop. Default false so Settings is interactive at launch.
+    @Published var isBusy: Bool = false
+
     private var asrManager: AsrManager?
 
     var isReady: Bool {
