@@ -1,0 +1,94 @@
+# Shhhcribble — Competitive Reference (2026-06)
+
+> Durable reference so we don't re-run the competitor audit each time. Findings from **static analysis of the installed app bundles, prefs, and on-disk SQLite/JSON state** — not marketing pages. SuperWhisper **v2.14.0**, Wispr Flow **1.5.433**.
+
+---
+
+## Side-by-side
+
+| | **SuperWhisper** | **Wispr Flow** | **Shhhcribble** |
+|---|---|---|---|
+| Stack | Native Swift, macOS 13.3+ | Electron, macOS 12+ | Native Swift, macOS 14+ |
+| Bundle size | 133 MB | 497 MB (140 MB asar) | ~30 MB |
+| ASR engine | WhisperKit (Argmax) **+ Parakeet V3** | Cloud-only | Parakeet V3 (FluidAudio) |
+| Local LLM | **llama.cpp + GGML**, 6 families (Llama 3.2, Mistral, Phi-2, DeepSeek-R1, GPT-OSS, Ministral) | None bundled | None |
+| Cloud LLM | 8 via own proxy (Gemini 3/3.1, Grok 4.1, GPT-5.2/5.3/5.4, **Claude Sonnet 4.6**) | All cloud | None |
+| Storage | GRDB SQLite + JSON modes in `~/Documents/superwhisper/` | `flow.sqlite` (14 tables) | UserDefaults only |
+| Auto-update | **Sparkle** (`appcast.xml`) | **Squirrel** | None (manual DMG) |
+| Telemetry | Sentry | Sentry | **None** |
+| Localization | English | **30+ languages** | English |
+| URL scheme | `superwhisper://` | `wispr-flow://` | None |
+| Entitlements | `audio-input`, `apple-events` | JIT, unsigned-mem, library-validation off, camera, audio | `audio-input`, `apple-events`, accessibility (non-sandboxed) |
+
+---
+
+## SuperWhisper's killer feature: the Modes system
+
+A mode lives at `~/Documents/superwhisper/modes/*.json` and carries:
+
+- `activationApps[]`, `activationSites[]` — **auto-switch by frontmost bundle ID / URL** (this is "per-app activation")
+- `prompt`, `promptExamples[]`, `contextTemplate`
+- `contextFromActiveApplication`, `contextFromClipboard`, `contextFromSelection`
+- `languageModelID`, `voiceModelID`
+- `realtimeOutput`, `script` / `scriptEnabled`
+- `translateToEnglish`, `literalPunctuation`, `autocapitalizeInsert`, `diarize`, `useSystemAudio`
+
+Ships **`bundled_app_info.json`** — a **686-app catalog** mapping apps → one of **43 text-input formats** (top: `configuration_settings` 98, `file_path` 67, `plaintext` 53, `chat_message` 51, `design_parameters` 43, `code` 30, `terminal_command` 28, `email` 15, `sql` 6, `swift` 2, `applescript` 1…). So dictating into Cursor formats as `code`; into Mail as `email`; into Slack as `chat_message`. Plus `agent-hook` (Swift Mach-O) + `claude-hook` (shell) for an extensible agent runtime.
+
+## Wispr Flow is a productivity suite, not just dictation
+
+`flow.sqlite` — 14 tables:
+- **History** (51 columns): `asrText` / `formattedText` / `editedText` tiers, `audio` + `screenshot` BLOBs, `axText` + `axHTML` (full accessibility context captured per dictation), `e2eLatency`, `formattingDivergenceScore`, `fallbackAsrText` / `fallbackFormattedText` (failover pipeline), `toneMatchedText`, `numDictionaryReplacements`, `personalizationStyleSettings`.
+- **Dictionary**: `phrase`, `replacement`, `frequencyUsed`, `isSnippet`, `isStarred`, `teamDictionaryId` (collaborative).
+- **Polish**: every LLM cleanup logged + **undoable** (`polishInitialText`, `polishedText`, `polishUndone`, `instruction`, `usedProvider`, `modelVersion`, `diffCount`, `feedback`).
+- **FlowLensHistory** (agent chat), **Notes / NoteVersions / NoteImages**, **Meetings / MeetingVersions**, **CalendarEvents** (with conference URLs), **Links** (clipboard URL tracker).
+- `config.json` defines ~20 distinct error-notification states (`MicDisconnected`, `MicAccessTimeout`, `NoClamshellBuiltInMic`, `WeeklyWordsLimitReached`…).
+
+---
+
+## LLM cleanup — decision record
+
+**Decision: Apple Foundation Models, prototype-first. `FillerWordFilter` stays the universal fallback. Do NOT bundle local llama.cpp.**
+
+- SuperWhisper hedges (local llama.cpp **and** 8 cloud models) only because it supports macOS 13.3+ / Intel and can't rely on Apple's on-device model. We target macOS 14+ and accept gating cleanup on 26+.
+- Apple FM = **zero bundle weight, zero cost, zero config, zero API keys** — preserves the no-cloud / no-telemetry pitch neither competitor can claim. Bundling GGML would 4–5× our ~30 MB and fight the lean-native identity.
+- **Progressive enhancement**: `FillerWordFilter` for everyone; FM cleanup for the eligible ~15–25% of users.
+- **Honest risk** (unmeasured): Apple's 3B cleanup quality. First task of the sprint is a throwaway quality prototype before any UI is built.
+- Eligibility (verified): macOS 26+, Apple Silicon, Apple Intelligence enabled, supported region (China mainland excluded; EU OK), supported system language, not MDM-disabled. Runtime gate: `SystemLanguageModel.default.availability` → `.available` / `.unavailable(.deviceNotEligible | .appleIntelligenceNotEnabled | .modelNotReady)`.
+
+---
+
+## Deliberately NOT copying (privacy / focus as differentiators)
+
+- Wispr Flow's notes/meetings/calendar/agent-chat *suite* — scope creep that diluted their dictation core. (Our planned notes track is deliberately narrower.)
+- **Telemetry / Sentry** — zero-telemetry is a real differentiator.
+- User accounts / sign-in.
+- **Input device picker** — CLAUDE.md explicitly forbids; route-change handlers heal automatically.
+- Persistent on-disk recording archive — privacy concern.
+
+## What Shhhcribble already wins on
+
+- **Smart activation** (tap=toggle, hold=PTT, no setting) — neither competitor has this; both make you pick a mode.
+- **VP-free AirPods reliability + fresh-engine-per-recording** — load-bearing decisions; competitors don't show this care.
+- **Music-pause via AppleScript** — SuperWhisper bundles `MediaRemoteAdapter.framework`, which (per our 2026-05-06 testing) returns false on macOS 26. We picked the correct path.
+- **~30 MB native bundle** vs 133 MB / 497 MB.
+- **Zero telemetry, zero cloud, zero accounts.**
+
+---
+
+## Dropped ideas (with reason)
+
+- **Translate-to-English** — *not possible with our engine.* FluidAudio/Parakeet V3 is transcription-only — no translate task, no language hint (verified v0.13.6 source). SuperWhisper's flag works only via WhisperKit. Would require adding a whole Whisper engine.
+- **Bundled local llama.cpp** — heavy, fights lean-native identity. Revisit only if macOS 26 adoption stalls.
+
+---
+
+## Already resolved (don't re-propose)
+
+Settled by CLAUDE.md or already shipped — listed so a future audit doesn't resurface them:
+
+- **Input-device picker** — forbidden (route-change handlers heal automatically).
+- **Warm engine across recordings** — anti-pattern; fresh-engine-per-recording is load-bearing.
+- **Pasteboard restore after paste** — shipped (`TextInserter` clipboard snapshot + restore).
+- **`noResult` / honest empty-transcription state** — shipped (`showNoResult()` / `.noResult` pill).
+- **Streaming transcription** (`StreamingEouAsrManager`) — a known deferred feature (commit `6509cd7`); needs an AirPods canary on the VP-free path before adoption. Not near-term.
