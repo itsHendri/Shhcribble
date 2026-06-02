@@ -26,7 +26,7 @@ Powered by [NVIDIA Parakeet V3](https://huggingface.co/FluidInference/parakeet-t
 
 ### From DMG
 
-Download the latest `Shhhcribble.dmg` from the [Releases page](https://github.com/itsHendri/Shhcribble/releases).
+Download the latest `Shhhcribble.dmg` from the [Releases page](https://github.com/itsHendri/Shhhcribble/releases).
 
 1. Open the `.dmg`, drag **Shhhcribble** to **Applications**
 2. **Right-click → Open** on first launch (bypasses Gatekeeper — only needed once)
@@ -38,7 +38,7 @@ Download the latest `Shhhcribble.dmg` from the [Releases page](https://github.co
 ### Build from source
 
 ```bash
-git clone https://github.com/itsHendri/Shhcribble.git shhhcribble
+git clone https://github.com/itsHendri/Shhhcribble.git shhhcribble
 cd shhhcribble
 open Shhhcribble.xcodeproj
 ```
