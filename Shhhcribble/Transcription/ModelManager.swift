@@ -55,13 +55,22 @@ enum ModelManager {
 
     // MARK: - Feature flags
 
-    /// Default true — strip um/uh/hmm/er and parenthetical fillers before pasting.
-    static var fillerFilterEnabled: Bool {
+    // Note: the `fillerFilterEnabled` pref + its Settings toggle were removed once
+    // on-device AI cleanup landed — FillerWordFilter is now an always-on fallback
+    // floor applied automatically whenever AI cleanup is off/unavailable (see
+    // AppDelegate.endRecording). Any leftover "fillerFilterEnabled" UserDefaults
+    // key is orphaned and harmless.
+
+    /// Default false — when enabled and the on-device model is available (macOS 26 +
+    /// Apple Intelligence), clean the transcript with Apple FoundationModels instead of
+    /// the regex filler filter. Falls back to FillerWordFilter on timeout/failure/unavailable.
+    /// See TranscriptCleaner.
+    static var transcriptCleanupEnabled: Bool {
         get {
-            guard UserDefaults.standard.object(forKey: "fillerFilterEnabled") != nil else { return true }
-            return UserDefaults.standard.bool(forKey: "fillerFilterEnabled")
+            guard UserDefaults.standard.object(forKey: "transcriptCleanupEnabled") != nil else { return false }
+            return UserDefaults.standard.bool(forKey: "transcriptCleanupEnabled")
         }
-        set { UserDefaults.standard.set(newValue, forKey: "fillerFilterEnabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "transcriptCleanupEnabled") }
     }
 
     // MARK: - Transcription history

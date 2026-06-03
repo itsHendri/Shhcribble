@@ -8,7 +8,7 @@ struct SettingsView: View {
 
     @State private var selectedModel:        String = ModelManager.selectedModel
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
-    @State private var fillerFilterEnabled: Bool   = ModelManager.fillerFilterEnabled
+    @State private var transcriptCleanupEnabled: Bool = ModelManager.transcriptCleanupEnabled
 
     @State private var axGranted        = false
     @State private var micGranted       = false
@@ -88,15 +88,22 @@ struct SettingsView: View {
 
             // MARK: Transcription options
             Section {
-                Toggle("Remove filler words", isOn: $fillerFilterEnabled)
-                    .onChange(of: fillerFilterEnabled) { _, newValue in
-                        ModelManager.fillerFilterEnabled = newValue
+                let cleanupAvailability = TranscriptCleaner.availability
+                Toggle("Clean up transcript with on-device AI", isOn: $transcriptCleanupEnabled)
+                    .disabled(!cleanupAvailability.isAvailable)
+                    .onChange(of: transcriptCleanupEnabled) { _, newValue in
+                        ModelManager.transcriptCleanupEnabled = newValue
+                        if newValue { TranscriptCleaner.prewarm() }
                     }
+                if case .unavailable(let reason) = cleanupAvailability {
+                    InlineWarning(message: reason)
+                }
             } header: {
                 Text("Options")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Removes \"um\", \"uh\", \"hmm\" and similar filler words from transcriptions.")
+                    Text("On-device AI cleanup uses Apple Intelligence (macOS 26) to remove filler words and fix punctuation, capitalization and false starts. Nothing leaves your Mac.")
+                    Text("When it’s off or unavailable, basic filler-word removal (\"um\", \"uh\", \"hmm\") is applied automatically.")
                     Text("Spotify and Apple Music pause automatically while you dictate and resume when recording ends.")
                 }
                 .font(.caption)

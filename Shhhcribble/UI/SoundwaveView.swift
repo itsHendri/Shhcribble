@@ -5,6 +5,7 @@ import SwiftUI
 enum RecordingUIState: Equatable {
     case hidden
     case recording
+    case transcribing   // post-release: transcribing + (optional) on-device AI cleanup in progress
     case copied
     case noResult
     case error(String)
@@ -85,12 +86,21 @@ struct SoundwaveView: View {
                     .shadow(color: .black.opacity(0.5), radius: 18, y: 7)
 
                 HStack(spacing: 0) {
-                    // Mic / checkmark icon — white, no glow
-                    Image(systemName: iconName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(iconColor)
-                        .padding(.leading, 16)
-                        .padding(.trailing, 10)
+                    // Leading indicator: a spinner while transcribing/cleaning,
+                    // otherwise the mic / checkmark / warning glyph.
+                    Group {
+                        if viewModel.state == .transcribing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                        } else {
+                            Image(systemName: iconName)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(iconColor)
+                        }
+                    }
+                    .padding(.leading, 16)
+                    .padding(.trailing, 10)
 
                     switch viewModel.state {
                     case .recording:
@@ -100,6 +110,12 @@ struct SoundwaveView: View {
                         // Single-line text types characters left→right as words arrive
                         ScrollingLiveText(text: viewModel.liveText)
                             .padding(.horizontal, 8)
+
+                    case .transcribing:
+                        Text("Transcribing…")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                        Spacer()
 
                     case .copied:
                         Text("Copied! ⌘V to paste")
@@ -171,6 +187,7 @@ struct SoundwaveView: View {
     private var dotColor: Color {
         switch viewModel.state {
         case .recording:    return Color(red: 0.25, green: 0.55, blue: 1.0)
+        case .transcribing: return Color(red: 0.65, green: 0.50, blue: 1.0)  // violet = on-device AI working
         case .copied:       return .green
         case .noResult:     return .white.opacity(0.3)
         case .error:        return Color(red: 1.0, green: 0.45, blue: 0.45)

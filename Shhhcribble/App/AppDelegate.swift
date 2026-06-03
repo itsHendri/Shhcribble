@@ -61,6 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menuBarController.rebuildMenu()
         }
 
+        // Warm the on-device cleanup model so the first cleanup doesn't pay cold
+        // start. No-op when the feature is off or the model is unavailable.
+        if ModelManager.transcriptCleanupEnabled {
+            TranscriptCleaner.prewarm()
+        }
+
         let hotkey = ModelManager.selectedHotkey
         hotKeyMonitor = HotKeyMonitor(
             onKeyDown: { [weak self] in
@@ -245,13 +251,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state = .transcribing
         menuBarController.setRecordingIndicator(active: false)
 
-        // Optimistic close: flip the pill to "Copied!" the instant the user
-        // releases, before transcription runs. The 1 s auto-hide timer starts
-        // now, so the lozenge disappears quickly regardless of how long batch
-        // transcription takes. If the result turns out empty or errors,
-        // showNoResult / showError re-present the pill with the corrected
-        // state (they handle the case where the hide timer already fired).
-        soundwavePanel.showCopied()
+        // Show a persistent "Transcribing…" state while the final transcribe +
+        // optional on-device AI cleanup run. Because cleanup runs to completion
+        // (no timeout), this honestly reflects work happening in the background
+        // instead of an optimistic "Copied!" that lands before the paste is real.
+        // It stays up — no auto-hide — until showCopied (after paste lands),
+        // showNoResult, or showError replaces it below.
+        soundwavePanel.showTranscribing()
 
         // Keep recording for a short tail so the last word isn't clipped.
         // Speech typically trails 200-400ms after the speaker "finishes".
@@ -270,11 +276,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var transcriptionFailed = false
         do {
             let text = try await transcriptionEngine.transcribe(audioSamples: samples)
-            var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if ModelManager.fillerFilterEnabled {
-                trimmed = FillerWordFilter.filter(trimmed)
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            var result = trimmed
+            // On-device LLM cleanup (Apple FoundationModels) replaces the regex
+            // filler filter when enabled + available. It handles fillers, false
+            // starts, punctuation and capitalization in one pass. It runs to
+            // completion (no timeout — see TranscriptCleaner); on failure, empty
+            // output, or an unavailable model, TranscriptCleaner.clean returns nil
+            // and we fall back to FillerWordFilter — the always-on universal floor
+            // (not a user setting; removed alongside the redundant Settings toggle).
+            if !trimmed.isEmpty,
+               ModelManager.transcriptCleanupEnabled,
+               let cleaned = await TranscriptCleaner.clean(trimmed), !cleaned.isEmpty {
+                result = cleaned
+            } else {
+                result = FillerWordFilter.filter(trimmed)
             }
-            textToInsert = trimmed.isEmpty ? nil : trimmed
+            textToInsert = result.isEmpty ? nil : result
         } catch {
             print("[Shhhcribble] ❌ Transcription error: \(error.localizedDescription)")
             transcriptionFailed = true
@@ -297,8 +315,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // into Notes.
             let targetPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
 
-            // showCopied was already fired optimistically at release — just paste.
             let _ = textInserter.insert(text: text, targetPid: targetPid)
+
+            // Now that the paste has actually landed, flip the persistent
+            // "Transcribing…" pill to "Copied!" with its 1 s auto-hide.
+            soundwavePanel.showCopied()
         } else if transcriptionFailed {
             soundwavePanel.showError("Transcription failed")
         } else {

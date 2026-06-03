@@ -84,6 +84,22 @@ final class SoundwavePanel: NSPanel {
         completionPlayer?.play()
     }
 
+    /// Transition the (already-visible) recording pill into a persistent
+    /// "Transcribing…" state while the final transcribe + optional on-device AI
+    /// cleanup run. Deliberately schedules NO auto-hide — it stays up until
+    /// showCopied / showNoResult / showError replaces it once work finishes, so
+    /// the user always sees that something is happening rather than a premature
+    /// "Copied!". See AppDelegate.endRecording.
+    func showTranscribing() {
+        pendingHide?.cancel()
+        pendingHide = nil
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            viewModel.state    = .transcribing
+            viewModel.liveText = ""
+        }
+    }
+
     func showCopied() {
         pendingHide?.cancel()
 
