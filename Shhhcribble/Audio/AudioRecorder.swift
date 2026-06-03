@@ -114,13 +114,23 @@ final class AudioRecorder {
 
         let inputNode   = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
+        // The hardware-side input format. `outputFormat(forBus:0)` can report a
+        // valid-looking default (e.g. 44.1 kHz/1ch) while the real input stream is
+        // still 0ch/0Hz — i.e. the mic route isn't ready yet. Classic triggers:
+        // AirPods mid A2DP→HFP switch, or a cold launch / fresh install before the
+        // input device has bound. Installing a tap in that state throws an Obj-C
+        // exception that SIGABRTs the whole app (observed on the 1.6.0 DMG).
+        let hwFormat = inputNode.inputFormat(forBus: 0)
 
-        // No input device (e.g. Mac mini with no built-in mic and nothing connected)
-        // returns a zero-channel / zero-rate format. `installTap` with this format
-        // throws an Obj-C exception that crashes the app — bail out cleanly instead.
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
-            print("[Shhhcribble] ❌ No microphone detected (sampleRate=\(inputFormat.sampleRate), channels=\(inputFormat.channelCount))")
-            errorCallback?("No microphone detected")
+        // No input device, or the input route isn't ready yet. `installTap` with a
+        // zero-channel / zero-rate format throws an Obj-C exception that crashes the
+        // app — bail to the error pill instead. Checking BOTH formats is what closes
+        // the gap: the hardware side (`hwFormat`) catches the "not ready" race that
+        // the output side reports as valid.
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
+              hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
+            print("[Shhhcribble] ❌ Microphone not ready (out: \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch, hw: \(hwFormat.sampleRate)Hz/\(hwFormat.channelCount)ch)")
+            errorCallback?("Microphone not ready — try again")
             return
         }
 
