@@ -158,18 +158,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state = .recording
         transcriptionEngine.isBusy = true
         musicPauser.pauseIfPlaying()
-        soundwavePanel.show()
         menuBarController.setRecordingIndicator(active: true)
+        // Escape-to-cancel is armed immediately so the user can bail even during
+        // a cold-AirPods warm-up.
+        startEscapeMonitor()
         audioRecorder.start(
             levelCallback: { [weak self] level in
                 self?.soundwavePanel.updateLevel(level)
+            },
+            // Show the pill — the "go" signal — only once the input route is
+            // physically live. On AirPods sitting in A2DP the mic has 0 channels
+            // until IO drives the A2DP→HFP switch; speaking before then is
+            // captured as unrecoverable silence ("first record is silent" glitch).
+            // The warm path (built-in mic / warm AirPods) fires this on the first
+            // poll, so there's no perceptible delay there.
+            onReady: { [weak self] in
+                guard let self, self.state == .recording else { return }
+                self.soundwavePanel.show()
+                self.startLiveTranscription()
             },
             onError: { [weak self] message in
                 self?.handleAudioError(message)
             }
         )
-        startLiveTranscription()
-        startEscapeMonitor()
     }
 
     /// Cancels the current recording: stops audio, discards samples, hides the

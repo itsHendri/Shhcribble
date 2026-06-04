@@ -1,4 +1,6 @@
 import AVFoundation
+import CoreAudio
+import os
 
 /// Captures microphone input and converts it to 16 kHz mono Float32 samples
 /// required by WhisperKit. A level callback is fired on the main thread with
@@ -10,6 +12,8 @@ import AVFoundation
 /// callback fires, startEngine() is never called, preventing double-tap crashes.
 final class AudioRecorder {
 
+    private static let log = Logger(subsystem: "com.shhhcribble.app", category: "audio")
+
     private var engine = AVAudioEngine()
     private var samples: [Float] = []
     private var levelCallback: ((Float) -> Void)?
@@ -20,6 +24,25 @@ final class AudioRecorder {
     // WhisperKit requires 16 kHz mono Float32
     private let targetSampleRate: Double = 16_000
     private let targetFormat: AVAudioFormat
+
+    // MARK: Route warm-up (cold AirPods "first record is silent" fix)
+
+    /// Fired (once per recording) when the input route is physically live — i.e.
+    /// the HAL reports a non-zero input channel count. On AirPods sitting idle in
+    /// A2DP the mic has 0 channels until starting IO drives the A2DP→HFP switch;
+    /// any audio captured before that is silence and is unrecoverable. The caller
+    /// uses this to delay the visible "go" signal so the user doesn't speak into a
+    /// dead mic. See the "Route warm-up" decision in CLAUDE.md.
+    private var onReadyCallback: (() -> Void)?
+    private var didFireReady = false
+    private var warmUpPolling = false
+    private var warmUpDeadline: DispatchTime?
+    /// Max time to wait for the route to come up before going live anyway (so a
+    /// genuinely dead mic can't hang recording forever). Generous because the
+    /// HFP engage can take a few hundred ms; the warm path returns on the first
+    /// poll so this ceiling is only ever hit by a truly stuck route.
+    private let warmUpBudget: TimeInterval = 1.2
+    private let warmUpPollInterval: TimeInterval = 0.025
 
     init() {
         targetFormat = AVAudioFormat(
@@ -54,6 +77,7 @@ final class AudioRecorder {
     /// `onError` is invoked on the main thread when audio setup fails
     /// (e.g. no microphone detected).
     func start(levelCallback: @escaping (Float) -> Void,
+               onReady: (() -> Void)? = nil,
                onError: ((String) -> Void)? = nil) {
         // Clean up any previous session that didn't shut down fully
         // (guards against the race condition where the permission callback
@@ -62,6 +86,8 @@ final class AudioRecorder {
 
         self.levelCallback = levelCallback
         self.errorCallback = onError
+        self.onReadyCallback = onReady
+        self.didFireReady = false
         samples.removeAll(keepingCapacity: true)
 
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
@@ -95,9 +121,14 @@ final class AudioRecorder {
 
     private func tearDown() {
         // Setting levelCallback = nil before removeTap / stop acts as a
-        // cancellation flag for any in-flight permission callbacks.
+        // cancellation flag for any in-flight permission callbacks AND for an
+        // in-flight warm-up poll (pollWarmUp bails when it sees nil).
         levelCallback = nil
         errorCallback = nil
+        onReadyCallback = nil
+        didFireReady = false
+        warmUpPolling = false
+        warmUpDeadline = nil
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
@@ -181,11 +212,112 @@ final class AudioRecorder {
 
         do {
             try engine.start()
+            // IO is now running, which is what actually drives a cold AirPods
+            // route through the A2DP→HFP switch. Wait for the route to come up
+            // before telling the caller it's safe to speak.
+            beginWarmUpIfNeeded()
         } catch {
             tapInstalled = false
             print("[Shhhcribble] AVAudioEngine start failed: \(error.localizedDescription)")
             errorCallback?("Couldn't start microphone")
         }
+    }
+
+    // MARK: - Route warm-up
+
+    /// Begin polling the HAL for input-route readiness, if a caller asked to be
+    /// told when it's live. Idempotent across `handleConfigurationChange()`
+    /// engine rebuilds (which call `startEngine()` again): the poll queries the
+    /// hardware, not this engine instance, so one poll spans the whole switch.
+    private func beginWarmUpIfNeeded() {
+        guard onReadyCallback != nil, !didFireReady, !warmUpPolling else { return }
+        warmUpPolling = true
+        warmUpDeadline = .now() + warmUpBudget
+        let dev = Self.defaultInputDeviceID()
+        Self.log.notice("Warm-up start: input \"\(Self.deviceName(dev), privacy: .public)\" reports \(Self.inputChannelCount(of: dev)) ch")
+        pollWarmUp()
+    }
+
+    private func pollWarmUp() {
+        // Torn down mid-warm-up? `levelCallback` is the cancellation flag.
+        guard warmUpPolling, levelCallback != nil else { warmUpPolling = false; return }
+
+        let dev = Self.defaultInputDeviceID()
+        let channels = Self.inputChannelCount(of: dev)
+        let expired = warmUpDeadline.map { DispatchTime.now() >= $0 } ?? true
+
+        if channels > 0 {
+            Self.log.notice("Warm-up ready: \(channels) ch on \"\(Self.deviceName(dev), privacy: .public)\" — discarding pre-roll, going live")
+            finishWarmUp()
+        } else if expired {
+            Self.log.error("Warm-up timed out after \(self.warmUpBudget, format: .fixed(precision: 2))s with 0 ch — going live anyway (may capture silence)")
+            finishWarmUp()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + warmUpPollInterval) { [weak self] in
+                self?.pollWarmUp()
+            }
+        }
+    }
+
+    private func finishWarmUp() {
+        warmUpPolling = false
+        didFireReady = true
+        warmUpDeadline = nil
+        // Drop any silent pre-roll captured while the route was waking so it
+        // doesn't dilute the level meter or the final transcript.
+        samples.removeAll(keepingCapacity: true)
+        let callback = onReadyCallback
+        onReadyCallback = nil
+        callback?()
+    }
+
+    // MARK: - CoreAudio HAL helpers
+
+    /// The system default input device, or 0 if none.
+    private static func defaultInputDeviceID() -> AudioDeviceID {
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID)
+        return status == noErr ? deviceID : 0
+    }
+
+    /// The *actual* number of input channels the hardware currently exposes.
+    /// This is the signal that doesn't lie: unlike `AVAudioEngine`'s
+    /// `inputFormat(forBus:)` (which reports a nominal format even while AirPods
+    /// are mid A2DP→HFP switch), the HAL stream configuration reads 0 until the
+    /// mic route is physically live.
+    private static func inputChannelCount(of deviceID: AudioDeviceID) -> Int {
+        guard deviceID != 0 else { return 0 }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(deviceID, &addr, 0, nil, &size) == noErr, size > 0 else { return 0 }
+        let ablPtr = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { ablPtr.deallocate() }
+        guard AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, ablPtr) == noErr else { return 0 }
+        let abl = UnsafeMutableAudioBufferListPointer(ablPtr.assumingMemoryBound(to: AudioBufferList.self))
+        return abl.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    /// Human-readable device name for diagnostics.
+    private static func deviceName(_ deviceID: AudioDeviceID) -> String {
+        guard deviceID != 0 else { return "none" }
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var name: CFString = "" as CFString
+        var size = UInt32(MemoryLayout<CFString>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &name)
+        return status == noErr ? (name as String) : "unknown"
     }
 
     /// Fired when the audio route changes mid-recording (e.g. AirPods drop,
