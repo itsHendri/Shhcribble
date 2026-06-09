@@ -4,6 +4,7 @@ import Combine
 @MainActor
 protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerDidRequestSettings(_ controller: MenuBarController)
+    func menuBarControllerDidRequestCheckForUpdates(_ controller: MenuBarController)
     func menuBarControllerDidRequestQuit(_ controller: MenuBarController)
     func menuBarControllerDidRequestRepaste(_ controller: MenuBarController, text: String)
 }
@@ -128,6 +129,13 @@ final class MenuBarController: NSObject {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        // Check for Updates (Sparkle)
+        let updatesItem = NSMenuItem(title: "Check for Updates…",
+                                     action: #selector(checkForUpdates),
+                                     keyEquivalent: "")
+        updatesItem.target = self
+        menu.addItem(updatesItem)
+
         menu.addItem(.separator())
 
         // Quit
@@ -180,6 +188,10 @@ final class MenuBarController: NSObject {
 
     @objc private func openSettings() {
         delegate?.menuBarControllerDidRequestSettings(self)
+    }
+
+    @objc private func checkForUpdates() {
+        delegate?.menuBarControllerDidRequestCheckForUpdates(self)
     }
 
     @objc private func quit() {

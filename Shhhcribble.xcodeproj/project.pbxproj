@@ -26,6 +26,7 @@
 		CF000056000000000000001A /* shhhcribble-scribble-sound.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */; };
 		CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CF000058000000000000001A /* PrivacyInfo.xcprivacy */; };
 		CF000061000000000000001A /* MusicPauser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000060000000000000001A /* MusicPauser.swift */; };
+		CF0000B0000000000000001A /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CF0000B1000000000000001A /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -58,6 +59,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CF000048000000000000001A /* FluidAudio in Frameworks */,
+				CF0000B0000000000000001A /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -181,6 +183,7 @@
 			name = Shhhcribble;
 			packageProductDependencies = (
 				CF000053000000000000001A /* FluidAudio */,
+				CF0000B1000000000000001A /* Sparkle */,
 			);
 			productName = Shhhcribble;
 			productReference = CF000019000000000000001A /* Shhhcribble.app */;
@@ -212,6 +215,7 @@
 			mainGroup = CF000010000000000000001A;
 			packageReferences = (
 				CF000052000000000000001A /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				CF0000B2000000000000001A /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			productRefGroup = CF000018000000000000001A /* Products */;
 			projectDirPath = "";
@@ -464,6 +468,14 @@
 				minimumVersion = 0.13.6;
 			};
 		};
+		CF0000B2000000000000001A /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -471,6 +483,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CF000052000000000000001A /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		CF0000B1000000000000001A /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CF0000B2000000000000001A /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

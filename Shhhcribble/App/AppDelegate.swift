@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import os
+import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -15,6 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController!
     private var settingsWindowController: SettingsWindowController?
     private let musicPauser = MusicPauser()
+
+    /// Sparkle auto-updater. `startingUpdater: true` enables automatic
+    /// background checks; the menu's "Check for Updates…" triggers a manual
+    /// check via `checkForUpdates(_:)`. Feed + EdDSA public key come from
+    /// Info.plist (`SUFeedURL` / `SUPublicEDKey`).
+    private var updaterController: SPUStandardUpdaterController!
 
     /// Internal recording state machine. `.transcribing` is a brief window
     /// between hotkey release and transcription completion — never surfaced in
@@ -54,6 +61,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController = MenuBarController(
             transcriptionEngine: transcriptionEngine,
             delegate: self
+        )
+
+        // Start Sparkle. Reads SUFeedURL + SUPublicEDKey from Info.plist; runs
+        // automatic background update checks and backs the menu item.
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
         )
 
         Task {
@@ -401,6 +416,13 @@ extension AppDelegate: MenuBarControllerDelegate {
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func menuBarControllerDidRequestCheckForUpdates(_ controller: MenuBarController) {
+        // Bring the app forward so Sparkle's update window isn't lost behind
+        // other apps (we're an LSUIElement menu-bar app with no dock icon).
+        NSApp.activate(ignoringOtherApps: true)
+        updaterController.checkForUpdates(nil)
     }
 
     func menuBarControllerDidRequestQuit(_ controller: MenuBarController) {

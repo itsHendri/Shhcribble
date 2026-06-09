@@ -141,6 +141,15 @@ Section headers already name each setting; inline `Picker("Model", ...)` labels 
 
 **Deployment-target trap:** the app targets macOS 14, so every FoundationModels symbol lives behind `if #available(macOS 26.0, *)` (and `#if canImport(FoundationModels)`). Referencing any of them unguarded breaks the 14.0 build. `availability` maps the `.unavailable` reasons to human-readable strings; the Settings toggle is `.disabled` + shows an `InlineWarning` with that reason when unavailable.
 
+### Sparkle auto-update — requires Developer ID + notarization (ad-hoc won't ship)
+In-app auto-update via [Sparkle](https://github.com/sparkle-project/Sparkle) 2.x (added via SPM in the pbxproj, mirroring the FluidAudio reference). `SPUStandardUpdaterController` is owned by `AppDelegate` (`startingUpdater: true` → automatic background checks); the menu-bar "Check for Updates…" item triggers a manual check. Feed config lives in `Info.plist`: `SUFeedURL` → `https://github.com/itsHendri/Shhhcribble/releases/latest/download/appcast.xml`, `SUPublicEDKey` → the EdDSA **public** key.
+
+**Why ad-hoc "Sign to Run Locally" is not enough (settled 2026-06, verified against installed competitor bundles):** SuperWhisper and Wispr Flow both ship DMGs *and* are Developer ID–signed + notarized (`spctl` → `source=Notarized Developer ID`). "Distributes as a DMG" and "needs an Apple Developer account" are unrelated axes. Ad-hoc fails at three layers: (1) Hardened-Runtime **Library Validation** refuses to load the embedded `Sparkle.framework` + helpers under an ad-hoc signature — Xcode only gets away with it in Debug because it *auto-disables* Hardened Runtime for ad-hoc builds (you'll see "Disabling hardened runtime with ad-hoc codesigning" in the build log); (2) a downloaded DMG is **quarantined** and, un-notarized, hits the macOS 15/26 "Open Anyway" detour; (3) Sparkle's silent quarantine-strip + signature-consistency update flow is built around Developer ID + notarization. So Release builds keep `ENABLE_HARDENED_RUNTIME=YES` and **must** be Developer ID–signed + notarized. No `disable-library-validation` entitlement is needed on that path (the real signature satisfies validation).
+
+**EdDSA keys (Sparkle's own signature, orthogonal to Apple signing):** generated once via Sparkle's `generate_keys`; the **private key lives in the login Keychain and never touches disk or the repo**. Only the public key (`SUPublicEDKey`) is committed — that's correct and safe. `Distribution/generate-appcast.sh` signs each DMG with the Keychain key at release time. **Never** add a private-key file to the repo.
+
+**Don't relitigate:** this is the resolution of the Sprint-1 "settle the signing story first" gate. Don't re-propose shipping Sparkle on ad-hoc signing, and don't move the EdDSA private key out of the Keychain into a file/env var.
+
 ---
 
 ## Deferred features (skipped during the reboot, documented for future)
@@ -180,23 +189,35 @@ Only required deadlock protection **if VP-for-BT is ever reintroduced** — VP t
 | `transcriptCleanupEnabled` | Bool | `false` | On-device LLM cleanup (Apple FoundationModels, macOS 26 + Apple Intelligence); falls back to `FillerWordFilter` on timeout/failure/unavailable |
 | `transcriptionHistory` | Data (JSON) | `[]` | Last 10 transcriptions |
 
+Sparkle also manages its own `SU*` UserDefaults keys automatically (e.g. `SUEnableAutomaticChecks`, `SULastCheckTime`, `SUAutomaticallyUpdate`) — don't hand-edit them. `SUFeedURL` / `SUPublicEDKey` are **Info.plist** keys, not prefs (see the Sparkle decision above).
+
 ---
 
 ## Release workflow
 
+**One-time setup (per machine):**
+- EdDSA key: run Sparkle's `generate_keys` once (private key → login Keychain; public key already in `Info.plist` as `SUPublicEDKey`). Find the tool at `~/Library/Developer/Xcode/DerivedData/Shhhcribble-*/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys` after resolving packages.
+- Notarization profile: `xcrun notarytool store-credentials shhhcribble-notary --apple-id <id> --team-id <TEAMID> --password <app-specific-password>` (creds → Keychain, never in repo).
+- Export before releasing: `export DEVID_APP_IDENTITY="Developer ID Application: <Name> (<TEAMID>)"` and `export NOTARY_PROFILE="shhhcribble-notary"`. (Without these, `create-dmg.sh` falls back to an ad-hoc, un-notarized, **non-shippable** local-test DMG.)
+
+**Per release:**
 1. Bump `CFBundleShortVersionString` in `Shhhcribble/Resources/Info.plist` (semver major.minor.patch).
 2. Bump `CFBundleVersion` (monotonic integer).
 3. Verify with `xcodebuild -scheme Shhhcribble -configuration Debug build`.
-4. Smoke test: record on AirPods with music playing → transcript lands, music stays clean. Settings → About shows the new version.
-5. `bash Distribution/create-dmg.sh` → `~/Desktop/Shhhcribble.dmg`.
-6. Commit: `Bump version to X.Y.Z`. Push to `shhhcribble/main`.
-7. Tag and publish a GitHub release with the DMG attached:
+4. Smoke test: record on AirPods with music playing → transcript lands, music stays clean. Settings → About shows the new version. Menu shows "Check for Updates…".
+5. `bash Distribution/create-dmg.sh` → builds Release, **Developer ID deep-signs** (Hardened Runtime on), **notarizes + staples** the app and the DMG → `~/Desktop/Shhhcribble.dmg`.
+6. `bash Distribution/generate-appcast.sh vX.Y.Z` → EdDSA-signs the DMG with the Keychain key and writes `~/Desktop/appcast.xml` (enclosure URL pinned to the `vX.Y.Z` release assets).
+7. Commit: `Bump version to X.Y.Z`. Push to `shhhcribble/main`.
+8. Tag and publish a GitHub release with **both the DMG and appcast.xml** attached:
    ```bash
    git tag vX.Y.Z
    git push origin vX.Y.Z
-   gh release create vX.Y.Z ~/Desktop/Shhhcribble.dmg --title "Shhhcribble vX.Y.Z" --notes-file <notes.md>
+   gh release create vX.Y.Z ~/Desktop/Shhhcribble.dmg ~/Desktop/appcast.xml \
+     --title "Shhhcribble vX.Y.Z" --notes-file <notes.md>
    ```
-   README points users to the Releases page for downloads, so the DMG attachment is what end-users actually consume.
+   `SUFeedURL` points at `releases/latest/download/appcast.xml`, so attaching `appcast.xml` to every release is what drives auto-update; the DMG is what end-users (and Sparkle) download. README points users to the Releases page.
+
+**Multi-version appcast:** `generate-appcast.sh` stages only the current DMG by default. To list older versions in the feed, drop their DMGs into `/tmp/FW-appcast` before running, or maintain `appcast.xml` cumulatively — `generate_appcast` lists every archive it finds.
 
 ---
 

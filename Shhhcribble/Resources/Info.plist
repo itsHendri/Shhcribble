@@ -34,5 +34,9 @@
 	<string>Shhhcribble records your voice while you hold the hotkey (⌥Space by default) so it can transcribe your speech and paste the text into the focused field.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/itsHendri/Shhhcribble/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>qi8cZxKoFaEFH4YSyMYrHU2n53L5IlvOIkLl2OW242Y=</string>
 </dict>
 </plist>
