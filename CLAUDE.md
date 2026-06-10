@@ -225,8 +225,8 @@ Sparkle also manages its own `SU*` UserDefaults keys automatically (e.g. `SUEnab
 
 - **`CHANGELOG.md`** (repo root, [Keep a Changelog](https://keepachangelog.com/) + SemVer) is the durable history and the source of rollback points. Every feature updates the top **`## [Unreleased]`** section (Added/Changed/Fixed/Removed); on release it graduates to a `## [x.y.z] - date` heading.
 - **Tag every release and keep `main` ≈ the latest release.** Releases have drifted behind `main` before (v1.5.1 bumped-but-unreleased; v1.6.0 released, then build-7 + Sparkle landed on top) — don't repeat that. Rollback = `git checkout vX.Y.Z` or the Release DMG.
-- **CI:** `.github/workflows/build.yml` runs `xcodebuild -configuration Debug build` on every push/PR — an independent build gate. (Switch `build`→`test` once the XCTest target is wired.)
-- **Tests:** `ShhhcribbleTests/` holds XCTest pure-logic tests. The **test target is not yet wired into the pbxproj** — wiring it (a unit-test target hosted by the app + scheme test action) is the loop's first warm-up task. Start with `FillerWordFilterTests.swift`.
+- **CI:** `.github/workflows/build.yml` runs `xcodebuild -configuration Debug test` on every push/PR — `test` builds first, so it's both the build gate and the unit-test gate.
+- **Tests:** `ShhhcribbleTests/` holds XCTest pure-logic tests, wired as a unit-test target **hosted by the app** (`TEST_HOST`/`BUNDLE_LOADER` → `@testable import Shhhcribble` works; Debug has `ENABLE_TESTABILITY`). The shared scheme `Shhhcribble.xcodeproj/xcshareddata/xcschemes/Shhhcribble.xcscheme` carries the TestAction — CI's `-scheme Shhhcribble` resolves to it, so keep it committed. Run locally: `xcodebuild -scheme Shhhcribble -configuration Debug -destination 'platform=macOS' test`. The test bundle sets `ENABLE_HARDENED_RUNTIME = NO` (the *host's* HR is what matters for test injection, and Debug ad-hoc builds auto-disable it — see the Sparkle decision).
 
 ## Autonomous development loop (default process)
 
@@ -241,7 +241,7 @@ This project runs a **largely-autonomous research→build→verify loop** over t
 
 **QC gates / Definition of Done (every change):**
 1. `xcodebuild -scheme Shhhcribble -configuration Debug build` green — locally and in CI.
-2. Tests green (once the target is wired).
+2. Tests green: `xcodebuild -scheme Shhhcribble -configuration Debug test`.
 3. Adversarial review (reuse `/code-review` + `/security-review`) finds no confirmed issue.
 4. Regression checklist: didn't touch `AudioRecorder` (unless human-approved), no VP / device-picker, pref table intact, no secrets, one feature only.
 5. `CHANGELOG.md [Unreleased]` updated; this file updated if a load-bearing decision / pref key changed.

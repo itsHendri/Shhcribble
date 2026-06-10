@@ -1,12 +1,6 @@
 import XCTest
 @testable import Shhhcribble
 
-// NOTE: This file is a ready-to-use artifact, but the XCTest *target* is not yet
-// wired into Shhhcribble.xcodeproj. Wiring it (a unit-test PBXNativeTarget hosted
-// by the app + scheme test action, then switching CI from `build` to `test`) is
-// the autonomous loop's first warm-up task — it's self-contained and exercises
-// the build/CI gate. See CLAUDE.md "Autonomous development loop".
-
 final class FillerWordFilterTests: XCTestCase {
 
     func testRemovesUm() {

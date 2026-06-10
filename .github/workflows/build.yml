@@ -1,8 +1,9 @@
 name: Build
 
-# Independent build gate: every push to main and every PR must compile.
-# This backs the autonomous development loop's QC (see CLAUDE.md "Autonomous
-# development loop") — a green build here is a hard requirement before merge.
+# Independent build + unit-test gate: every push to main and every PR must
+# compile and pass the unit tests. This backs the autonomous development
+# loop's QC (see CLAUDE.md "Autonomous development loop") — a green run here
+# is a hard requirement before merge.
 
 on:
   push:
@@ -16,7 +17,7 @@ concurrency:
 
 jobs:
   build:
-    name: xcodebuild (Debug)
+    name: xcodebuild (Debug, test)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,14 +32,13 @@ jobs:
       - name: Resolve Swift packages (FluidAudio, Sparkle)
         run: xcodebuild -resolvePackageDependencies -scheme Shhhcribble
 
-      - name: Build (Debug, signing disabled on CI)
+      # `test` builds first, so a compile failure still fails the job — the
+      # build gate is preserved and the unit-test gate runs on top of it.
+      - name: Build & test (Debug, signing disabled on CI)
         run: |
           xcodebuild \
             -scheme Shhhcribble \
             -configuration Debug \
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO \
-            build
-
-      # Once the XCTest target is wired into the project (loop's first warm-up
-      # task), switch `build` above to `test` to enforce the unit-test gate too.
+            test

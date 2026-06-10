@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `generate-appcast.sh`).
 - `CHANGELOG.md`, GitHub Actions CI build gate, and an autonomous development-loop
   process documented in `CLAUDE.md`.
+- XCTest unit-test target (`ShhhcribbleTests`) wired into the Xcode project with a
+  shared scheme; CI now runs `xcodebuild test` (build + unit tests) on every push/PR.
 
 ### Fixed
 - First dictation on cold AirPods captured silence ("No speech detected") — the

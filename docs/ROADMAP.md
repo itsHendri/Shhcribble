@@ -103,6 +103,6 @@ One feature per branch off `shhhcribble/main`; build + AirPods/Spotify smoke tes
 
 ## Verification (every sprint)
 
-- Build: `xcodebuild -scheme Shhhcribble -configuration Debug build`.
+- Build + tests: `xcodebuild -scheme Shhhcribble -configuration Debug -destination 'platform=macOS' test`.
 - Smoke test: AirPods + Spotify playing → record → transcript lands, music resumes clean.
 - Tail logs: `log stream --predicate 'subsystem == "com.shhhcribble.app"'`.

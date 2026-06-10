@@ -27,7 +27,18 @@
 		CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CF000058000000000000001A /* PrivacyInfo.xcprivacy */; };
 		CF000061000000000000001A /* MusicPauser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000060000000000000001A /* MusicPauser.swift */; };
 		CF0000B0000000000000001A /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CF0000B1000000000000001A /* Sparkle */; };
+		CF0000C0000000000000001A /* FillerWordFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000C1000000000000001A /* FillerWordFilterTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CF0000CA000000000000001A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CF000001000000000000001A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CF000002000000000000001A;
+			remoteInfo = Shhhcribble;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		CF000019000000000000001A /* Shhhcribble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shhhcribble.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -51,6 +62,8 @@
 		CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "shhhcribble-scribble-sound.mp3"; sourceTree = "<group>"; };
 		CF000058000000000000001A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		CF000060000000000000001A /* MusicPauser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicPauser.swift; sourceTree = "<group>"; };
+		CF0000C1000000000000001A /* FillerWordFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillerWordFilterTests.swift; sourceTree = "<group>"; };
+		CF0000C2000000000000001A /* ShhhcribbleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShhhcribbleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -60,6 +73,13 @@
 			files = (
 				CF000048000000000000001A /* FluidAudio in Frameworks */,
 				CF0000B0000000000000001A /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CF0000C5000000000000001A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -84,8 +104,17 @@
 			isa = PBXGroup;
 			children = (
 				CF000009000000000000001A /* Shhhcribble */,
+				CF0000C3000000000000001A /* ShhhcribbleTests */,
 				CF000018000000000000001A /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		CF0000C3000000000000001A /* ShhhcribbleTests */ = {
+			isa = PBXGroup;
+			children = (
+				CF0000C1000000000000001A /* FillerWordFilterTests.swift */,
+			);
+			path = ShhhcribbleTests;
 			sourceTree = "<group>";
 		};
 		CF000011000000000000001A /* App */ = {
@@ -161,6 +190,7 @@
 			isa = PBXGroup;
 			children = (
 				CF000019000000000000001A /* Shhhcribble.app */,
+				CF0000C2000000000000001A /* ShhhcribbleTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -189,6 +219,24 @@
 			productReference = CF000019000000000000001A /* Shhhcribble.app */;
 			productType = "com.apple.product-type.application";
 		};
+		CF0000C7000000000000001A /* ShhhcribbleTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CF0000C8000000000000001A /* Build configuration list for PBXNativeTarget "ShhhcribbleTests" */;
+			buildPhases = (
+				CF0000C4000000000000001A /* Sources */,
+				CF0000C5000000000000001A /* Frameworks */,
+				CF0000C6000000000000001A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CF0000C9000000000000001A /* PBXTargetDependency */,
+			);
+			name = ShhhcribbleTests;
+			productName = ShhhcribbleTests;
+			productReference = CF0000C2000000000000001A /* ShhhcribbleTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -201,6 +249,10 @@
 				TargetAttributes = {
 					CF000002000000000000001A = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					CF0000C7000000000000001A = {
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = CF000002000000000000001A;
 					};
 				};
 			};
@@ -222,6 +274,7 @@
 			projectRoot = "";
 			targets = (
 				CF000002000000000000001A /* Shhhcribble */,
+				CF0000C7000000000000001A /* ShhhcribbleTests */,
 			);
 		};
 /* End PBXProject section */
@@ -234,6 +287,13 @@
 				CF000047000000000000001A /* Assets.xcassets in Resources */,
 				CF000056000000000000001A /* shhhcribble-scribble-sound.mp3 in Resources */,
 				CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CF0000C6000000000000001A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -262,7 +322,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CF0000C4000000000000001A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF0000C0000000000000001A /* FillerWordFilterTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CF0000C9000000000000001A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CF000002000000000000001A /* Shhhcribble */;
+			targetProxy = CF0000CA000000000000001A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		CF000005000000000000001A /* Debug */ = {
@@ -436,6 +512,44 @@
 			};
 			name = Release;
 		};
+		CF0000CB000000000000001A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shhhcribble.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Shhhcribble.app/Contents/MacOS/Shhhcribble";
+			};
+			name = Debug;
+		};
+		CF0000CC000000000000001A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shhhcribble.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Shhhcribble.app/Contents/MacOS/Shhhcribble";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -453,6 +567,15 @@
 			buildConfigurations = (
 				CF000007000000000000001A /* Debug */,
 				CF000008000000000000001A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CF0000C8000000000000001A /* Build configuration list for PBXNativeTarget "ShhhcribbleTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CF0000CB000000000000001A /* Debug */,
+				CF0000CC000000000000001A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
