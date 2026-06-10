@@ -221,6 +221,37 @@ Sparkle also manages its own `SU*` UserDefaults keys automatically (e.g. `SUEnab
 
 ---
 
+## Changelog & release hygiene
+
+- **`CHANGELOG.md`** (repo root, [Keep a Changelog](https://keepachangelog.com/) + SemVer) is the durable history and the source of rollback points. Every feature updates the top **`## [Unreleased]`** section (Added/Changed/Fixed/Removed); on release it graduates to a `## [x.y.z] - date` heading.
+- **Tag every release and keep `main` ≈ the latest release.** Releases have drifted behind `main` before (v1.5.1 bumped-but-unreleased; v1.6.0 released, then build-7 + Sparkle landed on top) — don't repeat that. Rollback = `git checkout vX.Y.Z` or the Release DMG.
+- **CI:** `.github/workflows/build.yml` runs `xcodebuild -configuration Debug build` on every push/PR — an independent build gate. (Switch `build`→`test` once the XCTest target is wired.)
+- **Tests:** `ShhhcribbleTests/` holds XCTest pure-logic tests. The **test target is not yet wired into the pbxproj** — wiring it (a unit-test target hosted by the app + scheme test action) is the loop's first warm-up task. Start with `FillerWordFilterTests.swift`.
+
+## Autonomous development loop (default process)
+
+This project runs a **largely-autonomous research→build→verify loop** over the backlog (next: Sprint 2 → 4 → 5 per [docs/ROADMAP.md](docs/ROADMAP.md)). Run each sprint in its **own session** (clean context); this file + `CHANGELOG.md` + the task list carry state across sessions. **This process is the standing authorization** — within the low-risk boundary below it **overrides the usual "commit only when asked".**
+
+**Autonomy boundary**
+- *Runs solo (may commit + fast-forward `main` when all QC gates pass):* Settings UI, `MenuBarController`, `SettingsView`, new self-contained modules (Personal Dictionary, file-transcription plumbing), `ModelManager` prefs, History/SQLite.
+- *ALWAYS STOP for the human:* `Audio/AudioRecorder.swift`, audio routing / `MusicPauser` timing, any voice-processing or input-device-picker reintroduction (both forbidden), the Developer ID cert / notarization / releases, and **Sprint 3 (Modes) + Phase B (Notes) design**.
+- *Cannot self-certify the AirPods+Spotify hardware smoke test* — build and (if low-risk) merge, but tag any audio/paste-path change **"⚠ hardware smoke test PENDING"**; never claim it passed.
+
+**Roles:** Planner (one atomic task list, no code) → Researcher (time-boxed, recommendations only) → Implementer (one feature/branch, builds) → 2–3 adversarial Reviewers (try to *break* the diff).
+
+**QC gates / Definition of Done (every change):**
+1. `xcodebuild -scheme Shhhcribble -configuration Debug build` green — locally and in CI.
+2. Tests green (once the target is wired).
+3. Adversarial review (reuse `/code-review` + `/security-review`) finds no confirmed issue.
+4. Regression checklist: didn't touch `AudioRecorder` (unless human-approved), no VP / device-picker, pref table intact, no secrets, one feature only.
+5. `CHANGELOG.md [Unreleased]` updated; this file updated if a load-bearing decision / pref key changed.
+6. Sprint acceptance criterion verified as far as code allows; hardware part flagged.
+7. Honesty gate: pending smoke test / human decisions surfaced, never silently skipped.
+
+Iterate implement→review→fix up to ~3 rounds; if still failing or low-confidence, **stop and escalate** rather than loop. Use the **Workflow tool** for each sprint's implement→parallel-review→verify pipeline; keep a short loop-progress note here (current sprint / last done / next / blocker).
+
+---
+
 ## Branches
 
 One branch: `shhhcribble/main`. Push work directly; no v2-line tag churn, no experimental branches kept around on origin. If a future feature needs isolated experimentation, branch locally from `main`, merge when stable, delete the local branch. Don't push WIP branches to origin without a reason.

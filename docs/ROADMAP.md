@@ -9,7 +9,8 @@
 - **Shipped:** Phase-1 polish/reliability (v1.5.1); on-device Apple FM transcript cleanup (v1.6.0); first-AirPods warm-up + mic-route crash fixes — all reflected in CLAUDE.md.
 - **`TranscriptCleaner.swift`** is fully wired: `FoundationModels` `LanguageModelSession` + `@Generable CleanedTranscript`, `@available(macOS 26)` + `SystemLanguageModel.default.availability` gating, **no timeout (deliberate)**, `FillerWordFilter` as universal fallback, `prewarm()` at launch, Settings toggle that disables + explains when unavailable.
 - **Pref keys:** `selectedParakeetModel`, `selectedHotkeyID`, `transcriptCleanupEnabled`, `transcriptionHistory` (cap 10). Orphaned-but-harmless: `fillerFilterEnabled`, `activationMode`, `audioDuckingEnabled`.
-- **Not built yet** (this backlog): Personal Dictionary, Modes/per-app, Sparkle, file transcription, history search/SQLite, notes.
+- **Sparkle auto-update:** code done + merged (Sprint 1); release pending Developer ID cert.
+- **Not built yet** (this backlog): Personal Dictionary, Modes/per-app, file transcription, history search/SQLite, notes.
 
 ---
 
@@ -21,7 +22,9 @@ Cleanup shipped without the originally-planned quality prototype. Small validati
 - Decide on a **"revert to raw transcript" affordance** (Wispr Flow logs every cleanup in a `Polish` table and makes it undoable). Keep or skip.
 - **Acceptance:** a documented quality read; prompt left as-is or deliberately retuned.
 
-## Sprint 1 — Sparkle auto-update *(FIRST)*
+## Sprint 1 — Sparkle auto-update *(FIRST)* — ✅ CODE DONE, release pending cert
+
+**Status (2026-06-09):** Sparkle integrated + wired + locally validated (full update path proven via localhost loopback), merged to `main` (`1c89dc1`). Signing story settled: **Developer ID + notarization required** (ad-hoc won't ship). Only the cert-gated release remains — cut a notarized **v1.6.1** baseline once the Developer ID cert is in place (see CLAUDE.md "Release workflow" + Sparkle decision). The released v1.6.0 is pre-Sparkle/un-notarized, so the auto-update baseline must be a new Sparkle-enabled release.
 
 Removes the manual-DMG release friction. Both competitors ship auto-update.
 - Add Sparkle (SPM); `SUFeedURL` + `SUPublicEDKey` in `Info.plist`.
@@ -93,6 +96,10 @@ The companion **Scribble iOS** app vision. Its own multi-sprint phase; starts wi
 ## Conventions (per CLAUDE.md)
 
 One feature per branch off `shhhcribble/main`; build + AirPods/Spotify smoke test before committing; update CLAUDE.md when a change adds a load-bearing decision or pref key; **commit only when asked**.
+
+**Default process:** sprints now run via the **autonomous development loop** (see CLAUDE.md "Autonomous development loop") — backlog order **2 → 4 → 5**; Sprint 3 (Modes) and Phase B (Notes) stay human-gated (design first). Each change passes the loop's QC gates (build + CI + adversarial review + CHANGELOG update); the AirPods/Spotify hardware smoke test stays a human gate.
+
+**Candidate features to weigh (not committed):** voice syntax (say "bullet"/"heading" → markdown — cheap, composes with cleanup); revisit streaming transcription (deferred commit `6509cd7`) for live-preview lag; Siri-Shortcut capture for Phase B handoff; a privacy-transparency badge.
 
 ## Verification (every sprint)
 

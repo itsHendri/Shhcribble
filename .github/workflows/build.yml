@@ -1,0 +1,44 @@
+name: Build
+
+# Independent build gate: every push to main and every PR must compile.
+# This backs the autonomous development loop's QC (see CLAUDE.md "Autonomous
+# development loop") — a green build here is a hard requirement before merge.
+
+on:
+  push:
+    branches: [ "shhhcribble/main" ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: xcodebuild (Debug)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Shhhcribble needs the Xcode 26 SDK (FoundationModels). If the default
+      # runner Xcode is too old, pin it here, e.g.:
+      #   - uses: maxim-lobanov/setup-xcode@v1
+      #     with: { xcode-version: '26.0' }
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve Swift packages (FluidAudio, Sparkle)
+        run: xcodebuild -resolvePackageDependencies -scheme Shhhcribble
+
+      - name: Build (Debug, signing disabled on CI)
+        run: |
+          xcodebuild \
+            -scheme Shhhcribble \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      # Once the XCTest target is wired into the project (loop's first warm-up
+      # task), switch `build` above to `test` to enforce the unit-test gate too.
