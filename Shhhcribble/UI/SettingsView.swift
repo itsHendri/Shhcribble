@@ -10,6 +10,10 @@ struct SettingsView: View {
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
     @State private var transcriptCleanupEnabled: Bool = ModelManager.transcriptCleanupEnabled
 
+    @State private var dictionaryEntries: [DictionaryEntry] = ModelManager.dictionaryEntries
+    @State private var showingAddEntrySheet = false
+    @State private var editingEntry: DictionaryEntry? = nil
+
     @State private var axGranted        = false
     @State private var micGranted       = false
     @State private var micNotDetermined = false
@@ -110,6 +114,26 @@ struct SettingsView: View {
                 .foregroundColor(.secondary)
             }
 
+            // MARK: Personal dictionary
+            Section {
+                if dictionaryEntries.isEmpty {
+                    Text("No entries yet — add names or jargon the transcriber gets wrong.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                ForEach(Array(dictionaryEntries.enumerated()), id: \.element.id) { index, entry in
+                    dictionaryRow(entry: entry, index: index)
+                }
+                Button("Add Entry…") { showingAddEntrySheet = true }
+            } header: {
+                Text("Personal Dictionary")
+            } footer: {
+                Text("Replacements are applied to the raw transcript before AI cleanup, " +
+                     "in list order. Whole words only — \"cat\" never matches inside \"catalog\".")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             // MARK: Permissions
             Section {
                 // Accessibility
@@ -190,6 +214,93 @@ struct SettingsView: View {
         .frame(width: 440)
         .onAppear { checkPermissions() }
         .onReceive(permissionTimer) { _ in checkPermissions() }
+        .sheet(isPresented: $showingAddEntrySheet) {
+            DictionaryEntryEditor(title: "Add Dictionary Entry") { phrase, replacement, caseSensitive in
+                dictionaryEntries.append(
+                    DictionaryEntry(phrase: phrase, replacement: replacement, caseSensitive: caseSensitive)
+                )
+                saveDictionary()
+            }
+        }
+        .sheet(item: $editingEntry) { entry in
+            DictionaryEntryEditor(
+                title: "Edit Dictionary Entry",
+                phrase: entry.phrase,
+                replacement: entry.replacement,
+                caseSensitive: entry.caseSensitive
+            ) { phrase, replacement, caseSensitive in
+                if let i = dictionaryEntries.firstIndex(where: { $0.id == entry.id }) {
+                    dictionaryEntries[i].phrase = phrase
+                    dictionaryEntries[i].replacement = replacement
+                    dictionaryEntries[i].caseSensitive = caseSensitive
+                    saveDictionary()
+                }
+            }
+        }
+    }
+
+    // MARK: - Personal dictionary rows & helpers
+
+    @ViewBuilder
+    private func dictionaryRow(entry: DictionaryEntry, index: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(entry.phrase)
+                .lineLimit(1).truncationMode(.tail)
+            Image(systemName: "arrow.right")
+                .font(.caption2).foregroundColor(.secondary)
+            Text(entry.replacement)
+                .fontWeight(.medium)
+                .lineLimit(1).truncationMode(.tail)
+            if entry.caseSensitive {
+                Text("Aa")
+                    .font(.caption2).foregroundColor(.secondary)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.15)))
+                    .help("Matches case exactly")
+            }
+            Spacer(minLength: 8)
+            // Explicit reorder buttons — drag-reorder inside a grouped Form is
+            // unreliable on macOS, and order is meaningful (entries apply top-down).
+            Button { moveDictionaryEntry(at: index, by: -1) } label: {
+                Image(systemName: "chevron.up")
+            }
+            .buttonStyle(.borderless)
+            .disabled(index == 0)
+            .help("Move up")
+            Button { moveDictionaryEntry(at: index, by: 1) } label: {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(.borderless)
+            .disabled(index == dictionaryEntries.count - 1)
+            .help("Move down")
+            Button { editingEntry = entry } label: {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+            .help("Edit")
+            Button { deleteDictionaryEntry(id: entry.id) } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Delete")
+        }
+    }
+
+    private func saveDictionary() {
+        ModelManager.dictionaryEntries = dictionaryEntries
+    }
+
+    private func moveDictionaryEntry(at index: Int, by offset: Int) {
+        let target = index + offset
+        guard dictionaryEntries.indices.contains(index),
+              dictionaryEntries.indices.contains(target) else { return }
+        dictionaryEntries.swapAt(index, target)
+        saveDictionary()
+    }
+
+    private func deleteDictionaryEntry(id: UUID) {
+        dictionaryEntries.removeAll { $0.id == id }
+        saveDictionary()
     }
 
     /// Single source of truth for the displayed version. Reads
@@ -255,6 +366,53 @@ struct SettingsView: View {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
         }
+    }
+}
+
+// MARK: - Dictionary entry editor
+
+/// Small sheet used for both Add and Edit. Save is disabled until both fields
+/// have non-whitespace content.
+private struct DictionaryEntryEditor: View {
+    let title: String
+    @State var phrase: String = ""
+    @State var replacement: String = ""
+    @State var caseSensitive: Bool = false
+    let onSave: (String, String, Bool) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var trimmedPhrase: String {
+        phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private var trimmedReplacement: String {
+        replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title).font(.headline)
+
+            TextField("Spoken phrase (what the transcriber hears)", text: $phrase)
+                .textFieldStyle(.roundedBorder)
+            TextField("Replace with", text: $replacement)
+                .textFieldStyle(.roundedBorder)
+            Toggle("Match case exactly", isOn: $caseSensitive)
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    onSave(trimmedPhrase, trimmedReplacement, caseSensitive)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(trimmedPhrase.isEmpty || trimmedReplacement.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
     }
 }
 

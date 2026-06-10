@@ -28,6 +28,8 @@
 		CF000061000000000000001A /* MusicPauser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000060000000000000001A /* MusicPauser.swift */; };
 		CF0000B0000000000000001A /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CF0000B1000000000000001A /* Sparkle */; };
 		CF0000C0000000000000001A /* FillerWordFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000C1000000000000001A /* FillerWordFilterTests.swift */; };
+		CF0000D0000000000000001A /* PersonalDictionary.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000D1000000000000001A /* PersonalDictionary.swift */; };
+		CF0000D2000000000000001A /* PersonalDictionaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000D3000000000000001A /* PersonalDictionaryTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,6 +66,8 @@
 		CF000060000000000000001A /* MusicPauser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicPauser.swift; sourceTree = "<group>"; };
 		CF0000C1000000000000001A /* FillerWordFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillerWordFilterTests.swift; sourceTree = "<group>"; };
 		CF0000C2000000000000001A /* ShhhcribbleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShhhcribbleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CF0000D1000000000000001A /* PersonalDictionary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionary.swift; sourceTree = "<group>"; };
+		CF0000D3000000000000001A /* PersonalDictionaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -113,6 +117,7 @@
 			isa = PBXGroup;
 			children = (
 				CF0000C1000000000000001A /* FillerWordFilterTests.swift */,
+				CF0000D3000000000000001A /* PersonalDictionaryTests.swift */,
 			);
 			path = ShhhcribbleTests;
 			sourceTree = "<group>";
@@ -150,6 +155,7 @@
 				CF000025000000000000001A /* ModelManager.swift */,
 				CF000054000000000000001A /* FillerWordFilter.swift */,
 				CF0000A0000000000000001A /* TranscriptCleaner.swift */,
+				CF0000D1000000000000001A /* PersonalDictionary.swift */,
 			);
 			path = Transcription;
 			sourceTree = "<group>";
@@ -319,6 +325,7 @@
 				CF000046000000000000001A /* SettingsWindowController.swift in Sources */,
 				CF000055000000000000001A /* FillerWordFilter.swift in Sources */,
 				CF0000A1000000000000001A /* TranscriptCleaner.swift in Sources */,
+				CF0000D0000000000000001A /* PersonalDictionary.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -327,6 +334,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CF0000C0000000000000001A /* FillerWordFilterTests.swift in Sources */,
+				CF0000D2000000000000001A /* PersonalDictionaryTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

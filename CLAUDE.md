@@ -141,6 +141,9 @@ Section headers already name each setting; inline `Picker("Model", ...)` labels 
 
 **Deployment-target trap:** the app targets macOS 14, so every FoundationModels symbol lives behind `if #available(macOS 26.0, *)` (and `#if canImport(FoundationModels)`). Referencing any of them unguarded breaks the 14.0 build. `availability` maps the `.unavailable` reasons to human-readable strings; the Settings toggle is `.disabled` + shows an `InlineWarning` with that reason when unavailable.
 
+### Personal Dictionary runs on the raw transcript, before cleanup/filler
+Pipeline order is **dictionary → (TranscriptCleaner | FillerWordFilter)** — `PersonalDictionary.apply` runs on the trimmed raw transcript in `endRecording()` (and on the live-preview text) so the LLM sees corrected terms instead of re-mangling them. Substitution semantics, pinned by `PersonalDictionaryTests`: entries apply **sequentially in list order** (each sees the previous one's output — ordering *is* the overlap resolution); **whole-word matching via lookarounds** `(?<!\w)…(?!\w)`, not `\b`, so phrases ending in non-word chars ("C++") anchor correctly; replacements are used **verbatim** (no smart-case — the replacement's own casing is the point for proper nouns), with a per-entry `caseSensitive` flag controlling matching only. Settings UI uses explicit up/down buttons for reorder (drag-reorder inside a grouped macOS `Form` is unreliable). Storage is UserDefaults JSON under `dictionaryEntries` (moves to SQLite in Sprint 5).
+
 ### Sparkle auto-update — requires Developer ID + notarization (ad-hoc won't ship)
 In-app auto-update via [Sparkle](https://github.com/sparkle-project/Sparkle) 2.x (added via SPM in the pbxproj, mirroring the FluidAudio reference). `SPUStandardUpdaterController` is owned by `AppDelegate` (`startingUpdater: true` → automatic background checks); the menu-bar "Check for Updates…" item triggers a manual check. Feed config lives in `Info.plist`: `SUFeedURL` → `https://github.com/itsHendri/Shhhcribble/releases/latest/download/appcast.xml`, `SUPublicEDKey` → the EdDSA **public** key.
 
@@ -187,6 +190,7 @@ Only required deadlock protection **if VP-for-BT is ever reintroduced** — VP t
 | `selectedParakeetModel` | String | `"parakeet-v3"` | Which FluidAudio model variant to load |
 | `selectedHotkeyID` | String | `"optSpace"` | Which preset hotkey is active |
 | `transcriptCleanupEnabled` | Bool | `false` | On-device LLM cleanup (Apple FoundationModels, macOS 26 + Apple Intelligence); falls back to `FillerWordFilter` on timeout/failure/unavailable |
+| `dictionaryEntries` | Data (JSON) | `[]` | Ordered whole-word phrase→replacement list (per-entry case sensitivity) applied to the raw transcript before cleanup/filler — see PersonalDictionary |
 | `transcriptionHistory` | Data (JSON) | `[]` | Last 10 transcriptions |
 
 Sparkle also manages its own `SU*` UserDefaults keys automatically (e.g. `SUEnableAutomaticChecks`, `SULastCheckTime`, `SUAutomaticallyUpdate`) — don't hand-edit them. `SUFeedURL` / `SUPublicEDKey` are **Info.plist** keys, not prefs (see the Sparkle decision above).
@@ -249,6 +253,8 @@ This project runs a **largely-autonomous research→build→verify loop** over t
 7. Honesty gate: pending smoke test / human decisions surfaced, never silently skipped.
 
 Iterate implement→review→fix up to ~3 rounds; if still failing or low-confidence, **stop and escalate** rather than loop. Use the **Workflow tool** for each sprint's implement→parallel-review→verify pipeline; keep a short loop-progress note here (current sprint / last done / next / blocker).
+
+**Loop progress (2026-06-10):** last done — XCTest target wired + CI test gate (warm-up), then Sprint 2 Personal Dictionary (this commit). Next — Sprint 4 (file transcription), then Sprint 5 (SQLite history + move `dictionaryEntries` into it). Blocker — none. Human gates outstanding: AirPods+Spotify hardware smoke test for the Sprint 2 paste-path change (⚠ PENDING), Developer ID cert for the Sparkle v1.6.1 release.
 
 ---
 

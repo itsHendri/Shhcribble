@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   process documented in `CLAUDE.md`.
 - XCTest unit-test target (`ShhhcribbleTests`) wired into the Xcode project with a
   shared scheme; CI now runs `xcodebuild test` (build + unit tests) on every push/PR.
+- **Personal Dictionary**: ordered phrase→replacement substitutions (whole-word,
+  per-entry case sensitivity) applied to the raw transcript before AI cleanup /
+  filler filtering, so corrected names and jargon reach the LLM and the paste.
+  Managed in Settings (add / edit / delete / reorder); stored under the new
+  `dictionaryEntries` pref.
 
 ### Fixed
 - First dictation on cold AirPods captured silence ("No speech detected") — the

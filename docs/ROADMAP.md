@@ -35,7 +35,9 @@ Removes the manual-DMG release friction. Both competitors ship auto-update.
 - Update CLAUDE.md release workflow (signing/notarization + appcast generation step).
 - **Acceptance:** a built `vX` updates itself to `vX+1` in-app on a test machine.
 
-## Sprint 2 — Personal Dictionary
+## Sprint 2 — Personal Dictionary — ✅ code complete (2026-06-10)
+
+**Status:** implemented via the autonomous loop; lands on `main` with the commit that carries this note (all QC gates passed at commit time). `PersonalDictionary.swift` (whole-word lookaround substitution, sequential in-order application, verbatim replacements), `dictionaryEntries` pref, Settings add/edit/delete/reorder UI, `PersonalDictionaryTests`. ⚠ hardware smoke test PENDING (paste-path change) — the acceptance dictation test is part of that human gate.
 
 Custom phrase→replacement (names, jargon). Universal competitor feature; a common Parakeet miss; composes with cleanup.
 - Data model: ordered `[DictionaryEntry{phrase, replacement, caseSensitive}]` in `ModelManager` (UserDefaults JSON to start; moves to SQLite in Sprint 5). New pref `dictionaryEntries`.

@@ -303,7 +303,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let text = try await transcriptionEngine.transcribe(audioSamples: samples)
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            var result = trimmed
+            // Personal-dictionary substitutions run on the RAW transcript,
+            // before AI cleanup / filler filtering, so the LLM sees the
+            // corrected terms (pipeline order: dictionary → cleanup|filler).
+            let corrected = PersonalDictionary.apply(ModelManager.dictionaryEntries, to: trimmed)
+            var result = corrected
             // On-device LLM cleanup (Apple FoundationModels) replaces the regex
             // filler filter when enabled + available. It handles fillers, false
             // starts, punctuation and capitalization in one pass. It runs to
@@ -311,12 +315,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // output, or an unavailable model, TranscriptCleaner.clean returns nil
             // and we fall back to FillerWordFilter — the always-on universal floor
             // (not a user setting; removed alongside the redundant Settings toggle).
-            if !trimmed.isEmpty,
+            if !corrected.isEmpty,
                ModelManager.transcriptCleanupEnabled,
-               let cleaned = await TranscriptCleaner.clean(trimmed), !cleaned.isEmpty {
+               let cleaned = await TranscriptCleaner.clean(corrected), !cleaned.isEmpty {
                 result = cleaned
             } else {
-                result = FillerWordFilter.filter(trimmed)
+                result = FillerWordFilter.filter(corrected)
             }
             textToInsert = result.isEmpty ? nil : result
         } catch {
@@ -371,7 +375,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if let text = try? await self.transcriptionEngine.transcribe(audioSamples: snapshot) {
                         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
-                            self.soundwavePanel.updateLiveText(trimmed)
+                            // Same dictionary pass as the final transcript so the
+                            // live preview shows the user's corrected terms.
+                            self.soundwavePanel.updateLiveText(
+                                PersonalDictionary.apply(ModelManager.dictionaryEntries, to: trimmed)
+                            )
                         }
                     }
                 }

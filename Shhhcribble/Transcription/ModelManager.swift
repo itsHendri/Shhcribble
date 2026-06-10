@@ -73,6 +73,29 @@ enum ModelManager {
         set { UserDefaults.standard.set(newValue, forKey: "transcriptCleanupEnabled") }
     }
 
+    // MARK: - Personal dictionary
+
+    private static let dictionaryKey = "dictionaryEntries"
+
+    /// Ordered phrase→replacement substitutions applied to the raw transcript
+    /// BEFORE AI cleanup / filler filtering, so the LLM sees corrected terms.
+    /// Order matters — see PersonalDictionary for the substitution semantics.
+    /// Persisted across launches via UserDefaults (JSON-encoded), no cap.
+    static var dictionaryEntries: [DictionaryEntry] = {
+        guard let data = UserDefaults.standard.data(forKey: dictionaryKey),
+              let decoded = try? JSONDecoder().decode([DictionaryEntry].self, from: data)
+        else { return [] }
+        return decoded
+    }() {
+        didSet { persistDictionary() }
+    }
+
+    private static func persistDictionary() {
+        if let data = try? JSONEncoder().encode(dictionaryEntries) {
+            UserDefaults.standard.set(data, forKey: dictionaryKey)
+        }
+    }
+
     // MARK: - Transcription history
 
     struct TranscriptionEntry: Codable {
