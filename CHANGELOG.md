@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removal is now cancellable, and the spinner/"Copied!" states re-present
   themselves if the panel was hidden. The soundwave bars also rest while
   off-screen instead of animating continuously.
+- Quick-tapping and speaking immediately on cold AirPods could yield "No speech
+  detected" (the words land in the unrecoverable mic warm-up window). A "Waking
+  mic… wait to speak" placeholder now appears when the route is still cold,
+  signalling the user to wait; it never shows on the warm path.
 
 ### Changed
 - Completion-sound playback is now logged (`os.Logger`, category `sound`) and its

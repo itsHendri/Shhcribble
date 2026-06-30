@@ -68,12 +68,18 @@ final class SoundwavePanel: NSPanel {
 
     // MARK: - Show / update / hide
 
-    func show() {
+    /// Present the pill in the `.warmingUp` state — a "wait to speak" placeholder
+    /// shown only when the mic route is still cold after a short grace period
+    /// (see AppDelegate.warmingUpPillDelay). On the warm path the recording pill
+    /// is shown directly by showRecording() and this is never called; on cold
+    /// AirPods it stays up until onReady so the user doesn't speak into the dead
+    /// window. Callers present this before showRecording() transitions it.
+    func showWarmingUp() {
         pendingHide?.cancel()
         pendingHide = nil
 
         positionAtTopCenter()
-        viewModel.state    = .recording
+        viewModel.state    = .warmingUp
         viewModel.liveText = ""
         viewModel.isVisible = false   // start collapsed so the spring has somewhere to come from
 
@@ -84,6 +90,21 @@ final class SoundwavePanel: NSPanel {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
                 self.viewModel.isVisible = true
             }
+        }
+    }
+
+    /// Transition the already-presented pill from `.warmingUp` to `.recording`
+    /// (the real "go" signal) once the input route is live. Does not re-run the
+    /// entry spring; re-presents only as a defensive fallback.
+    func showRecording() {
+        pendingHide?.cancel()
+        pendingHide = nil
+
+        representIfHidden()
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            viewModel.state    = .recording
+            viewModel.liveText = ""
         }
     }
 

@@ -45,6 +45,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingStartedByKeyDownAt: DispatchTime?
     private let holdThreshold: TimeInterval = 0.5
 
+    /// Cancellable "Waking mic…" placeholder. Only shown if the input route
+    /// hasn't gone live within `warmingUpPillDelay` — so the warm path (built-in
+    /// mic / warm AirPods, onReady in ~100–200 ms) shows the recording pill
+    /// directly with no flash, while a cold AirPods wake (onReady up to ~1.2 s)
+    /// gets the "wait to speak" placeholder. Cancelled by onReady.
+    private var warmingUpPillWorkItem: DispatchWorkItem?
+    private let warmingUpPillDelay: TimeInterval = 0.25
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("[Shhhcribble] App launched.")
 
@@ -177,19 +185,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Escape-to-cancel is armed immediately so the user can bail even during
         // a cold-AirPods warm-up.
         startEscapeMonitor()
+        // Show a "Waking mic…" placeholder ONLY if the route is still cold after a
+        // short grace period — this signals cold-AirPods users to *wait* instead of
+        // speaking into the dead route. The warm path (onReady in ~100–200 ms)
+        // cancels this before it fires, so it shows the recording pill directly with
+        // no flash. The real "go" signal (recording pill) always waits for onReady.
+        let warmItem = DispatchWorkItem { [weak self] in
+            guard let self, self.state == .recording else { return }
+            self.soundwavePanel.showWarmingUp()
+        }
+        warmingUpPillWorkItem = warmItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + warmingUpPillDelay, execute: warmItem)
         audioRecorder.start(
             levelCallback: { [weak self] level in
                 self?.soundwavePanel.updateLevel(level)
             },
-            // Show the pill — the "go" signal — only once the input route is
+            // Show/flip to the recording "go" state once the input route is
             // physically live. On AirPods sitting in A2DP the mic has 0 channels
             // until IO drives the A2DP→HFP switch; speaking before then is
             // captured as unrecoverable silence ("first record is silent" glitch).
-            // The warm path (built-in mic / warm AirPods) fires this on the first
-            // poll, so there's no perceptible delay there.
+            // showRecording() presents the pill if the placeholder never showed
+            // (warm path) or transitions it from .warmingUp (cold path).
             onReady: { [weak self] in
                 guard let self, self.state == .recording else { return }
-                self.soundwavePanel.show()
+                self.warmingUpPillWorkItem?.cancel()
+                self.warmingUpPillWorkItem = nil
+                self.soundwavePanel.showRecording()
                 self.startLiveTranscription()
             },
             onError: { [weak self] message in
