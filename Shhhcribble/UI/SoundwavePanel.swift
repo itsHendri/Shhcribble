@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import SwiftUI
+import os
 
 /// A borderless, always-on-top floating NSPanel that hosts the soundwave animation.
 /// It never steals keyboard focus (.nonactivatingPanel) and follows the user across
@@ -16,7 +17,14 @@ final class SoundwavePanel: NSPanel {
 
     private let viewModel: SoundwaveViewModel
 
-    /// Cancellable auto-hide work item (used by showCopied).
+    /// Diagnostics — tail with:
+    /// `log stream --predicate 'subsystem == "com.shhhcribble.app"'`
+    private static let log = Logger(subsystem: "com.shhhcribble.app", category: "sound")
+
+    /// Cancellable work item for any *deferred* panel mutation — the showCopied/
+    /// showNoResult/showError auto-hide AND hide()'s deferred orderOut. Storing
+    /// the orderOut here (rather than a raw asyncAfter) lets any re-present path
+    /// cancel it, so a stale orderOut can't yank a freshly shown pill off-screen.
     private var pendingHide: DispatchWorkItem?
 
     /// Pre-loaded at init so play() fires with zero initialization latency.
@@ -25,7 +33,7 @@ final class SoundwavePanel: NSPanel {
                                         withExtension: "mp3"),
               let player = try? AVAudioPlayer(contentsOf: url)
         else {
-            print("[Shhhcribble] ⚠️ completion sound not found in bundle — expected: shhhcribble-scribble-sound.mp3")
+            SoundwavePanel.log.error("Completion sound not found in bundle — expected: shhhcribble-scribble-sound.mp3")
             return nil
         }
         player.enableRate = true
@@ -80,8 +88,20 @@ final class SoundwavePanel: NSPanel {
     }
 
     func playCompletionSound() {
-        completionPlayer?.currentTime = 0
-        completionPlayer?.play()
+        guard let player = completionPlayer else {
+            Self.log.error("Completion sound skipped — player unavailable (resource missing at init).")
+            return
+        }
+        player.currentTime = 0
+        // play() returns false on a start/prepare failure. Logging the result
+        // distinguishes "never started" from "started but inaudible" (the latter
+        // points at the output route switching mid-playback — see the
+        // completion-sound decision in CLAUDE.md / the live-diagnosis path).
+        if player.play() {
+            Self.log.notice("Completion sound play() started.")
+        } else {
+            Self.log.error("Completion sound play() returned false — not audible.")
+        }
     }
 
     /// Transition the (already-visible) recording pill into a persistent
@@ -94,6 +114,11 @@ final class SoundwavePanel: NSPanel {
         pendingHide?.cancel()
         pendingHide = nil
 
+        // Re-present if the panel isn't on screen (e.g. a cold-AirPods quick
+        // tap-stop reached here before show()'s entry ran) so the spinner is
+        // never mutated into an off-screen window. Same recovery as showError.
+        representIfHidden()
+
         withAnimation(.easeInOut(duration: 0.3)) {
             viewModel.state    = .transcribing
             viewModel.liveText = ""
@@ -103,14 +128,36 @@ final class SoundwavePanel: NSPanel {
     func showCopied() {
         pendingHide?.cancel()
 
+        representIfHidden()
+
         withAnimation(.easeInOut(duration: 0.35)) {
             viewModel.state    = .copied
             viewModel.liveText = ""
         }
 
+        scheduleHide(after: 1.0)
+    }
+
+    /// Bring the panel back on screen with the spring entry if it isn't visible.
+    /// No-op when already visible. Used by every `show*` recovery path so a
+    /// state mutation never lands on an off-screen window.
+    private func representIfHidden() {
+        guard !viewModel.isVisible else { return }
+        positionAtTopCenter()
+        viewModel.isVisible = false
+        orderFront(nil)
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                self.viewModel.isVisible = true
+            }
+        }
+    }
+
+    /// Schedule the auto-hide as a cancellable item so a re-present cancels it.
+    private func scheduleHide(after seconds: TimeInterval) {
         let item = DispatchWorkItem { [weak self] in self?.hide() }
         pendingHide = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
     }
 
     /// Replace a previous `.copied` state with a neutral "No speech detected"
@@ -120,25 +167,14 @@ final class SoundwavePanel: NSPanel {
     func showNoResult() {
         pendingHide?.cancel()
 
-        if !viewModel.isVisible {
-            positionAtTopCenter()
-            viewModel.isVisible = false
-            orderFront(nil)
-            DispatchQueue.main.async {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-                    self.viewModel.isVisible = true
-                }
-            }
-        }
+        representIfHidden()
 
         withAnimation(.easeInOut(duration: 0.25)) {
             viewModel.state    = .noResult
             viewModel.liveText = ""
         }
 
-        let item = DispatchWorkItem { [weak self] in self?.hide() }
-        pendingHide = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
+        scheduleHide(after: 1.0)
     }
 
 
@@ -147,27 +183,16 @@ final class SoundwavePanel: NSPanel {
     func showError(_ message: String) {
         pendingHide?.cancel()
 
-        // If the panel isn't on screen yet, bring it in with the same spring entry
-        // used by show() so the error is visible even when recording never started.
-        if !viewModel.isVisible {
-            positionAtTopCenter()
-            viewModel.isVisible = false
-            orderFront(nil)
-            DispatchQueue.main.async {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-                    self.viewModel.isVisible = true
-                }
-            }
-        }
+        // Bring the panel in (if needed) so the error is visible even when
+        // recording never started.
+        representIfHidden()
 
         withAnimation(.easeInOut(duration: 0.25)) {
             viewModel.state    = .error(message)
             viewModel.liveText = ""
         }
 
-        let item = DispatchWorkItem { [weak self] in self?.hide() }
-        pendingHide = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: item)
+        scheduleHide(after: 1.6)
     }
 
     func updateLevel(_ level: Float) {
@@ -181,22 +206,29 @@ final class SoundwavePanel: NSPanel {
 
     func hide() {
         pendingHide?.cancel()
-        pendingHide = nil
 
         // Exit animation: spring back up and shrink — reverse of entry
         withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
             viewModel.isVisible = false
         }
 
-        // Remove the window after the spring has settled
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        // Remove the window after the spring settles — but store the work item
+        // in pendingHide (cancellable) rather than firing a raw asyncAfter. A
+        // re-present within this 0.3s window (show / showTranscribing /
+        // showCopied / showNoResult / showError all call pendingHide?.cancel())
+        // cancels it; otherwise a stale orderOut would yank a freshly shown pill
+        // off-screen and reset state to .hidden — the open/close glitch.
+        let item = DispatchWorkItem { [weak self] in
             self?.orderOut(nil)
             MainActor.assumeIsolated {
-                self?.viewModel.state     = .hidden
-                self?.viewModel.liveText  = ""
+                self?.viewModel.state      = .hidden
+                self?.viewModel.liveText   = ""
                 self?.viewModel.audioLevel = 0
+                self?.pendingHide          = nil
             }
         }
+        pendingHide = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
     }
 
     // MARK: - Positioning

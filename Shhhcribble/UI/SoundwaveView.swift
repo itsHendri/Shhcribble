@@ -137,7 +137,7 @@ struct SoundwaveView: View {
                         Spacer()
 
                     case .hidden:
-                        SoundwaveBars(audioLevel: 0)
+                        SoundwaveBars(audioLevel: 0, isActive: false)
                             .frame(width: 36)
                         Spacer()
                     }
@@ -355,8 +355,13 @@ struct ScrollingLiveText: View {
 
 struct SoundwaveBars: View {
     let audioLevel: Double
+    /// When false the bars rest at their baseline and skip per-tick recompute.
+    /// Set false for the off-screen `.hidden` state so the panel doesn't churn
+    /// ~20 Hz while idle, and so a fresh recording always enters from rest.
+    var isActive: Bool = true
 
     private let barCount = 7
+    private let restHeight: CGFloat = 4
 
     @State private var heights: [CGFloat] = Array(repeating: 4, count: 7)
     @State private var phase: Double = 0
@@ -374,12 +379,19 @@ struct SoundwaveBars: View {
         }
         .frame(height: 36)
         .onReceive(timer) { _ in
+            guard isActive else {
+                // Idle: settle to baseline once, then do nothing each tick.
+                if heights.contains(where: { $0 != restHeight }) {
+                    heights = Array(repeating: restHeight, count: barCount)
+                }
+                return
+            }
             phase += 0.35
             for i in 0..<barCount {
                 let wave = sin(phase + Double(i) * 0.75)
                 let normalised = 0.65 + 0.35 * wave
                 let level = max(audioLevel, 0.05)
-                heights[i] = 4 + CGFloat(level * 32 * normalised)
+                heights[i] = restHeight + CGFloat(level * 32 * normalised)
             }
         }
     }

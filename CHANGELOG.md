@@ -29,6 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - First dictation on cold AirPods captured silence ("No speech detected") — the
   recording "go" signal now waits for the mic route to warm up.
 - Crash when starting a recording before the mic route was ready.
+- Floating recording pill could flicker, vanish, or appear blank when a recording
+  started shortly after the previous one closed — the panel's deferred window
+  removal is now cancellable, and the spinner/"Copied!" states re-present
+  themselves if the panel was hidden. The soundwave bars also rest while
+  off-screen instead of animating continuously.
+
+### Changed
+- Completion-sound playback is now logged (`os.Logger`, category `sound`) and its
+  `play()` result checked, so a silent failure is diagnosable.
 
 > Not yet released. Becomes the first notarized, Sparkle-enabled build (planned **v1.6.1**).
 
