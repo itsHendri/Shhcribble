@@ -181,10 +181,9 @@ final class SoundwavePanel: NSPanel {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
     }
 
-    /// Replace a previous `.copied` state with a neutral "No speech detected"
-    /// acknowledgement. Used when transcription came back empty — corrects
-    /// the optimistic "Copied!" shown at hotkey release. Re-presents the
-    /// panel if it's already faded (transcription took >1.6s).
+    /// Replace the persistent `.transcribing` pill with a neutral "No speech
+    /// detected" acknowledgement when the final transcript came back empty.
+    /// Re-presents the panel if it was hidden, then auto-hides.
     func showNoResult() {
         pendingHide?.cancel()
 
@@ -198,6 +197,23 @@ final class SoundwavePanel: NSPanel {
         scheduleHide(after: 1.0)
     }
 
+
+    /// Present a transient neutral informational message near the cursor — e.g.
+    /// "Getting ready…" when the hotkey is pressed before the model has finished
+    /// loading, so the user sees why nothing happened instead of only a menu-bar
+    /// tint. Re-presents if hidden, then auto-hides.
+    func showInfo(_ message: String) {
+        pendingHide?.cancel()
+
+        representIfHidden()
+
+        withAnimation(.easeInOut(duration: 0.25)) {
+            viewModel.state    = .info(message)
+            viewModel.liveText = ""
+        }
+
+        scheduleHide(after: 1.6)
+    }
 
     /// Show a transient error message in the pill (e.g. "No microphone detected").
     /// Presents the panel if hidden, then auto-hides after 2s.
@@ -255,7 +271,15 @@ final class SoundwavePanel: NSPanel {
     // MARK: - Positioning
 
     private func positionAtTopCenter() {
-        guard let screen = NSScreen.main else { return }
+        // Prefer the display the user is actually working on — the one under the
+        // pointer — then NSScreen.main, then any screen. Only bail if there are
+        // literally no displays (headless), which can't happen while a user is
+        // dictating into a focused field. NSScreen.main alone put the pill on the
+        // wrong monitor when the key-window display wasn't where the user was typing.
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) })
+                ?? NSScreen.main
+                ?? NSScreen.screens.first else { return }
         let screenFrame  = screen.visibleFrame
         let panelWidth:  CGFloat = 400
         let panelHeight: CGFloat = 136

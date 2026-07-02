@@ -9,6 +9,7 @@ enum RecordingUIState: Equatable {
     case transcribing   // post-release: transcribing + (optional) on-device AI cleanup in progress
     case copied
     case noResult
+    case info(String)   // neutral transient message (e.g. "Getting ready…" while the model loads)
     case error(String)
 }
 
@@ -136,6 +137,13 @@ struct SoundwaveView: View {
                             .foregroundColor(.white.opacity(0.7))
                         Spacer()
 
+                    case .info(let message):
+                        Text(message)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white.opacity(0.85))
+                            .lineLimit(1)
+                        Spacer()
+
                     case .error(let message):
                         Text(message)
                             .font(.system(size: 13, weight: .medium))
@@ -178,6 +186,7 @@ struct SoundwaveView: View {
         switch viewModel.state {
         case .copied:   return "checkmark.circle.fill"
         case .noResult: return "waveform.slash"
+        case .info:     return "info.circle.fill"
         case .error:    return "exclamationmark.triangle.fill"
         default:        return "mic.fill"
         }
@@ -198,6 +207,7 @@ struct SoundwaveView: View {
         case .transcribing: return Color(red: 0.65, green: 0.50, blue: 1.0)  // violet = on-device AI working
         case .copied:       return .green
         case .noResult:     return .white.opacity(0.3)
+        case .info:         return .white.opacity(0.45)
         case .error:        return Color(red: 1.0, green: 0.45, blue: 0.45)
         case .hidden:       return .clear
         }

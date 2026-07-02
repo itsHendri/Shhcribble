@@ -23,10 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Info.plist (`SUFeedURL` / `SUPublicEDKey`).
     private var updaterController: SPUStandardUpdaterController!
 
-    /// Internal recording state machine. `.transcribing` is a brief window
-    /// between hotkey release and transcription completion — never surfaced in
-    /// the pill (the UI flips optimistically to `.copied` on release); its
-    /// only job is to block hotkey re-entry while the engine is still working.
+    /// Internal recording state machine. `.transcribing` covers the window from
+    /// hotkey release through transcription + optional cleanup; it IS surfaced as
+    /// the persistent "Transcribing…" spinner pill (which flips to `.copied` only
+    /// once the paste lands). It is set immediately on entry to `endRecording()`
+    /// so a re-entrant hotkey/Escape during the work is ignored.
     private enum AppState { case idle, recording, transcribing }
     private var state: AppState = .idle
 
@@ -136,6 +137,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard state == .idle else { return }
         guard transcriptionEngine.isReady else {
             print("[Shhhcribble] Model not ready: \(transcriptionEngine.statusText)")
+            // Near-cursor feedback so a first-launch press during model load
+            // isn't silently dropped with only an easy-to-miss menu-bar tint.
+            soundwavePanel.showInfo("Getting ready — try again in a moment")
             menuBarController.flashNotReady()
             return
         }
@@ -270,7 +274,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func endRecording() async {
         guard state == .recording else { return }
+
+        // Leave .recording IMMEDIATELY — before any await below — so a second
+        // hotkey event or an Escape landing during the live-task cancellation
+        // (which can take hundreds of ms to >1s) hits the .transcribing branch
+        // and is ignored. endRecording() is otherwise re-entrant across
+        // `await liveTask?.value` and could double-transcribe/paste or slip an
+        // Escape-cancel through against the already-ending recording.
+        state = .transcribing
+        recordingStartedByKeyDownAt = nil
         stopEscapeMonitor()
+        menuBarController.setRecordingIndicator(active: false)
 
         // Fire the scribble sound the instant the user releases / second-taps,
         // before transcription runs. Gives immediate audible confirmation
@@ -278,6 +292,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // breath-only). This is the single source of audible feedback per
         // recording — see SoundwavePanel.playCompletionSound() docs.
         soundwavePanel.playCompletionSound()
+
+        // Show a persistent "Transcribing…" state while the final transcribe +
+        // optional on-device AI cleanup run. Because cleanup runs to completion
+        // (no timeout), this honestly reflects work happening in the background
+        // instead of an optimistic "Copied!" that lands before the paste is real.
+        // It stays up — no auto-hide — until showCopied (after paste lands),
+        // showNoResult, or showError replaces it below.
+        soundwavePanel.showTranscribing()
 
         // Cancel the live-preview polling task AND wait for it to actually
         // finish before invoking the final batch transcribe below.
@@ -293,18 +315,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = await liveTask?.value
             Self.log.notice("Live-preview task settled — proceeding to final transcribe.")
         }
-
-        recordingStartedByKeyDownAt = nil
-        state = .transcribing
-        menuBarController.setRecordingIndicator(active: false)
-
-        // Show a persistent "Transcribing…" state while the final transcribe +
-        // optional on-device AI cleanup run. Because cleanup runs to completion
-        // (no timeout), this honestly reflects work happening in the background
-        // instead of an optimistic "Copied!" that lands before the paste is real.
-        // It stays up — no auto-hide — until showCopied (after paste lands),
-        // showNoResult, or showError replaces it below.
-        soundwavePanel.showTranscribing()
 
         // Keep recording for a short tail so the last word isn't clipped.
         // Speech typically trails 200-400ms after the speaker "finishes".

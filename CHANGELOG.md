@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detected" (the words land in the unrecoverable mic warm-up window). A "Waking
   mic… wait to speak" placeholder now appears when the route is still cold,
   signalling the user to wait; it never shows on the warm path.
+- Pressing the hotkey right after launch, while the model was still loading,
+  silently dropped the recording with feedback only in the menu bar. A near-cursor
+  "Getting ready — try again in a moment" pill now explains why nothing happened.
+- A fast second hotkey press (or Escape) as a recording ended could double-paste,
+  duplicate a history entry, or slip past Escape-cancel — `endRecording()` now
+  leaves the recording state before it awaits, so re-entrant events are ignored.
+- The floating pill could appear on the wrong display on multi-monitor setups; it
+  now shows on the display under the pointer.
 
 ### Changed
 - Completion-sound playback is now logged (`os.Logger`, category `sound`) and its
