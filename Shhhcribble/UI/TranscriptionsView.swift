@@ -208,6 +208,7 @@ private struct TranscriptDetail: View {
     @State private var showingDeleteConfirm = false
     @State private var isSummarizing = false
     @State private var summaryError: String?
+    @State private var didPrewarm = false
     enum Tab: Hashable { case transcript, summary }
 
     var body: some View {
@@ -373,7 +374,13 @@ private struct TranscriptDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
-        .onAppear { TranscriptSummarizer.prewarm() }
+        .onAppear {
+            // Warm the model once per opened transcript, not on every tab toggle
+            // (each prewarm allocates a fresh LanguageModelSession).
+            guard !didPrewarm else { return }
+            didPrewarm = true
+            TranscriptSummarizer.prewarm()
+        }
     }
 
     private var metaLine: String {

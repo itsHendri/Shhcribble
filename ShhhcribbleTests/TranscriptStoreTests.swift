@@ -216,6 +216,26 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertEqual(reopened.transcripts.first?.actionItems, ["do it"])
     }
 
+    func testMigrationHealsPartiallyAppliedSchema() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        // Simulate a migration that was interrupted after adding only `summary`
+        // (user_version still 0). Re-opening must add ONLY the missing columns —
+        // not fail on "duplicate column name" for `summary` — and then bump to 1.
+        let existingID = UUID()
+        seedOldSchemaDB(at: path, id: existingID, extraColumns: ["summary TEXT"])
+
+        let store = TranscriptStore(path: path)
+        XCTAssertEqual(store.transcripts.count, 1)
+        XCTAssertEqual(userVersion(at: path), 1)
+        // All summary columns now usable end to end.
+        store.updateSummary(id: existingID, summary: "healed", actionItems: ["a", "b"])
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.transcripts.first?.summary, "healed")
+        XCTAssertEqual(reopened.transcripts.first?.actionItems, ["a", "b"])
+    }
+
     // MARK: - Helpers
 
     private func tempDBPath() -> String {
@@ -225,7 +245,7 @@ final class TranscriptStoreTests: XCTestCase {
 
     /// Creates a database matching the original (pre-summary) schema so the
     /// migration path can be exercised against a realistic upgrade.
-    private func seedOldSchemaDB(at path: String, id: UUID) {
+    private func seedOldSchemaDB(at path: String, id: UUID, extraColumns: [String] = []) {
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
         defer { sqlite3_close(db) }
@@ -237,6 +257,10 @@ final class TranscriptStoreTests: XCTestCase {
         );
         """
         XCTAssertEqual(sqlite3_exec(db, create, nil, nil, nil), SQLITE_OK)
+        // Optionally pre-add some of the v1 columns to model a partial migration.
+        for column in extraColumns {
+            XCTAssertEqual(sqlite3_exec(db, "ALTER TABLE transcripts ADD COLUMN \(column);", nil, nil, nil), SQLITE_OK)
+        }
         let insert = """
         INSERT INTO transcripts (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec)
         VALUES ('\(id.uuidString)', 1000.0, 'dictation', 'Legacy', 'legacy body', 'legacy raw', NULL, NULL, NULL);

@@ -231,21 +231,59 @@ final class TranscriptStore: ObservableObject {
     /// at version 0, so it takes the same `ALTER TABLE` path as an upgrade —
     /// one code path, no CREATE/ALTER divergence.
     ///
+    /// Each column is added only if it's missing (checked via `PRAGMA
+    /// table_info`), and `user_version` is bumped **only once every required
+    /// column is present**. So a migration interrupted partway (e.g. an `ALTER`
+    /// failing on a full disk) leaves the version unbumped and *heals* on the
+    /// next launch instead of either deadlocking on "duplicate column name" or
+    /// marking a half-migrated DB done — which would break every later
+    /// insert/reload with "no such column".
+    ///
     /// v1: summary columns (summary, actionItems JSON, summaryGeneratedAt).
     private func migrateSchema() {
         guard db != nil else { return }
         var version: Int32 = 0
         forEachRow("PRAGMA user_version;") { stmt in version = sqlite3_column_int(stmt, 0) }
+        guard version < 1 else { return }
 
-        if version < 1 {
-            exec("ALTER TABLE transcripts ADD COLUMN summary TEXT;", bind: nil)
-            exec("ALTER TABLE transcripts ADD COLUMN actionItems TEXT;", bind: nil)
-            exec("ALTER TABLE transcripts ADD COLUMN summaryGeneratedAt REAL;", bind: nil)
-            exec("PRAGMA user_version = 1;", bind: nil)
-            log.notice("Migrated schema to v1 (summary columns).")
+        let existing = existingColumns(of: "transcripts")
+        let additions: [(name: String, type: String)] = [
+            ("summary", "TEXT"),
+            ("actionItems", "TEXT"),
+            ("summaryGeneratedAt", "REAL"),
+        ]
+        // Column names/types are code literals, not user input — safe to inline.
+        var allAdded = true
+        for column in additions where !existing.contains(column.name) {
+            if !exec("ALTER TABLE transcripts ADD COLUMN \(column.name) \(column.type);", bind: nil) {
+                allAdded = false
+            }
         }
+        guard allAdded else {
+            log.error("Schema v1 migration incomplete; leaving user_version at \(version) to retry next launch.")
+            return
+        }
+        exec("PRAGMA user_version = 1;", bind: nil)
+        log.notice("Migrated schema to v1 (summary columns).")
     }
 
+    /// Column names currently present on a table, via `PRAGMA table_info` (name
+    /// is column index 1). Used to make `ALTER TABLE ADD COLUMN` idempotent.
+    private func existingColumns(of table: String) -> Set<String> {
+        var names: Set<String> = []
+        forEachRow("PRAGMA table_info(\(table));") { stmt in
+            if let name = Self.columnText(stmt, 1) { names.insert(name) }
+        }
+        return names
+    }
+
+    // NOTE: `INSERT OR REPLACE` writes all 12 columns, so calling this with an
+    // already-stored `id` would overwrite its summary columns with the passed
+    // Transcript's values (nil/empty for a freshly built one). Safe today —
+    // every `add()` path mints a new UUID and summaries are written via
+    // `updateSummary` (UPDATE, not insert). A future "edit/re-save" path must
+    // NOT round-trip an existing row through `add()`/`insert()` or it will wipe
+    // the summary; add a dedicated update instead.
     @discardableResult
     private func insert(_ t: Transcript) -> Bool {
         exec("""
