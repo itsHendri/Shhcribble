@@ -102,6 +102,50 @@ final class TranscriptionEngine: ObservableObject {
         return text
     }
 
+    // MARK: - File transcription
+
+    struct FileTranscriptionResult {
+        let text: String
+        let duration: TimeInterval
+    }
+
+    /// Transcribe an audio file URL. Delegates to FluidAudio's
+    /// `AsrManager.transcribe(_ url:)`, which **auto-routes to the memory-safe
+    /// disk-backed path** above ~30 s — so one call handles a 10-second clip and
+    /// a 2-hour recording alike. `progress` (0→1) is best-effort: FluidAudio only
+    /// emits for long files, and any failure to observe it never blocks the
+    /// transcription itself.
+    ///
+    /// The caller (FileTranscriber) is responsible for ensuring no live dictation
+    /// is running — the shared `AsrManager` decoder state is not safe to use from
+    /// two transcriptions at once.
+    func transcribeFile(url: URL, progress: ((Double) -> Void)? = nil) async throws -> FileTranscriptionResult {
+        guard let asr = asrManager else { throw TranscriptionError.notLoaded }
+
+        // Observe determinate progress in a sibling task. `transcriptionProgressStream`
+        // opens a session on access (one at a time) and only emits for >~15 s of
+        // audio; wrapped in try? so a missing/failed stream degrades to indeterminate.
+        var progressTask: Task<Void, Never>?
+        if let progress {
+            progressTask = Task {
+                let stream = await asr.transcriptionProgressStream
+                do {
+                    for try await value in stream {
+                        if Task.isCancelled { break }
+                        await MainActor.run { progress(value) }
+                    }
+                } catch {
+                    // Progress is best-effort; a failed stream just means the
+                    // UI stays indeterminate. Never surfaces to the user.
+                }
+            }
+        }
+        defer { progressTask?.cancel() }
+
+        let result = try await asr.transcribe(url, source: .system)
+        return FileTranscriptionResult(text: result.text, duration: result.duration)
+    }
+
     // MARK: - Helpers
 
     private let targetSampleRate: Double = 16_000

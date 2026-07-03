@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 
 @MainActor
 protocol MenuBarControllerDelegate: AnyObject {
@@ -7,31 +6,25 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerDidRequestCheckForUpdates(_ controller: MenuBarController)
     func menuBarControllerDidRequestQuit(_ controller: MenuBarController)
     func menuBarControllerDidRequestRepaste(_ controller: MenuBarController, text: String)
+    func menuBarControllerDidRequestTranscribeFile(_ controller: MenuBarController)
+    func menuBarControllerDidRequestOpenTranscriptions(_ controller: MenuBarController)
 }
 
-/// Owns the NSStatusItem (menu bar icon) and rebuilds the menu whenever
-/// the TranscriptionEngine's loading state changes.
+/// Owns the NSStatusItem (menu-bar icon). Clicking the icon (left or right)
+/// opens the main Transcriptions window — every action (settings, quit, recent,
+/// engine status, transcribe file) lives in that window now, so there is no
+/// dropdown menu to maintain.
 @MainActor
 final class MenuBarController: NSObject {
 
     private var statusItem: NSStatusItem!
-    private let transcriptionEngine: TranscriptionEngine
     weak var delegate: MenuBarControllerDelegate?
-
-    private var cancellables = Set<AnyCancellable>()
     private var isRecording = false
 
-    init(transcriptionEngine: TranscriptionEngine, delegate: MenuBarControllerDelegate) {
-        self.transcriptionEngine = transcriptionEngine
+    init(delegate: MenuBarControllerDelegate) {
         self.delegate = delegate
         super.init()
         setupStatusItem()
-
-        // Rebuild menu whenever the engine status changes
-        transcriptionEngine.$loadingState
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.rebuildMenu() }
-            .store(in: &cancellables)
     }
 
     // MARK: - Setup
@@ -39,123 +32,21 @@ final class MenuBarController: NSObject {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         updateButtonImage(recording: false)
-        rebuildMenu()
+        if let button = statusItem.button {
+            button.action = #selector(iconClicked)
+            button.target = self
+            // Respond to either mouse button — one click, one action.
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
     }
 
-    // MARK: - Menu
-
-    func rebuildMenu() {
-        let menu = NSMenu()
-
-        // Header
-        let header = NSMenuItem(title: "Shhhcribble", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-
-        // Engine status
-        let status = NSMenuItem(title: transcriptionEngine.statusText, action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
-
-        // Usage hint (uses the currently selected hotkey symbol)
-        if transcriptionEngine.isReady {
-            let symbol = ModelManager.selectedHotkey.symbol
-            let hintString = "Tap \(symbol) to start · tap again · or hold & release"
-            let hint = NSMenuItem(title: hintString, action: nil, keyEquivalent: "")
-            hint.isEnabled = false
-            hint.attributedTitle = NSAttributedString(
-                string: hintString,
-                attributes: [.font: NSFont.systemFont(ofSize: 11),
-                             .foregroundColor: NSColor.secondaryLabelColor])
-            menu.addItem(hint)
-        }
-
-        menu.addItem(.separator())
-
-        // Recent Transcriptions submenu
-        if !ModelManager.history.isEmpty {
-            let historyItem = NSMenuItem(title: "Recent Transcriptions", action: nil, keyEquivalent: "")
-            let historyMenu = NSMenu()
-
-            // Title header
-            let titleItem = NSMenuItem(title: "Recent Transcriptions", action: nil, keyEquivalent: "")
-            titleItem.isEnabled = false
-            titleItem.attributedTitle = NSAttributedString(
-                string: "Recent Transcriptions",
-                attributes: [.font: NSFont.boldSystemFont(ofSize: 13),
-                             .foregroundColor: NSColor.labelColor])
-            historyMenu.addItem(titleItem)
-
-            // Description
-            let descItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-            descItem.isEnabled = false
-            descItem.attributedTitle = NSAttributedString(
-                string: "Click any item to copy & paste it.",
-                attributes: [.font: NSFont.systemFont(ofSize: 11),
-                             .foregroundColor: NSColor.secondaryLabelColor])
-            historyMenu.addItem(descItem)
-
-            historyMenu.addItem(.separator())
-
-            // History entries with clipboard icon
-            let clipIcon = NSImage(systemSymbolName: "doc.on.clipboard",
-                                   accessibilityDescription: "Paste")
-            for entry in ModelManager.history {
-                let item = NSMenuItem(title: entry.menuTitle,
-                                     action: #selector(repaste(_:)),
-                                     keyEquivalent: "")
-                item.representedObject = entry.text
-                item.image = clipIcon
-                item.target = self
-                historyMenu.addItem(item)
-            }
-
-            historyMenu.addItem(.separator())
-            let clearItem = NSMenuItem(title: "Clear History",
-                                       action: #selector(clearHistory),
-                                       keyEquivalent: "")
-            clearItem.target = self
-            historyMenu.addItem(clearItem)
-
-            historyItem.submenu = historyMenu
-            menu.addItem(historyItem)
-            menu.addItem(.separator())
-        }
-
-        // Settings
-        let settingsItem = NSMenuItem(title: "Settings…",
-                                      action: #selector(openSettings),
-                                      keyEquivalent: ",")
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-
-        // Check for Updates (Sparkle) — only when Sparkle is linked into the
-        // build. It's currently detached so the app can ship as a plain ad-hoc
-        // DMG without a Developer ID cert; re-adding the package restores this
-        // item automatically. See CLAUDE.md "Sparkle auto-update".
-        #if canImport(Sparkle)
-        let updatesItem = NSMenuItem(title: "Check for Updates…",
-                                     action: #selector(checkForUpdates),
-                                     keyEquivalent: "")
-        updatesItem.target = self
-        menu.addItem(updatesItem)
-
-        menu.addItem(.separator())
-        #endif
-
-        // Quit
-        let quitItem = NSMenuItem(title: "Quit Shhhcribble",
-                                  action: #selector(quit),
-                                  keyEquivalent: "q")
-        quitItem.target = self
-        menu.addItem(quitItem)
-
-        statusItem.menu = menu
+    @objc private func iconClicked() {
+        delegate?.menuBarControllerDidRequestOpenTranscriptions(self)
     }
 
     // MARK: - Recording indicator
 
-    /// Briefly tints the menu bar icon orange to signal "not ready yet"
+    /// Briefly tints the menu bar icon orange to signal "not ready yet".
     func flashNotReady() {
         guard let button = statusItem.button else { return }
         button.contentTintColor = .systemOrange
@@ -187,29 +78,5 @@ final class MenuBarController: NSObject {
         image?.isTemplate = !recording   // template = macOS handles dark/light tinting
         button.image = image
         button.contentTintColor = recording ? .systemRed : nil
-    }
-
-    // MARK: - Actions
-
-    @objc private func openSettings() {
-        delegate?.menuBarControllerDidRequestSettings(self)
-    }
-
-    @objc private func checkForUpdates() {
-        delegate?.menuBarControllerDidRequestCheckForUpdates(self)
-    }
-
-    @objc private func quit() {
-        delegate?.menuBarControllerDidRequestQuit(self)
-    }
-
-    @objc private func repaste(_ sender: NSMenuItem) {
-        guard let text = sender.representedObject as? String else { return }
-        delegate?.menuBarControllerDidRequestRepaste(self, text: text)
-    }
-
-    @objc private func clearHistory() {
-        ModelManager.clearHistory()
-        rebuildMenu()
     }
 }

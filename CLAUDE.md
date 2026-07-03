@@ -25,9 +25,12 @@ Shhhcribble/
 ├── HotKey/
 │   └── HotKeyMonitor.swift       ← Carbon RegisterEventHotKey (no Input Monitoring needed)
 ├── Transcription/
-│   ├── TranscriptionEngine.swift ← FluidAudio AsrManager wrapper
-│   ├── ModelManager.swift        ← Static registry: models, hotkeys, prefs, history
+│   ├── TranscriptionEngine.swift ← FluidAudio AsrManager wrapper (+ transcribeFile URL path)
+│   ├── ModelManager.swift        ← Static registry: models, hotkeys, prefs
+│   ├── FileTranscriber.swift     ← File/video transcription coordinator (queue, serial vs dictation)
 │   └── FillerWordFilter.swift    ← Regex strip of "um", "uh", etc.
+├── Storage/
+│   └── TranscriptStore.swift     ← SQLite transcript library (dictation + file); replaces cap-10 history
 ├── TextInsertion/
 │   └── TextInserter.swift        ← AX direct insert → Cmd+V fallback → clipboard fallback
 ├── UI/
@@ -35,7 +38,9 @@ Shhhcribble/
 │   ├── SoundwaveView.swift       ← SwiftUI pill animation
 │   ├── MenuBarController.swift   ← NSStatusItem + menu rebuilds
 │   ├── SettingsView.swift        ← Settings form (SwiftUI)
-│   └── SettingsWindowController.swift
+│   ├── SettingsWindowController.swift
+│   ├── TranscriptionsView.swift  ← Transcription Studio window (rail + list + tabbed detail)
+│   └── TranscriptionsWindowController.swift
 └── Resources/
     ├── Info.plist                ← CFBundleShortVersionString is the single source of truth for the About string
     ├── Shhhcribble.entitlements
@@ -124,8 +129,23 @@ There is no activation-mode setting. `AppDelegate` measures how long the hotkey 
 ### About version reads from Info.plist
 `CFBundleShortVersionString` is the single source of truth. Settings → About reads it dynamically; no hardcoded string to bump.
 
-### History persisted via UserDefaults, cap 10
-Survives relaunch via JSON-encoded `[TranscriptionEntry]` under `"transcriptionHistory"`. Cap chosen for menu readability.
+### Transcript history: SQLite `TranscriptStore` (was cap-10 UserDefaults)
+All transcripts — dictation *and* file — persist in [Storage/TranscriptStore.swift](Shhhcribble/Storage/TranscriptStore.swift), a `@MainActor ObservableObject` wrapping a **thin hand-rolled `libsqlite3` layer** (`import SQLite3` — the system module auto-links the dylib via its module map; **no SPM dependency, no embedded framework**, which is what keeps the ad-hoc DMG shippable — see the Sparkle decision). One row per transcript: `id, createdAt, source(.dictation|.file), title, text (cleaned), rawText, fileName?, sourcePath?, durationSec?`. **Raw is kept alongside cleaned** (Granola's raw-vs-enhanced split — groundwork for the Phase B Notes/summary layer). Search is case-insensitive `contains` over title+text on the in-memory `@Published transcripts` array (FTS5 is a cheap later upgrade). The `@Published` array drives the menu's "Recent Transcriptions" (top 10), the Transcriptions window list, and rebuilds via Combine.
+
+**Migration:** on first launch `migrateLegacyHistoryIfNeeded()` reads the legacy `transcriptionHistory` UserDefaults JSON (`[{text,date}]`) into `.dictation` rows and sets a one-shot `didMigrateHistoryToSQLite` flag; the old key is left in place (harmless) for rollback. The old `ModelManager.history`/`addToHistory`/`TranscriptionEntry` API was removed.
+
+### File transcription: independent path, never touches AudioRecorder, never auto-pastes
+[Transcription/FileTranscriber.swift](Shhhcribble/Transcription/FileTranscriber.swift) is the file/video path (menu "Transcribe File…" + Finder Open-With via `CFBundleDocumentTypes` + `application(_:openFiles:)`). It is **fully independent of `AudioRecorder`** — it never records and never auto-pastes (a long transcript into whatever's focused, usually Finder, is the wrong model; the Transcriptions window is the result surface). Load-bearing details:
+- **Shared `AsrManager` is used serially with dictation.** `TranscriptionEngine.transcribeFile(url:)` reuses the one loaded `AsrManager` — whose decoder state is not safe for two concurrent transcriptions. `FileTranscriber` runs jobs on a serial loop *only while `state == .idle`* (`isDictationActive` gate), and `beginRecording()` rejects a dictation while `fileTranscriber.isRunning`. The two are mutually exclusive; files opened mid-dictation queue and drain when recording ends (`endRecording()` calls `drainIfIdle()`).
+- **`transcribe(url:)` auto-routes to the disk-backed path** above ~30 s (FluidAudio's `streamingThreshold`) — one call handles a clip or a 2-hour file; determinate progress comes from `transcriptionProgressStream` (best-effort, never blocks the transcribe).
+- **Video is not free:** FluidAudio decodes via `AVAudioFile` (audio containers only), so movies get their audio track extracted to a temp `.m4a` via `AVAssetExportSession` (AppleM4A preset) first.
+- **Per file:** same pipeline as dictation (PersonalDictionary → AI cleanup if enabled+available else FillerWordFilter, storing raw + cleaned), then copy to clipboard + write `<name>.txt` beside the source (fallback ~/Downloads) + add to the store. Finder multi-select is a sequential queue — never dropped.
+- **No AirPods/Spotify smoke test is triggered** by this path (no `AudioRecorder`/routing/`MusicPauser`/`TextInserter` change; the only dictation-side edit was repointing the history write to `TranscriptStore`).
+
+This is the first cut of the **"Transcription Studio"** program (see [docs/ROADMAP.md](docs/ROADMAP.md)); the detail pane's **Summary tab is a scaffold** (on-device summaries land in Sprint 4b; editable Notes + moving `dictionaryEntries` into SQLite in 4c; CloudKit/iOS in Phase B).
+
+### Menu bar is window-first — no dropdown menu
+[MenuBarController.swift](Shhhcribble/UI/MenuBarController.swift) is now just the `NSStatusItem` + a click handler: **clicking the icon (left or right) opens the Transcriptions window** (`button.action` + `sendAction(on:[.leftMouseUp,.rightMouseUp])`, with **no** `statusItem.menu` set). The old dropdown is gone — recent transcripts (the list), Settings, Quit, engine status, and Transcribe File all live in the window ([TranscriptionsView.swift](Shhhcribble/UI/TranscriptionsView.swift) rail + Home tab). Consequences to know: the old **click-a-recent-item-to-paste-into-the-focused-app** shortcut and the Sparkle **"Check for Updates…"** item lived in that dropdown and are gone for now (re-add Updates to the window/Settings when Sparkle re-attaches). Because there's no app menu (`LSUIElement`), **Quit must stay reachable in the window** (rail button) — don't remove it. Destructive actions (per-row delete, Clear All) confirm via alert. The four now-unused `MenuBarControllerDelegate` methods (repaste / transcribeFile / checkForUpdates / quit) are harmless dead code kept for when those affordances return.
 
 ### Hidden picker labels in Settings
 Section headers already name each setting; inline `Picker("Model", ...)` labels duplicated them visually. Every picker uses `.labelsHidden()`.
@@ -196,7 +216,8 @@ Only required deadlock protection **if VP-for-BT is ever reintroduced** — VP t
 | `selectedHotkeyID` | String | `"optSpace"` | Which preset hotkey is active |
 | `transcriptCleanupEnabled` | Bool | `false` | On-device LLM cleanup (Apple FoundationModels, macOS 26 + Apple Intelligence); falls back to `FillerWordFilter` on timeout/failure/unavailable |
 | `dictionaryEntries` | Data (JSON) | `[]` | Ordered whole-word phrase→replacement list (per-entry case sensitivity) applied to the raw transcript before cleanup/filler — see PersonalDictionary |
-| `transcriptionHistory` | Data (JSON) | `[]` | Last 10 transcriptions |
+| `transcriptionHistory` | Data (JSON) | `[]` | **Legacy** — pre-SQLite history; migrated once into `TranscriptStore` then left untouched for rollback (no longer read/written) |
+| `didMigrateHistoryToSQLite` | Bool | `false` | One-shot flag: legacy history has been imported into the SQLite `TranscriptStore` |
 
 Sparkle also manages its own `SU*` UserDefaults keys automatically (e.g. `SUEnableAutomaticChecks`, `SULastCheckTime`, `SUAutomaticallyUpdate`) — don't hand-edit them. `SUFeedURL` / `SUPublicEDKey` are **Info.plist** keys, not prefs (see the Sparkle decision above).
 
@@ -259,7 +280,7 @@ This project runs a **largely-autonomous research→build→verify loop** over t
 
 Iterate implement→review→fix up to ~3 rounds; if still failing or low-confidence, **stop and escalate** rather than loop. Use the **Workflow tool** for each sprint's implement→parallel-review→verify pipeline; keep a short loop-progress note here (current sprint / last done / next / blocker).
 
-**Loop progress (2026-07-03):** last done — Sprint 2 Personal Dictionary + a **competitive re-review** (Wispr Flow unchanged; SuperWhisper Modes design captured; **FluidVoice** OSS + **Granola** added — findings in [docs/COMPETITIVE-REFERENCE.md](docs/COMPETITIVE-REFERENCE.md)). Next build — **Sprint 4 (file transcription)** — de-risked: FluidAudio 0.13.6 already exposes `AsrManager.transcribe(url:)` / `transcribeDiskBacked(url:)`, so likely no manual `AVAudioFile` decode. Then Sprint 5 (SQLite history + move `dictionaryEntries` into it). **New parked candidates** (documented, not scheduled): Personal Dictionary → ASR context biasing (spike-gated; `SlidingWindowAsrManager.configureVocabularyBoosting` is public in the FluidAudio we ship), multi-language (Parakeet has 25 langs), revert-to-raw cleanup. Blocker — none. Human gates outstanding: AirPods+Spotify hardware smoke test for the Sprint 2 paste-path change (⚠ PENDING), Developer ID cert for the Sparkle v1.6.1 release.
+**Loop progress (2026-07-03):** last done — Sprint 2 Personal Dictionary + a **competitive re-review**; then a **Sprint 4 design session** (this session) that deliberately **widened Sprint 4 into the "Transcription Studio" program** and **entered Phase B** (the human design gate — decided *with* the human). Scope now: file transcription is the wedge into a **windowed, SQLite-backed transcript environment** (Granola-style rail → searchable list → tabbed detail) unifying dictation + file transcripts. **SQLite pulled forward from Sprint 5.** Approved plan: `~/.claude/plans/planning-session-for-sprint-functional-otter.md`. **Done — Sprint 4 first branch** (`shhhcribble/transcription-studio`, merged to `main`): SQLite `TranscriptStore` + history migration · `FileTranscriber` + coordinator (`transcribeFile`, audio + video via `AVAssetExportSession`, sequential batch, determinate progress + cancel) · `CFBundleDocumentTypes` + `application(_:openFiles:)` · **window-first menu bar** (icon click opens the Transcriptions window; no dropdown) · Transcriptions **window** (rail + searchable list + text-only tabbed detail, Summary tab scaffolded, confirmations on destructive actions) · dictation history repointed to the store. Shared `TranscriptPipeline` used by both dictation + file paths. QC: build + 28 tests green, adversarial review (+ focused UI-delta review) clean after fixes, **file→transcript runtime-verified** (sidecar + clipboard + DB, duration correct). **Next build — Sprint 4b (Summary tab).** **Phased out:** Summary generation → 4b, editable Notes + move `dictionaryEntries` to SQLite → 4c, CloudKit/iOS → Phase B. **Key build guards:** storage = thin `libsqlite3` wrapper (system `.tbd`), **no** new embedded dynamic framework (protects the ad-hoc DMG that let Sparkle detach); file path **never auto-pastes** and **never touches `AudioRecorder`/routing/`MusicPauser`/`TextInserter`** — so **no AirPods+Spotify smoke test is triggered** by this work. **Parked candidates** (unchanged): Personal Dictionary → ASR context biasing, multi-language, revert-to-raw cleanup, streaming live-preview. Blocker — none. Human gates outstanding: AirPods+Spotify hardware smoke test for the Sprint 2 paste-path change (⚠ PENDING), Developer ID cert for the Sparkle v1.6.1 release.
 
 ---
 

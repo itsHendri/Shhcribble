@@ -1,5 +1,7 @@
 import AppKit
 import AVFoundation
+import Combine
+import UniformTypeIdentifiers
 import os
 // Sparkle is temporarily detached from the build so the app can ship as a plain
 // ad-hoc DMG without a Developer ID cert (embedded Sparkle.framework fails
@@ -22,7 +24,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var soundwavePanel: SoundwavePanel!
     private var menuBarController: MenuBarController!
     private var settingsWindowController: SettingsWindowController?
+    private var transcriptionsWindowController: TranscriptionsWindowController?
     private let musicPauser = MusicPauser()
+
+    /// SQLite-backed store of all transcripts (dictation + file). Replaces the
+    /// old cap-10 UserDefaults history; migrates it in on first launch.
+    private var transcriptStore: TranscriptStore!
+    /// Coordinates file/video transcription off the AudioRecorder path.
+    private var fileTranscriber: FileTranscriber!
+    private var cancellables = Set<AnyCancellable>()
 
     #if canImport(Sparkle)
     /// Sparkle auto-updater. `startingUpdater: true` enables automatic
@@ -39,6 +49,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// so a re-entrant hotkey/Escape during the work is ignored.
     private enum AppState { case idle, recording, transcribing }
     private var state: AppState = .idle
+
+    /// True from the moment `beginRecording()` commits to starting until the
+    /// recording is actually live (or the attempt aborts). `state` stays `.idle`
+    /// across the first-launch mic-permission `await`, so without this flag a
+    /// file opened during that await could start a job on the shared AsrManager.
+    /// `isDictationActive` (the FileTranscriber gate) reads it, closing that race.
+    private var dictationStarting = false
+
+    /// Whether the Transcriptions window has already been presented for the
+    /// current file-transcription batch, so per-file progress ticks don't
+    /// re-activate (and steal focus to) the window on every update.
+    private var didPresentFileWindow = false
 
     // Live transcription: runs Parakeet on the growing buffer every N seconds
     private var liveTranscriptionTask: Task<Void, Never>?
@@ -73,13 +95,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         audioRecorder       = AudioRecorder()
         textInserter        = TextInserter()
 
+        // Storage + file-transcription coordinator. The store migrates the
+        // legacy UserDefaults history on first launch. The coordinator shares
+        // the loaded AsrManager with dictation *serially* — it only runs while
+        // no recording is active (and dictation is blocked while it runs).
+        transcriptStore = TranscriptStore.makeDefault()
+        fileTranscriber = FileTranscriber(
+            engine: transcriptionEngine,
+            store: transcriptStore,
+            isDictationActive: { [weak self] in
+                guard let self else { return false }
+                return self.state != .idle || self.dictationStarting
+            }
+        )
+        fileTranscriber.$status
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in self?.handleFileStatus(status) }
+            .store(in: &cancellables)
+
         let soundwaveViewModel = SoundwaveViewModel()
         soundwavePanel = SoundwavePanel(viewModel: soundwaveViewModel)
 
-        menuBarController = MenuBarController(
-            transcriptionEngine: transcriptionEngine,
-            delegate: self
-        )
+        menuBarController = MenuBarController(delegate: self)
 
         #if canImport(Sparkle)
         // Start Sparkle. Reads SUFeedURL + SUPublicEDKey from Info.plist; runs
@@ -93,7 +130,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task {
             await transcriptionEngine.loadModel(variant: ModelManager.selectedModel)
-            menuBarController.rebuildMenu()
         }
 
         // Warm the on-device cleanup model so the first cleanup doesn't pay cold
@@ -146,6 +182,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func beginRecording() async {
         guard state == .idle else { return }
+        // A file transcription is using the shared AsrManager — starting a
+        // dictation now would corrupt its decoder state. Reject with a hint;
+        // the file job is short-lived and the user can try again after.
+        guard !fileTranscriber.isRunning else {
+            soundwavePanel.showInfo("Finishing file transcription — try again in a moment")
+            return
+        }
         guard transcriptionEngine.isReady else {
             print("[Shhhcribble] Model not ready: \(transcriptionEngine.statusText)")
             // Near-cursor feedback so a first-launch press during model load
@@ -154,6 +197,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menuBarController.flashNotReady()
             return
         }
+
+        // Commit to starting: block file jobs from grabbing the shared engine
+        // across the permission await below. actuallyBeginRecording() clears it
+        // once the recording is live; this defer clears it on every abort path.
+        dictationStarting = true
+        defer { if state != .recording { dictationStarting = false } }
 
         // Resolve mic permission BEFORE showing the soundwave panel. On a
         // fresh install the system prompt is async and blocks audio capture
@@ -194,6 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func actuallyBeginRecording() {
         print("[Shhhcribble] Recording started")
         state = .recording
+        dictationStarting = false   // recording is live; `state` now covers the gate
         transcriptionEngine.isBusy = true
         musicPauser.pauseIfPlaying()
         menuBarController.setRecordingIndicator(active: true)
@@ -341,29 +391,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         print("[Shhhcribble] Captured \(samples.count) samples (~\(String(format: "%.1f", Double(samples.count)/16000))s)")
 
         var textToInsert: String? = nil
+        var rawTranscript = ""
         var transcriptionFailed = false
         do {
             let text = try await transcriptionEngine.transcribe(audioSamples: samples)
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Personal-dictionary substitutions run on the RAW transcript,
-            // before AI cleanup / filler filtering, so the LLM sees the
-            // corrected terms (pipeline order: dictionary → cleanup|filler).
-            let corrected = PersonalDictionary.apply(ModelManager.dictionaryEntries, to: trimmed)
-            var result = corrected
-            // On-device LLM cleanup (Apple FoundationModels) replaces the regex
-            // filler filter when enabled + available. It handles fillers, false
-            // starts, punctuation and capitalization in one pass. It runs to
-            // completion (no timeout — see TranscriptCleaner); on failure, empty
-            // output, or an unavailable model, TranscriptCleaner.clean returns nil
-            // and we fall back to FillerWordFilter — the always-on universal floor
-            // (not a user setting; removed alongside the redundant Settings toggle).
-            if !corrected.isEmpty,
-               ModelManager.transcriptCleanupEnabled,
-               let cleaned = await TranscriptCleaner.clean(corrected), !cleaned.isEmpty {
-                result = cleaned
-            } else {
-                result = FillerWordFilter.filter(corrected)
-            }
+            rawTranscript = trimmed
+            // Shared pipeline: dictionary → AI cleanup (if enabled + available)
+            // or FillerWordFilter. See TranscriptPipeline; the file path uses
+            // the exact same call so the two can't drift.
+            let result = await TranscriptPipeline.process(trimmed)
             textToInsert = result.isEmpty ? nil : result
         } catch {
             print("[Shhhcribble] ❌ Transcription error: \(error.localizedDescription)")
@@ -371,9 +408,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let text = textToInsert {
-            // Save to history and refresh menu before inserting
-            ModelManager.addToHistory(text)
-            menuBarController.rebuildMenu()
+            // Persist to the store (raw kept alongside the cleaned text). The
+            // menu rebuilds automatically via the store subscription.
+            transcriptStore.addDictation(text: text, rawText: rawTranscript.isEmpty ? text : rawTranscript)
 
             print("[Shhhcribble] Inserting: \"\(text.prefix(80))\"")
 
@@ -400,6 +437,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         state = .idle
         transcriptionEngine.isBusy = false
+
+        // Pick up any files that were opened/queued while we were recording.
+        fileTranscriber.drainIfIdle()
+    }
+
+    // MARK: - File transcription
+
+    /// Finder "Open With" / `open -a Shhhcribble file.m4a` entry point. Multiple
+    /// selected files all arrive here and are queued sequentially — none dropped.
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        let urls = filenames.map { URL(fileURLWithPath: $0) }
+        fileTranscriber.enqueue(urls)
+        sender.reply(toOpenOrPrint: .success)
+    }
+
+    /// Show an NSOpenPanel filtered to audio/video and enqueue the selection.
+    private func presentFilePicker() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = FileTranscriber.supportedContentTypes
+        panel.prompt = "Transcribe"
+        panel.message = "Choose audio or video files to transcribe"
+        NSApp.activate(ignoringOtherApps: true)
+        if panel.runModal() == .OK {
+            fileTranscriber.enqueue(panel.urls)
+        }
+    }
+
+    /// Drives lightweight UI as file jobs progress: opens the Transcriptions
+    /// window so results appear live, and surfaces failures in the pill.
+    private func handleFileStatus(_ status: FileTranscriber.Status) {
+        switch status {
+        case .running:
+            // Present + focus the window once per batch. `.running` fires on
+            // every progress tick, so guard on didPresentFileWindow to avoid
+            // yanking focus back to the window on each update.
+            if !didPresentFileWindow {
+                didPresentFileWindow = true
+                showTranscriptionsWindow(activate: true)
+            }
+        case .finished:
+            didPresentFileWindow = false
+        case .failed(let name, let message):
+            soundwavePanel.showError("\(name): \(message)")
+        case .idle:
+            didPresentFileWindow = false
+        }
+    }
+
+    private func showTranscriptionsWindow(activate: Bool) {
+        if transcriptionsWindowController == nil {
+            transcriptionsWindowController = TranscriptionsWindowController(
+                store: transcriptStore,
+                fileTranscriber: fileTranscriber,
+                engine: transcriptionEngine,
+                onTranscribeFile: { [weak self] in self?.presentFilePicker() },
+                onOpenSettings: { [weak self] in
+                    guard let self else { return }
+                    self.menuBarControllerDidRequestSettings(self.menuBarController)
+                },
+                onQuit: { NSApp.terminate(nil) }
+            )
+            transcriptionsWindowController?.window?.delegate = self
+        }
+        transcriptionsWindowController?.showWindow(nil)
+        if activate {
+            transcriptionsWindowController?.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     // MARK: - Live transcription
@@ -481,6 +588,14 @@ extension AppDelegate: MenuBarControllerDelegate {
         NSApp.terminate(nil)
     }
 
+    func menuBarControllerDidRequestTranscribeFile(_ controller: MenuBarController) {
+        presentFilePicker()
+    }
+
+    func menuBarControllerDidRequestOpenTranscriptions(_ controller: MenuBarController) {
+        showTranscriptionsWindow(activate: true)
+    }
+
     func menuBarControllerDidRequestRepaste(_ controller: MenuBarController, text: String) {
         // Capture frontmost app now (before menu closes and focus changes)
         let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -496,6 +611,11 @@ extension AppDelegate: MenuBarControllerDelegate {
 
 extension AppDelegate: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
-        settingsWindowController = nil
+        let closing = notification.object as? NSWindow
+        if closing == settingsWindowController?.window {
+            settingsWindowController = nil
+        } else if closing == transcriptionsWindowController?.window {
+            transcriptionsWindowController = nil
+        }
     }
 }

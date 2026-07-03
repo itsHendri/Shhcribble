@@ -97,44 +97,11 @@ enum ModelManager {
     }
 
     // MARK: - Transcription history
-
-    struct TranscriptionEntry: Codable {
-        let text: String
-        let date: Date
-
-        /// Truncated title for display in menus (max 60 chars).
-        var menuTitle: String {
-            let prefix = String(text.prefix(60))
-            return text.count > 60 ? "\(prefix)…" : prefix
-        }
-    }
-
-    private static let historyKey = "transcriptionHistory"
-    private static let historyCap = 10
-
-    /// Persisted across launches via UserDefaults (JSON-encoded). The cap is
-    /// kept at historyCap items; adding past that drops the oldest.
-    private(set) static var history: [TranscriptionEntry] = {
-        guard let data = UserDefaults.standard.data(forKey: historyKey),
-              let decoded = try? JSONDecoder().decode([TranscriptionEntry].self, from: data)
-        else { return [] }
-        return Array(decoded.prefix(historyCap))
-    }()
-
-    static func addToHistory(_ text: String) {
-        history.insert(TranscriptionEntry(text: text, date: Date()), at: 0)
-        if history.count > historyCap { history = Array(history.prefix(historyCap)) }
-        persistHistory()
-    }
-
-    static func clearHistory() {
-        history.removeAll()
-        persistHistory()
-    }
-
-    private static func persistHistory() {
-        if let data = try? JSONEncoder().encode(history) {
-            UserDefaults.standard.set(data, forKey: historyKey)
-        }
-    }
+    //
+    // History moved out of UserDefaults into the SQLite-backed `TranscriptStore`
+    // (see Storage/TranscriptStore.swift) when file transcription landed — it
+    // unifies dictation + file transcripts, drops the cap-10, and is searchable.
+    // The legacy `transcriptionHistory` UserDefaults JSON is migrated in once by
+    // `TranscriptStore.migrateLegacyHistoryIfNeeded()`; the old key is left in
+    // place (harmless) so a rollback build still finds it.
 }

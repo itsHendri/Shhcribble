@@ -60,14 +60,18 @@ SuperWhisper's killer feature: dictation formatted for the destination (code vs 
 - **Follow-on (separate sprint, only once modes exist): per-app activation** — auto-select a mode from `NSWorkspace.shared.frontmostApplication` (already captured in `endRecording()`).
 - **Acceptance:** switching mode changes cleanup formatting; later, the frontmost app auto-selects the mode.
 
-## Sprint 4 — File transcription *(NEXT BUILD — confirmed 2026-07)*
+## Sprint 4 — Transcription Studio (file transcription + windowed environment) *(BUILDING — design session 2026-07-03)*
 
-Drag an audio/video file → transcribe. SuperWhisper does this via `CFBundleDocumentTypes`.
-- `CFBundleDocumentTypes` (`public.audio` / `public.movie`) in `Info.plist`; handle open-with + drag-onto-dock.
-- **De-risk (2026-07):** FluidAudio 0.13.6 already exposes public `AsrManager.transcribe(_ url: URL, source:)` and `transcribeDiskBacked(_ url:)` — so we likely **don't need manual `AVAudioFile` decode**; feed the URL straight to a thin wrapper on `TranscriptionEngine.swift`. Fall back to `[Float]` decode only if the URL path misbehaves on some container.
-- Output UX (decide): save `.txt` beside the file / copy to clipboard / open a result window.
-- Progress UI for long files (chunked; `transcribeDiskBacked` is the memory-safe path for large files).
-- **Acceptance:** drop a 1-min `m4a` → get a transcript.
+**Widened from "drag a file → transcript" into a program** (design session 2026-07-03 — approved plan `~/.claude/plans/planning-session-for-sprint-functional-otter.md`). File transcription is the wedge into a **Granola-style windowed environment** (rail → searchable list → tabbed detail) unifying dictation + file transcripts. **SQLite pulled forward from Sprint 5. Formally enters Phase B** (the Notes design gate — cleared with the human this session). Result UX is a **window, not auto-paste** (competitor/Mobbin norm; a blind paste of a long transcript is wrong).
+
+**Locked decisions:** invocation = "Transcribe File…" menu item + Finder "Open With" (`CFBundleDocumentTypes`; drag-onto-Dock impossible under `LSUIElement`); media = audio + video (`AVAssetExportSession` audio extraction — video is *not* free, all FluidAudio decode uses `AVAudioFile`) + sequential multi-file batch; pipeline = respect `transcriptCleanupEnabled` toggle, no length cap, store raw + cleaned; playback deferred; English v1.
+
+**De-risk (verified 2026-07-03):** `AsrManager.transcribe(_ url:)` **auto-routes** to `transcribeDiskBacked` above ~30 s (no manual branching); public `transcriptionProgressStream` gives determinate progress; `ASRResult` = `.text`/`.duration`/`.confidence`.
+
+**Sprint 4 first branch (building now):** thin `libsqlite3` `TranscriptStore` + history migration · `FileTranscriber` + coordinator (serializes against the shared `AsrManager`) · `CFBundleDocumentTypes` + `application(_:openFiles:)` + menu items · Transcriptions **window** (text-only tabbed detail, Summary tab *scaffolded*) · dictation history repointed to the store.
+**Phased out:** Summary generation (on-device FoundationModels + versions) → **4b**; editable Notes + move `dictionaryEntries` to SQLite → **4c**; CloudKit/iOS sync → **Phase B**.
+**Build guards:** no new embedded dynamic framework (protects the ad-hoc DMG); file path never auto-pastes / never touches `AudioRecorder`/routing/`MusicPauser`/`TextInserter` → **no AirPods smoke test triggered.**
+- **Acceptance:** drop a 1-min `m4a` (menu picker *and* Finder Open With) → transcript in the window, `.txt` beside the source, text on the clipboard.
 
 ## Sprint 5 — History upgrade (SQLite + search)
 

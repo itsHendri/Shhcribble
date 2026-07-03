@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **File transcription (Transcription Studio, first cut).** Transcribe audio *and*
+  video files — via a new **"Transcribe File…"** menu item (file picker) or Finder
+  **"Open With → Shhhcribble"** (`CFBundleDocumentTypes` + `application(_:openFiles:)`).
+  Multi-select is handled as a sequential queue (no files dropped); video audio is
+  extracted with `AVAssetExportSession`; large files use FluidAudio's memory-safe
+  disk-backed path automatically. File transcripts run the same pipeline as dictation
+  (Personal Dictionary → AI cleanup or filler) and are copied to the clipboard, saved
+  as `<name>.txt` beside the source, and added to the library — **never auto-pasted**.
+- **Transcriptions window.** A three-pane environment (Home / Transcriptions rail →
+  searchable list unifying dictation + file transcripts → tabbed detail) with Copy /
+  Save `.txt` / Reveal in Finder and delete. The Summary tab is scaffolded for a
+  later on-device-AI summary feature. **Clicking the menu-bar icon opens this window**
+  (see Changed); it also auto-focuses when a file finishes. The rail carries
+  Transcribe File / Settings / Quit, the Home tab shows engine status + the dictation
+  hint, and the title bar shows the app icon in front of the name. Destructive actions
+  (per-row delete, Clear All) require confirmation.
+- **SQLite-backed transcript store** (`TranscriptStore`) replacing the cap-10
+  UserDefaults history — durable, searchable (case-insensitive over title + text),
+  and keeps the raw transcript alongside the cleaned text. Uses the system
+  `libsqlite3` (no external dependency, no embedded framework).
 - `CHANGELOG.md`, GitHub Actions CI build gate, and an autonomous development-loop
   process documented in `CLAUDE.md`.
 - XCTest unit-test target (`ShhhcribbleTests`) wired into the Xcode project with a
@@ -20,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filler filtering, so corrected names and jargon reach the LLM and the paste.
   Managed in Settings (add / edit / delete / reorder); stored under the new
   `dictionaryEntries` pref.
+
+### Changed
+- Transcription history moved from the cap-10 UserDefaults JSON to the SQLite
+  `TranscriptStore` (existing history migrated in on first launch; the old key is
+  left untouched for rollback).
+- **Menu bar is now window-first.** Clicking the menu-bar icon (either button) opens
+  the Transcriptions window instead of a dropdown menu; all actions that lived in the
+  dropdown — recent transcripts, Settings, Quit, engine status, Transcribe File — now
+  live in the window. (The old click-a-recent-item-to-paste shortcut and the Sparkle
+  "Check for Updates" item went with the dropdown; the latter returns when Sparkle is
+  re-attached.)
 
 ### Fixed
 - First dictation on cold AirPods captured silence ("No speech detected") — the
