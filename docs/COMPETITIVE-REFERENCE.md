@@ -1,6 +1,32 @@
-# Shhhcribble — Competitive Reference (2026-06)
+# Shhhcribble — Competitive Reference (2026-06, re-reviewed 2026-07)
 
-> Durable reference so we don't re-run the competitor audit each time. Findings from **static analysis of the installed app bundles, prefs, and on-disk SQLite/JSON state** — not marketing pages. SuperWhisper **v2.14.0**, Wispr Flow **1.5.433**.
+> Durable reference so we don't re-run the competitor audit each time. Findings from **static analysis of the installed app bundles, prefs, and on-disk SQLite/JSON state** — not marketing pages. SuperWhisper **v2.14.0**, Wispr Flow **1.5.433**. The **2026-07 re-review** adds **FluidVoice** (open-source, `github.com/altic-dev/FluidVoice`) and **Granola** (Phase B research), and re-confirms capabilities inside our own FluidAudio dependency — see "2026-07 re-review — delta" and "Verified capabilities in our current stack" below.
+
+---
+
+## 2026-07 re-review — delta since 2026-06
+
+**Wispr Flow — no material change.** Still 1.5.433, still ~497 MB Electron, still cloud-only ASR with Sentry + PostHog + Supabase + S3. Nothing new worth adopting. The one durable idea — Wispr's **Polish table** (every LLM cleanup logged + **undoable / revert-to-raw**), which maps to Sprint 0's open "revert to raw transcript" question — was already noted in the 2026-06 audit. Re-reviewed, unchanged.
+
+**SuperWhisper — Modes design captured for Sprint 3.** Still v2.14.0. The Modes section below now carries a **minimal 8-field mode** design suitable for our MVP.
+
+**New competitors this round:**
+- **FluidVoice** (`github.com/altic-dev/FluidVoice`) — open-source macOS dictation built on the **same FluidAudio/Parakeet stack we use**. **GPLv3 → reference-only; we copy zero code** (patterns may inform clean rewrites). Has file transcription, streaming live-preview, history + engagement stats (streaks / words-today / time-saved), keyboard-layout virtualization, and vocabulary boosting fed from a personal dictionary. Mining it surfaced the **context-biasing** capability documented below.
+- **Granola** (AI notepad) — inspected for **Phase B** (Notes). Electron + SQLCipher (AES-256, key in Keychain) + Y.js CRDT + **custom cloud backend**. Data model: `documents` (umbrella) + `document_panels` (sections) + `ydocs` (CRDT snapshots) + FTS5 search. **Transferable idea: separate raw capture from the AI-enhanced note, with note versions.** Avoid their custom backend — our CloudKit plan stands. (A `ShhhcribbleiOS` DerivedData folder exists locally — possibly a pre-existing iOS target; confirm before Phase B.)
+
+## Verified capabilities in our current stack (FluidAudio 0.13.6)
+
+Already present in the FluidAudio version we ship (pinned `0.13.6`, revision `57551cd9`) — verified by reading the checked-out source, not marketing. All are **parked candidates**, not scheduled.
+
+- **Custom-vocabulary context biasing** — public API: `SlidingWindowAsrManager.configureVocabularyBoosting(...)`, `CustomVocabularyContext`, `CustomVocabularyTerm`, `VocabularyRescorer`, `ContextBiasingConstants`, `CustomVocabularyContext.loadWithCtcTokens`. Would let **Personal Dictionary** terms bias the ASR *at recognition time* so Parakeet transcribes names/jargon correctly on the first pass — a differentiator no competitor matches at the ASR layer, fully on-device. **Why it's a spike:** it lives on `SlidingWindowAsrManager` (+ a CTC rescorer model), whereas we currently use plain `AsrManager` (`AsrManager(config: .default)` + `transcribe(_:source:)` in `TranscriptionEngine.swift`). Adopting it changes the transcription pipeline and adds a model download. Touches the transcription path but **not** `AudioRecorder`.
+- **Streaming ASR** — `StreamingEouAsrManager` / `StreamingChunkSize` are public (also Nemotron + Qwen3 streaming). Matches our deferred commit `6509cd7`; would fix the 3 s live-preview lag. Still needs an AirPods canary on the VP-free path before adoption.
+- **25-language batch transcription** — Parakeet TDT v3 supports 25 European languages per FluidAudio's README; we hard-code English-only. Multi-language is a model capability we already ship, gated only by our own cleanup/UI assumptions.
+- **File transcription is nearly free** — `AsrManager` exposes public `transcribe(_ url: URL, source:)` and `transcribeDiskBacked(_ url:)`, so **Sprint 4** may not need manual `AVAudioFile` decode. Integration point: `TranscriptionEngine.swift`.
+
+## Constraints / corrections (2026-07)
+
+- **Repo has no LICENSE file** → Shhhcribble is currently *all-rights-reserved*. Housekeeping item; pick a license deliberately before any open-source-adjacent decision. (A research agent wrongly asserted "Apache 2.0" — it is not.)
+- **FluidVoice is GPLv3.** Study patterns/architecture; **do not copy** code, data models, or logic. Any adopted idea must be a clean first-principles rewrite.
 
 ---
 

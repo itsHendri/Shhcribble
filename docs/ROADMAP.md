@@ -49,21 +49,22 @@ Custom phrase→replacement (names, jargon). Universal competitor feature; a com
 
 ## Sprint 3 — Modes / per-app formatting *(design spike first)*
 
-SuperWhisper's killer feature: dictation formatted for the destination (code vs email vs chat).
+SuperWhisper's killer feature: dictation formatted for the destination (code vs email vs chat). **Still design-gated (human).**
 - **DESIGN SPIKE (first task):** workshop the minimum mode set (default/code was rejected once). Decide the axes (prose / code-literal-punctuation / chat / email) and the per-mode cleanup prompt.
+- **De-risked (2026-07):** the SuperWhisper deep-dive lands a **minimal 8-field mode** — `key, name, activationApps[], prompt, promptExamples[], language, description, languageModelID` — with `activationApps[]` matched against `NSWorkspace.frontmostApplication` (**already captured in `endRecording()`**) and the mode `prompt` fed into the existing `TranscriptCleaner`. Their 686-app → 43-format catalog is **not** needed for MVP. See `COMPETITIVE-REFERENCE.md` "SuperWhisper's killer feature".
 - Mode data model — reference SuperWhisper's shape: `name`, `prompt`, `literalPunctuation`, `activationApps[]` (see `COMPETITIVE-REFERENCE.md`).
 - Mode selection: menu-bar quick-pick + Settings.
 - Per-mode cleanup: pass the mode's prompt into `TranscriptCleaner`.
 - **Follow-on (separate sprint, only once modes exist): per-app activation** — auto-select a mode from `NSWorkspace.shared.frontmostApplication` (already captured in `endRecording()`).
 - **Acceptance:** switching mode changes cleanup formatting; later, the frontmost app auto-selects the mode.
 
-## Sprint 4 — File transcription
+## Sprint 4 — File transcription *(NEXT BUILD — confirmed 2026-07)*
 
 Drag an audio/video file → transcribe. SuperWhisper does this via `CFBundleDocumentTypes`.
 - `CFBundleDocumentTypes` (`public.audio` / `public.movie`) in `Info.plist`; handle open-with + drag-onto-dock.
-- Decode file to `[Float]` (`AVAudioFile`), feed `TranscriptionEngine.transcribe` (engine already handles arbitrary samples).
+- **De-risk (2026-07):** FluidAudio 0.13.6 already exposes public `AsrManager.transcribe(_ url: URL, source:)` and `transcribeDiskBacked(_ url:)` — so we likely **don't need manual `AVAudioFile` decode**; feed the URL straight to a thin wrapper on `TranscriptionEngine.swift`. Fall back to `[Float]` decode only if the URL path misbehaves on some container.
 - Output UX (decide): save `.txt` beside the file / copy to clipboard / open a result window.
-- Progress UI for long files (chunked).
+- Progress UI for long files (chunked; `transcribeDiskBacked` is the memory-safe path for large files).
 - **Acceptance:** drop a 1-min `m4a` → get a transcript.
 
 ## Sprint 5 — History upgrade (SQLite + search)
@@ -80,6 +81,8 @@ Cap-10 UserDefaults JSON → durable, searchable. Both competitors use SQLite.
 ## Phase B (later, dedicated) — Notes / sticky-notes + iOS sync
 
 The companion **Scribble iOS** app vision. Its own multi-sprint phase; starts with a design session. Same Apple ID → CloudKit private DB.
+- **Granola insight (2026-07):** Granola's model separates **raw capture from the AI-enhanced note** (+ note versions) — worth borrowing as the note data-model shape. Avoid their custom cloud backend; CloudKit private DB stays our sync path. (See `COMPETITIVE-REFERENCE.md` Granola notes.)
+- **Confirm first:** a `ShhhcribbleiOS` DerivedData folder exists locally — there may already be an iOS target scaffolded. Verify state before B1.
 - **B0 Design session:** does dictation feed notes? sticky-note lifecycle (pin / dismiss / persist)? shared CloudKit schema with the iOS app.
 - **B1** CloudKit container shared with iOS Scribble app (same developer team); schema + sync.
 - **B2** Desktop sticky-note UI (floating `NSPanel`s? menu-bar notes list?).
@@ -99,9 +102,15 @@ The companion **Scribble iOS** app vision. Its own multi-sprint phase; starts wi
 
 One feature per branch off `shhhcribble/main`; build + AirPods/Spotify smoke test before committing; update CLAUDE.md when a change adds a load-bearing decision or pref key; **commit only when asked**.
 
-**Default process:** sprints now run via the **autonomous development loop** (see CLAUDE.md "Autonomous development loop") — backlog order **2 → 4 → 5**; Sprint 3 (Modes) and Phase B (Notes) stay human-gated (design first). Each change passes the loop's QC gates (build + CI + adversarial review + CHANGELOG update); the AirPods/Spotify hardware smoke test stays a human gate.
+**Default process:** sprints now run via the **autonomous development loop** (see CLAUDE.md "Autonomous development loop") — backlog order **2 ✅ → 4 (next) → 5**; Sprint 3 (Modes) and Phase B (Notes) stay human-gated (design first). Each change passes the loop's QC gates (build + CI + adversarial review + CHANGELOG update); the AirPods/Spotify hardware smoke test stays a human gate.
 
-**Candidate features to weigh (not committed):** voice syntax (say "bullet"/"heading" → markdown — cheap, composes with cleanup); revisit streaming transcription (deferred commit `6509cd7`) for live-preview lag; Siri-Shortcut capture for Phase B handoff; a privacy-transparency badge.
+**Candidate features to weigh (not committed):** voice syntax (say "bullet"/"heading" → markdown — cheap, composes with cleanup); Siri-Shortcut capture for Phase B handoff; a privacy-transparency badge.
+
+**Parked candidates from the 2026-07 competitive re-review** (documented, not scheduled — see [`COMPETITIVE-REFERENCE.md`](COMPETITIVE-REFERENCE.md) "Verified capabilities in our current stack"):
+- **Personal Dictionary → ASR context biasing** — feed dictionary terms into FluidAudio's `SlidingWindowAsrManager.configureVocabularyBoosting` / `CustomVocabularyContext` so Parakeet gets names/jargon right *at recognition time*, not just via post-hoc substitution. **Spike-gated + load-bearing:** changes the dictionary mechanism, swaps `AsrManager` → `SlidingWindowAsrManager`, and adds a CTC rescorer model download (transcription-path change; not `AudioRecorder`). Highest strategic value of the batch — no competitor matches it at the ASR layer.
+- **Multi-language transcription** — Parakeet TDT v3 already supports 25 European languages in the model we ship; we hard-code English. **Decision-gated:** changes the "English primary" assumption and needs cleanup/FoundationModels language handling.
+- **Revert-to-raw / undoable cleanup** — Wispr's Polish-table idea; closes Sprint 0's open "revert to raw transcript" question. Cheap, honest, on-brand.
+- **Streaming live-preview** — `StreamingEouAsrManager` (deferred commit `6509cd7`) re-confirmed available in FluidAudio 0.13.6; would cut the 3 s live-preview lag. Still needs an AirPods canary on the VP-free path first.
 
 ## Verification (every sprint)
 
