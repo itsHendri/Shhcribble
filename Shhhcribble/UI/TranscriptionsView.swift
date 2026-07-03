@@ -206,6 +206,8 @@ private struct TranscriptDetail: View {
 
     @State private var tab: Tab = .transcript
     @State private var showingDeleteConfirm = false
+    @State private var isSummarizing = false
+    @State private var summaryError: String?
     enum Tab: Hashable { case transcript, summary }
 
     var body: some View {
@@ -223,7 +225,7 @@ private struct TranscriptDetail: View {
             Group {
                 switch tab {
                 case .transcript: transcriptBody
-                case .summary:    summaryPlaceholder
+                case .summary:    summaryBody
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -274,12 +276,104 @@ private struct TranscriptDetail: View {
         }
     }
 
-    private var summaryPlaceholder: some View {
-        ContentUnavailableView {
-            Label("Summary", systemImage: "sparkles")
-        } description: {
-            Text("On-device AI summaries and action items are coming soon.")
+    @ViewBuilder
+    private var summaryBody: some View {
+        if case .unavailable(let reason) = TranscriptSummarizer.availability {
+            VStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.secondary)
+                Text("On-device summaries unavailable")
+                    .font(.headline)
+                InlineWarning(message: reason)
+                    .frame(maxWidth: 360)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(24)
+        } else if isSummarizing {
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Summarizing…").font(.callout).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let summary = transcript.summary {
+            summaryContent(summary)
+        } else {
+            summaryEmptyState
         }
+    }
+
+    private func summaryContent(_ summary: String) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let error = summaryError {
+                    InlineWarning(message: error)
+                }
+                Text(summary)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !transcript.actionItems.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Action Items")
+                            .font(.subheadline).fontWeight(.semibold)
+                        ForEach(Array(transcript.actionItems.enumerated()), id: \.offset) { _, item in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "checkmark.circle")
+                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 13))
+                                Text(item)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    Button(action: generateSummary) {
+                        Label("Regenerate", systemImage: "arrow.clockwise")
+                    }
+                    Button(action: copySummary) {
+                        Label("Copy summary", systemImage: "doc.on.doc")
+                    }
+                    Spacer()
+                    if let at = transcript.summaryGeneratedAt {
+                        Text("Generated \(at.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .padding(16)
+        }
+    }
+
+    private var summaryEmptyState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text("Summarize this transcript")
+                .font(.headline)
+            Text("Generate an on-device summary and action items. Nothing leaves your Mac.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+            if let error = summaryError {
+                InlineWarning(message: error).frame(maxWidth: 340)
+            }
+            Button(action: generateSummary) {
+                Label("Generate summary", systemImage: "sparkles")
+            }
+            .controlSize(.large)
+            .disabled(transcript.text.isEmpty)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+        .onAppear { TranscriptSummarizer.prewarm() }
     }
 
     private var metaLine: String {
@@ -310,5 +404,32 @@ private struct TranscriptDetail: View {
     private func reveal() {
         guard let path = transcript.sourcePath else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    private func copySummary() {
+        guard let summary = transcript.summary else { return }
+        var out = summary
+        if !transcript.actionItems.isEmpty {
+            out += "\n\nAction Items:\n" + transcript.actionItems.map { "• \($0)" }.joined(separator: "\n")
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(out, forType: .string)
+    }
+
+    private func generateSummary() {
+        let text = transcript.text
+        guard !text.isEmpty, !isSummarizing else { return }
+        let id = transcript.id
+        isSummarizing = true
+        summaryError = nil
+        Task {
+            defer { isSummarizing = false }
+            if let result = await TranscriptSummarizer.summarize(text) {
+                store.updateSummary(id: id, summary: result.summary, actionItems: result.actionItems)
+            } else {
+                summaryError = "Couldn’t generate a summary. Please try again."
+            }
+        }
     }
 }

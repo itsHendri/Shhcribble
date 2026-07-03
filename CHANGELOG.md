@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **On-device AI summaries (Transcription Studio Summary tab).** For any transcript,
+  generate a short neutral summary plus extracted **action items** on demand, fully
+  on-device via Apple FoundationModels — nothing leaves the Mac. A **Generate summary**
+  button appears when Apple Intelligence is available (with a **Regenerate** and
+  **Copy summary** action once one exists); when it isn't, the tab shows an
+  `InlineWarning` with the reason instead of a dead button. New `TranscriptSummarizer`
+  mirrors the `TranscriptCleaner` recipe (`@Generable` structured output, `<transcript>`
+  delimiter framing to resist prompt injection, greedy sampling). Summaries persist in
+  the SQLite store (new `summary` / `actionItems` / `summaryGeneratedAt` columns via a
+  `PRAGMA user_version` v1 migration). On-demand only — no new setting or pref key.
 - **File transcription (Transcription Studio, first cut).** Transcribe audio *and*
   video files — via a new **"Transcribe File…"** menu item (file picker) or Finder
   **"Open With → Shhhcribble"** (`CFBundleDocumentTypes` + `application(_:openFiles:)`).

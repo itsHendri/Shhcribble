@@ -1,4 +1,5 @@
 import XCTest
+import SQLite3
 @testable import Shhhcribble
 
 /// Pure-logic tests for the SQLite-backed transcript store. Uses an in-memory
@@ -124,7 +125,135 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertEqual(store.transcripts.count, 1)
     }
 
+    // MARK: - Summary (Sprint 4b)
+
+    func testUpdateSummaryPersistsAcrossReload() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let id: UUID
+        do {
+            let store = TranscriptStore(path: path)
+            let t = store.addDictation(text: "Talked about the Q3 launch and budget.", rawText: "raw")
+            id = t.id
+            store.updateSummary(id: id,
+                                summary: "The team discussed the Q3 launch and its budget.",
+                                actionItems: ["Draft the launch plan", "Confirm the budget"],
+                                generatedAt: Date(timeIntervalSince1970: 5000))
+            // In-memory copy reflects the update immediately.
+            let mem = store.transcripts.first { $0.id == id }
+            XCTAssertEqual(mem?.summary, "The team discussed the Q3 launch and its budget.")
+            XCTAssertEqual(mem?.actionItems, ["Draft the launch plan", "Confirm the budget"])
+            XCTAssertEqual(mem?.summaryGeneratedAt, Date(timeIntervalSince1970: 5000))
+        }
+        // Fresh store on the same file → data must survive a reload.
+        let reopened = TranscriptStore(path: path)
+        let row = reopened.transcripts.first { $0.id == id }
+        XCTAssertEqual(row?.summary, "The team discussed the Q3 launch and its budget.")
+        XCTAssertEqual(row?.actionItems, ["Draft the launch plan", "Confirm the budget"])
+        XCTAssertEqual(row?.summaryGeneratedAt, Date(timeIntervalSince1970: 5000))
+    }
+
+    func testEmptyActionItemsRoundTripsAsEmpty() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let id: UUID
+        do {
+            let store = TranscriptStore(path: path)
+            let t = store.addDictation(text: "Just a note to self.", rawText: "raw")
+            id = t.id
+            store.updateSummary(id: id, summary: "A short note.", actionItems: [])
+        }
+        let reopened = TranscriptStore(path: path)
+        let row = reopened.transcripts.first { $0.id == id }
+        XCTAssertEqual(row?.summary, "A short note.")
+        XCTAssertEqual(row?.actionItems, [])
+    }
+
+    func testTranscriptWithoutSummaryHasNilDefaults() {
+        let store = makeStore()
+        let t = store.addDictation(text: "no summary yet", rawText: "raw")
+        let row = store.transcripts.first { $0.id == t.id }
+        XCTAssertNil(row?.summary)
+        XCTAssertEqual(row?.actionItems, [])
+        XCTAssertNil(row?.summaryGeneratedAt)
+    }
+
+    func testUpdateSummaryUnknownIDIsNoOp() {
+        let store = makeStore()
+        store.addDictation(text: "one", rawText: "one")
+        store.updateSummary(id: UUID(), summary: "orphan", actionItems: ["x"])
+        XCTAssertTrue(store.transcripts.allSatisfy { $0.summary == nil })
+    }
+
+    // MARK: - Schema migration (v0 → v1)
+
+    func testMigrationAddsSummaryColumnsToOldSchemaAndKeepsRows() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        // Seed a pre-4b (9-column, user_version 0) database with one row.
+        let existingID = UUID()
+        seedOldSchemaDB(at: path, id: existingID)
+
+        // Opening with the current store must ALTER in the summary columns,
+        // preserve the old row, and bump user_version to 1.
+        let store = TranscriptStore(path: path)
+        XCTAssertEqual(store.transcripts.count, 1)
+        let old = store.transcripts.first
+        XCTAssertEqual(old?.id, existingID)
+        XCTAssertEqual(old?.text, "legacy body")
+        XCTAssertNil(old?.summary)                 // new column defaults to NULL
+        XCTAssertEqual(old?.actionItems, [])
+        XCTAssertNil(old?.summaryGeneratedAt)
+        XCTAssertEqual(userVersion(at: path), 1)
+
+        // And the migrated DB is fully writable via the new column path.
+        store.updateSummary(id: existingID, summary: "now summarized", actionItems: ["do it"])
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.transcripts.first?.summary, "now summarized")
+        XCTAssertEqual(reopened.transcripts.first?.actionItems, ["do it"])
+    }
+
     // MARK: - Helpers
+
+    private func tempDBPath() -> String {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("shhh-test-\(UUID().uuidString).sqlite").path
+    }
+
+    /// Creates a database matching the original (pre-summary) schema so the
+    /// migration path can be exercised against a realistic upgrade.
+    private func seedOldSchemaDB(at path: String, id: UUID) {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        let create = """
+        CREATE TABLE transcripts (
+            id TEXT PRIMARY KEY, createdAt REAL NOT NULL, source TEXT NOT NULL,
+            title TEXT NOT NULL, text TEXT NOT NULL, rawText TEXT NOT NULL,
+            fileName TEXT, sourcePath TEXT, durationSec REAL
+        );
+        """
+        XCTAssertEqual(sqlite3_exec(db, create, nil, nil, nil), SQLITE_OK)
+        let insert = """
+        INSERT INTO transcripts (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec)
+        VALUES ('\(id.uuidString)', 1000.0, 'dictation', 'Legacy', 'legacy body', 'legacy raw', NULL, NULL, NULL);
+        """
+        XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
+        // user_version defaults to 0 — no need to set it explicitly.
+    }
+
+    private func userVersion(at path: String) -> Int32 {
+        var db: OpaquePointer?
+        guard sqlite3_open(path, &db) == SQLITE_OK else { return -1 }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK else { return -1 }
+        defer { sqlite3_finalize(stmt) }
+        return sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int(stmt, 0) : -1
+    }
 
     private func makeFile(title: String, text: String = "body", date: Date = Date()) -> Transcript {
         Transcript(id: UUID(), createdAt: date, source: .file,

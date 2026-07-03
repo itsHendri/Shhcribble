@@ -23,6 +23,7 @@
 		CF000048000000000000001A /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = CF000053000000000000001A /* FluidAudio */; };
 		CF000055000000000000001A /* FillerWordFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000054000000000000001A /* FillerWordFilter.swift */; };
 		CF0000A1000000000000001A /* TranscriptCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000A0000000000000001A /* TranscriptCleaner.swift */; };
+		CF0000B1000000000000001A /* TranscriptSummarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000B0000000000000001A /* TranscriptSummarizer.swift */; };
 		CF000056000000000000001A /* shhhcribble-scribble-sound.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */; };
 		CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CF000058000000000000001A /* PrivacyInfo.xcprivacy */; };
 		CF000061000000000000001A /* MusicPauser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000060000000000000001A /* MusicPauser.swift */; };
@@ -34,6 +35,7 @@
 		CFE00013000000000000001A /* TranscriptionsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00003000000000000001A /* TranscriptionsWindowController.swift */; };
 		CFE00014000000000000001A /* TranscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00004000000000000001A /* TranscriptionsView.swift */; };
 		CFE00015000000000000001A /* TranscriptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00005000000000000001A /* TranscriptStoreTests.swift */; };
+		CF0000E1000000000000001A /* TranscriptSummarizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */; };
 		CFE00016000000000000001A /* TranscriptPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00006000000000000001A /* TranscriptPipeline.swift */; };
 /* End PBXBuildFile section */
 
@@ -66,6 +68,7 @@
 		CF000034000000000000001A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CF000054000000000000001A /* FillerWordFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillerWordFilter.swift; sourceTree = "<group>"; };
 		CF0000A0000000000000001A /* TranscriptCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptCleaner.swift; sourceTree = "<group>"; };
+		CF0000B0000000000000001A /* TranscriptSummarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSummarizer.swift; sourceTree = "<group>"; };
 		CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "shhhcribble-scribble-sound.mp3"; sourceTree = "<group>"; };
 		CF000058000000000000001A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		CF000060000000000000001A /* MusicPauser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicPauser.swift; sourceTree = "<group>"; };
@@ -78,6 +81,7 @@
 		CFE00003000000000000001A /* TranscriptionsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionsWindowController.swift; sourceTree = "<group>"; };
 		CFE00004000000000000001A /* TranscriptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionsView.swift; sourceTree = "<group>"; };
 		CFE00005000000000000001A /* TranscriptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptStoreTests.swift; sourceTree = "<group>"; };
+		CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSummarizerTests.swift; sourceTree = "<group>"; };
 		CFE00006000000000000001A /* TranscriptPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPipeline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -138,6 +142,7 @@
 				CF0000C1000000000000001A /* FillerWordFilterTests.swift */,
 				CF0000D3000000000000001A /* PersonalDictionaryTests.swift */,
 				CFE00005000000000000001A /* TranscriptStoreTests.swift */,
+				CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */,
 			);
 			path = ShhhcribbleTests;
 			sourceTree = "<group>";
@@ -175,6 +180,7 @@
 				CF000025000000000000001A /* ModelManager.swift */,
 				CF000054000000000000001A /* FillerWordFilter.swift */,
 				CF0000A0000000000000001A /* TranscriptCleaner.swift */,
+				CF0000B0000000000000001A /* TranscriptSummarizer.swift */,
 				CF0000D1000000000000001A /* PersonalDictionary.swift */,
 				CFE00002000000000000001A /* FileTranscriber.swift */,
 				CFE00006000000000000001A /* TranscriptPipeline.swift */,
@@ -347,6 +353,7 @@
 				CF000046000000000000001A /* SettingsWindowController.swift in Sources */,
 				CF000055000000000000001A /* FillerWordFilter.swift in Sources */,
 				CF0000A1000000000000001A /* TranscriptCleaner.swift in Sources */,
+				CF0000B1000000000000001A /* TranscriptSummarizer.swift in Sources */,
 				CF0000D0000000000000001A /* PersonalDictionary.swift in Sources */,
 				CFE00011000000000000001A /* TranscriptStore.swift in Sources */,
 				CFE00012000000000000001A /* FileTranscriber.swift in Sources */,
@@ -363,6 +370,7 @@
 				CF0000C0000000000000001A /* FillerWordFilterTests.swift in Sources */,
 				CF0000D2000000000000001A /* PersonalDictionaryTests.swift in Sources */,
 				CFE00015000000000000001A /* TranscriptStoreTests.swift in Sources */,
+				CF0000E1000000000000001A /* TranscriptSummarizerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -24,6 +24,15 @@ struct Transcript: Identifiable, Equatable {
     var sourcePath: String?
     var durationSec: Double?
 
+    /// On-device AI summary of `text`, generated on demand from the Studio
+    /// Summary tab. `nil` until the user generates one. `actionItems` is the
+    /// parallel list of extracted to-dos (empty when there are none), and
+    /// `summaryGeneratedAt` timestamps the current summary (Regenerate replaces
+    /// all three). Full version history is deferred — see CLAUDE.md.
+    var summary: String? = nil
+    var actionItems: [String] = []
+    var summaryGeneratedAt: Date? = nil
+
     /// Menu / list title, truncated for one-line display.
     var menuTitle: String {
         let base = title.isEmpty ? text : title
@@ -61,6 +70,7 @@ final class TranscriptStore: ObservableObject {
     init(path: String) {
         openDatabase(at: path)
         createSchema()
+        migrateSchema()
         reload()
     }
 
@@ -115,6 +125,22 @@ final class TranscriptStore: ObservableObject {
     func clearAll() {
         exec("DELETE FROM transcripts;", bind: nil)
         transcripts.removeAll()
+    }
+
+    /// Persist a generated (or regenerated) summary + action items for a
+    /// transcript and update the in-memory copy so the UI refreshes. No-op if the
+    /// id isn't found.
+    func updateSummary(id: UUID, summary: String, actionItems: [String], generatedAt: Date = Date()) {
+        guard let idx = transcripts.firstIndex(where: { $0.id == id }) else { return }
+        exec("UPDATE transcripts SET summary = ?, actionItems = ?, summaryGeneratedAt = ? WHERE id = ?;") { stmt in
+            sqlite3_bind_text(stmt, 1, summary, -1, Self.SQLITE_TRANSIENT)
+            self.bindOptionalText(stmt, 2, Self.encodeActionItems(actionItems))
+            sqlite3_bind_double(stmt, 3, generatedAt.timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 4, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+        transcripts[idx].summary = summary
+        transcripts[idx].actionItems = actionItems
+        transcripts[idx].summaryGeneratedAt = generatedAt
     }
 
     /// Case-insensitive substring match over title + text, newest first.
@@ -200,12 +226,32 @@ final class TranscriptStore: ObservableObject {
         exec("CREATE INDEX IF NOT EXISTS idx_transcripts_createdAt ON transcripts(createdAt DESC);", bind: nil)
     }
 
+    /// Additive schema migrations, versioned via `PRAGMA user_version`. Runs on
+    /// every launch but is a no-op once the DB is up to date. A fresh DB starts
+    /// at version 0, so it takes the same `ALTER TABLE` path as an upgrade —
+    /// one code path, no CREATE/ALTER divergence.
+    ///
+    /// v1: summary columns (summary, actionItems JSON, summaryGeneratedAt).
+    private func migrateSchema() {
+        guard db != nil else { return }
+        var version: Int32 = 0
+        forEachRow("PRAGMA user_version;") { stmt in version = sqlite3_column_int(stmt, 0) }
+
+        if version < 1 {
+            exec("ALTER TABLE transcripts ADD COLUMN summary TEXT;", bind: nil)
+            exec("ALTER TABLE transcripts ADD COLUMN actionItems TEXT;", bind: nil)
+            exec("ALTER TABLE transcripts ADD COLUMN summaryGeneratedAt REAL;", bind: nil)
+            exec("PRAGMA user_version = 1;", bind: nil)
+            log.notice("Migrated schema to v1 (summary columns).")
+        }
+    }
+
     @discardableResult
     private func insert(_ t: Transcript) -> Bool {
         exec("""
         INSERT OR REPLACE INTO transcripts
-        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """) { stmt in
             sqlite3_bind_text(stmt, 1, t.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, t.createdAt.timeIntervalSince1970)
@@ -216,18 +262,23 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalText(stmt, 7, t.fileName)
             self.bindOptionalText(stmt, 8, t.sourcePath)
             if let d = t.durationSec { sqlite3_bind_double(stmt, 9, d) } else { sqlite3_bind_null(stmt, 9) }
+            self.bindOptionalText(stmt, 10, t.summary)
+            self.bindOptionalText(stmt, 11, Self.encodeActionItems(t.actionItems))
+            if let g = t.summaryGeneratedAt { sqlite3_bind_double(stmt, 12, g.timeIntervalSince1970) } else { sqlite3_bind_null(stmt, 12) }
         }
     }
 
     private func reload() {
         var rows: [Transcript] = []
         forEachRow("""
-        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec
+        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt
         FROM transcripts ORDER BY createdAt DESC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
             let source = TranscriptSource(rawValue: Self.columnText(stmt, 2) ?? "") ?? .dictation
             let duration: Double? = sqlite3_column_type(stmt, 8) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 8)
+            let generatedAt: Date? = sqlite3_column_type(stmt, 11) == SQLITE_NULL
+                ? nil : Date(timeIntervalSince1970: sqlite3_column_double(stmt, 11))
             rows.append(Transcript(
                 id: id,
                 createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
@@ -237,7 +288,10 @@ final class TranscriptStore: ObservableObject {
                 rawText: Self.columnText(stmt, 5) ?? "",
                 fileName: Self.columnText(stmt, 6),
                 sourcePath: Self.columnText(stmt, 7),
-                durationSec: duration
+                durationSec: duration,
+                summary: Self.columnText(stmt, 9),
+                actionItems: Self.decodeActionItems(Self.columnText(stmt, 10)),
+                summaryGeneratedAt: generatedAt
             ))
         }
         transcripts = rows
@@ -283,5 +337,19 @@ final class TranscriptStore: ObservableObject {
     private static func columnText(_ stmt: OpaquePointer?, _ index: Int32) -> String? {
         guard let c = sqlite3_column_text(stmt, index) else { return nil }
         return String(cString: c)
+    }
+
+    /// Action items are stored as a JSON array of strings in one TEXT column.
+    /// An empty list encodes to `nil` (stored as SQL NULL) so "no summary yet"
+    /// and "summary with no action items" stay distinguishable via `summary`.
+    private static func encodeActionItems(_ items: [String]) -> String? {
+        guard !items.isEmpty, let data = try? JSONEncoder().encode(items) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func decodeActionItems(_ json: String?) -> [String] {
+        guard let json, let data = json.data(using: .utf8),
+              let items = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return items
     }
 }
