@@ -1,7 +1,14 @@
 import AppKit
 import AVFoundation
 import os
+// Sparkle is temporarily detached from the build so the app can ship as a plain
+// ad-hoc DMG without a Developer ID cert (embedded Sparkle.framework fails
+// Library Validation under Hardened Runtime + ad-hoc signing). All Sparkle code
+// is guarded by `#if canImport(Sparkle)`, which auto-reactivates the moment the
+// Sparkle SPM package is re-added to the target. See CLAUDE.md "Sparkle auto-update".
+#if canImport(Sparkle)
 import Sparkle
+#endif
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -17,11 +24,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
     private let musicPauser = MusicPauser()
 
+    #if canImport(Sparkle)
     /// Sparkle auto-updater. `startingUpdater: true` enables automatic
     /// background checks; the menu's "Check for Updates…" triggers a manual
     /// check via `checkForUpdates(_:)`. Feed + EdDSA public key come from
     /// Info.plist (`SUFeedURL` / `SUPublicEDKey`).
     private var updaterController: SPUStandardUpdaterController!
+    #endif
 
     /// Internal recording state machine. `.transcribing` covers the window from
     /// hotkey release through transcription + optional cleanup; it IS surfaced as
@@ -72,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             delegate: self
         )
 
+        #if canImport(Sparkle)
         // Start Sparkle. Reads SUFeedURL + SUPublicEDKey from Info.plist; runs
         // automatic background update checks and backs the menu item.
         updaterController = SPUStandardUpdaterController(
@@ -79,6 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
+        #endif
 
         Task {
             await transcriptionEngine.loadModel(variant: ModelManager.selectedModel)
@@ -458,10 +469,12 @@ extension AppDelegate: MenuBarControllerDelegate {
     }
 
     func menuBarControllerDidRequestCheckForUpdates(_ controller: MenuBarController) {
+        #if canImport(Sparkle)
         // Bring the app forward so Sparkle's update window isn't lost behind
         // other apps (we're an LSUIElement menu-bar app with no dock icon).
         NSApp.activate(ignoringOtherApps: true)
         updaterController.checkForUpdates(nil)
+        #endif
     }
 
     func menuBarControllerDidRequestQuit(_ controller: MenuBarController) {

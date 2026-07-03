@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Completion-sound playback is now logged (`os.Logger`, category `sound`) and its
   `play()` result checked, so a silent failure is diagnosable.
+- **Sparkle auto-update temporarily detached from the build** (pending a Developer
+  ID cert) so the app can be installed directly from a plain ad-hoc DMG again. The
+  SPM package, product dependency, and framework link were removed from the Xcode
+  project; the Sparkle Swift code and Info.plist feed keys are preserved behind
+  `#if canImport(Sparkle)` for one-step re-enable. The "Check for Updates…" menu
+  item is hidden while detached.
 
 > Not yet released. Becomes the first notarized, Sparkle-enabled build (planned **v1.6.1**).
 

@@ -26,6 +26,8 @@ Cleanup shipped without the originally-planned quality prototype. Small validati
 
 **Status (2026-06-09):** Sparkle integrated + wired + locally validated (full update path proven via localhost loopback), merged to `main` (`1c89dc1`). Signing story settled: **Developer ID + notarization required** (ad-hoc won't ship). Only the cert-gated release remains — cut a notarized **v1.6.1** baseline once the Developer ID cert is in place (see CLAUDE.md "Release workflow" + Sparkle decision). The released v1.6.0 is pre-Sparkle/un-notarized, so the auto-update baseline must be a new Sparkle-enabled release.
 
+**Update (2026-07):** Sparkle has been **temporarily detached from the build** (SPM package + framework link pulled from the pbxproj; code preserved behind `#if canImport(Sparkle)`) so the app can be installed directly from a plain ad-hoc DMG while the Developer ID cert is outstanding. Re-enable = re-add the Sparkle package (or `git revert` the detach commit). Nothing about the signing decision changes — see CLAUDE.md "Sparkle auto-update". This unblocks continued feature work (Sprint 4 etc.) without the cert.
+
 Removes the manual-DMG release friction. Both competitors ship auto-update.
 - Add Sparkle (SPM); `SUFeedURL` + `SUPublicEDKey` in `Info.plist`.
 - Generate + securely store EdDSA signing keys (**never in repo**).

@@ -129,7 +129,11 @@ final class MenuBarController: NSObject {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        // Check for Updates (Sparkle)
+        // Check for Updates (Sparkle) — only when Sparkle is linked into the
+        // build. It's currently detached so the app can ship as a plain ad-hoc
+        // DMG without a Developer ID cert; re-adding the package restores this
+        // item automatically. See CLAUDE.md "Sparkle auto-update".
+        #if canImport(Sparkle)
         let updatesItem = NSMenuItem(title: "Check for Updates…",
                                      action: #selector(checkForUpdates),
                                      keyEquivalent: "")
@@ -137,6 +141,7 @@ final class MenuBarController: NSObject {
         menu.addItem(updatesItem)
 
         menu.addItem(.separator())
+        #endif
 
         // Quit
         let quitItem = NSMenuItem(title: "Quit Shhhcribble",
