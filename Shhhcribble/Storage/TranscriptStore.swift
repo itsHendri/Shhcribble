@@ -33,6 +33,10 @@ struct Transcript: Identifiable, Equatable {
     var actionItems: [String] = []
     var summaryGeneratedAt: Date? = nil
 
+    /// Free-text notes the user writes themselves in the Studio Notes tab.
+    /// Empty string = no notes. Independent of `summary` (AI) and `rawText`.
+    var notes: String = ""
+
     /// Menu / list title, truncated for one-line display.
     var menuTitle: String {
         let base = title.isEmpty ? text : title
@@ -143,6 +147,17 @@ final class TranscriptStore: ObservableObject {
         transcripts[idx].summaryGeneratedAt = generatedAt
     }
 
+    /// Persist the user's free-text notes for a transcript and update the
+    /// in-memory copy so the UI refreshes. No-op if the id isn't found.
+    func updateNotes(id: UUID, notes: String) {
+        guard let idx = transcripts.firstIndex(where: { $0.id == id }) else { return }
+        exec("UPDATE transcripts SET notes = ? WHERE id = ?;") { stmt in
+            self.bindOptionalText(stmt, 1, notes.isEmpty ? nil : notes)
+            sqlite3_bind_text(stmt, 2, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+        transcripts[idx].notes = notes
+    }
+
     /// Case-insensitive substring match over title + text, newest first.
     /// Empty query returns everything (already newest-first in `transcripts`).
     func matching(_ query: String) -> [Transcript] {
@@ -150,7 +165,9 @@ final class TranscriptStore: ObservableObject {
         guard !q.isEmpty else { return transcripts }
         let needle = q.lowercased()
         return transcripts.filter {
-            $0.title.lowercased().contains(needle) || $0.text.lowercased().contains(needle)
+            $0.title.lowercased().contains(needle)
+                || $0.text.lowercased().contains(needle)
+                || $0.notes.lowercased().contains(needle)
         }
     }
 
@@ -240,31 +257,52 @@ final class TranscriptStore: ObservableObject {
     /// insert/reload with "no such column".
     ///
     /// v1: summary columns (summary, actionItems JSON, summaryGeneratedAt).
+    /// v2: notes column.
+    ///
+    /// Each version is an independent, self-committing step: it adds only its
+    /// missing columns, then bumps `user_version` **only once they're all
+    /// present** — a step interrupted partway (e.g. an `ALTER` failing on a full
+    /// disk) leaves the version unbumped and `return`s, so the whole sequence
+    /// retries and heals on the next launch instead of half-migrating.
     private func migrateSchema() {
         guard db != nil else { return }
         var version: Int32 = 0
         forEachRow("PRAGMA user_version;") { stmt in version = sqlite3_column_int(stmt, 0) }
-        guard version < 1 else { return }
 
+        if version < 1 {
+            guard addColumns([("summary", "TEXT"), ("actionItems", "TEXT"), ("summaryGeneratedAt", "REAL")]) else {
+                log.error("Schema v1 migration incomplete; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            exec("PRAGMA user_version = 1;", bind: nil)
+            log.notice("Migrated schema to v1 (summary columns).")
+            version = 1
+        }
+
+        if version < 2 {
+            guard addColumns([("notes", "TEXT")]) else {
+                log.error("Schema v2 migration incomplete; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            exec("PRAGMA user_version = 2;", bind: nil)
+            log.notice("Migrated schema to v2 (notes column).")
+            version = 2
+        }
+    }
+
+    /// Add each column to `transcripts` only if it's missing (idempotent, so a
+    /// retried migration doesn't fail on "duplicate column name"). Returns true
+    /// only when every requested column is present afterward. Names/types are
+    /// code literals, not user input — safe to inline.
+    private func addColumns(_ columns: [(name: String, type: String)]) -> Bool {
         let existing = existingColumns(of: "transcripts")
-        let additions: [(name: String, type: String)] = [
-            ("summary", "TEXT"),
-            ("actionItems", "TEXT"),
-            ("summaryGeneratedAt", "REAL"),
-        ]
-        // Column names/types are code literals, not user input — safe to inline.
         var allAdded = true
-        for column in additions where !existing.contains(column.name) {
+        for column in columns where !existing.contains(column.name) {
             if !exec("ALTER TABLE transcripts ADD COLUMN \(column.name) \(column.type);", bind: nil) {
                 allAdded = false
             }
         }
-        guard allAdded else {
-            log.error("Schema v1 migration incomplete; leaving user_version at \(version) to retry next launch.")
-            return
-        }
-        exec("PRAGMA user_version = 1;", bind: nil)
-        log.notice("Migrated schema to v1 (summary columns).")
+        return allAdded
     }
 
     /// Column names currently present on a table, via `PRAGMA table_info` (name
@@ -277,19 +315,19 @@ final class TranscriptStore: ObservableObject {
         return names
     }
 
-    // NOTE: `INSERT OR REPLACE` writes all 12 columns, so calling this with an
-    // already-stored `id` would overwrite its summary columns with the passed
-    // Transcript's values (nil/empty for a freshly built one). Safe today —
-    // every `add()` path mints a new UUID and summaries are written via
-    // `updateSummary` (UPDATE, not insert). A future "edit/re-save" path must
-    // NOT round-trip an existing row through `add()`/`insert()` or it will wipe
-    // the summary; add a dedicated update instead.
+    // NOTE: `INSERT OR REPLACE` writes all 13 columns, so calling this with an
+    // already-stored `id` would overwrite its summary AND notes columns with the
+    // passed Transcript's values (nil/empty for a freshly built one). Safe today
+    // — every `add()` path mints a new UUID, and summary/notes are written via
+    // `updateSummary` / `updateNotes` (UPDATE, not insert). A future "edit/re-save"
+    // path must NOT round-trip an existing row through `add()`/`insert()` or it
+    // will wipe both; add a dedicated update instead.
     @discardableResult
     private func insert(_ t: Transcript) -> Bool {
         exec("""
         INSERT OR REPLACE INTO transcripts
-        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """) { stmt in
             sqlite3_bind_text(stmt, 1, t.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, t.createdAt.timeIntervalSince1970)
@@ -303,13 +341,14 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalText(stmt, 10, t.summary)
             self.bindOptionalText(stmt, 11, Self.encodeActionItems(t.actionItems))
             if let g = t.summaryGeneratedAt { sqlite3_bind_double(stmt, 12, g.timeIntervalSince1970) } else { sqlite3_bind_null(stmt, 12) }
+            self.bindOptionalText(stmt, 13, t.notes.isEmpty ? nil : t.notes)
         }
     }
 
     private func reload() {
         var rows: [Transcript] = []
         forEachRow("""
-        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt
+        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes
         FROM transcripts ORDER BY createdAt DESC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
@@ -329,7 +368,8 @@ final class TranscriptStore: ObservableObject {
                 durationSec: duration,
                 summary: Self.columnText(stmt, 9),
                 actionItems: Self.decodeActionItems(Self.columnText(stmt, 10)),
-                summaryGeneratedAt: generatedAt
+                summaryGeneratedAt: generatedAt,
+                notes: Self.columnText(stmt, 12) ?? ""
             ))
         }
         transcripts = rows

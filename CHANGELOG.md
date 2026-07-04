@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Editable Notes (Transcription Studio Notes tab).** A free-text notes area per
+  transcript — a third detail tab alongside Transcript and Summary. Notes **auto-save**
+  (debounced while typing, flushed on leaving the tab/transcript/window), persist in
+  the SQLite store (new `notes` column via a schema **v2** migration), and are included
+  in the transcript search. Plain user-written notes; AI-enhanced/versioned notes remain
+  a later (Phase B) feature.
 - **On-device AI summaries (Transcription Studio Summary tab).** For any transcript,
   generate a short neutral summary plus extracted **action items** on demand, fully
   on-device via Apple FoundationModels — nothing leaves the Mac. A **Generate summary**

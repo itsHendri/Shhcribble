@@ -209,7 +209,9 @@ private struct TranscriptDetail: View {
     @State private var isSummarizing = false
     @State private var summaryError: String?
     @State private var didPrewarm = false
-    enum Tab: Hashable { case transcript, summary }
+    @State private var notesText = ""
+    @State private var noteSaveTask: Task<Void, Never>?
+    enum Tab: Hashable { case transcript, summary, notes }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -218,6 +220,7 @@ private struct TranscriptDetail: View {
             Picker("View", selection: $tab) {
                 Text("Transcript").tag(Tab.transcript)
                 Text("Summary").tag(Tab.summary)
+                Text("Notes").tag(Tab.notes)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -227,6 +230,7 @@ private struct TranscriptDetail: View {
                 switch tab {
                 case .transcript: transcriptBody
                 case .summary:    summaryBody
+                case .notes:      notesBody
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -383,6 +387,31 @@ private struct TranscriptDetail: View {
         }
     }
 
+    private var notesBody: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $notesText)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .padding(12)
+            if notesText.isEmpty {
+                // TextEditor has no native placeholder — overlay one, non-hittable
+                // so taps fall through to the editor.
+                Text("Add notes for this transcript…")
+                    .font(.body)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 17)
+                    .padding(.vertical, 20)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onAppear { notesText = transcript.notes }
+        .onChange(of: notesText) { _, _ in debounceNotesSave() }
+        .onDisappear {
+            noteSaveTask?.cancel()
+            saveNotesNow()
+        }
+    }
+
     private var metaLine: String {
         var parts: [String] = [transcript.source == .file ? "Imported" : "Dictated"]
         parts.append(transcript.createdAt.formatted(date: .abbreviated, time: .shortened))
@@ -422,6 +451,28 @@ private struct TranscriptDetail: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(out, forType: .string)
+    }
+
+    /// Debounce writes while typing — reschedule a save 700 ms after the last
+    /// keystroke. `.onDisappear` cancels this and flushes, so leaving the tab /
+    /// switching transcripts / closing the window never loses the last edit.
+    private func debounceNotesSave() {
+        noteSaveTask?.cancel()
+        // @MainActor so the deferred `store.updateNotes` (a @MainActor @Published
+        // mutation) always lands on the main thread — a bare Task wouldn't
+        // guarantee that isolation under the Swift 5 language mode.
+        noteSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            saveNotesNow()
+        }
+    }
+
+    private func saveNotesNow() {
+        // No-op when unchanged — also stops a redundant write after the store
+        // re-publishes the row (which feeds a new `transcript` value back in).
+        guard notesText != transcript.notes else { return }
+        store.updateNotes(id: transcript.id, notes: notesText)
     }
 
     private func generateSummary() {

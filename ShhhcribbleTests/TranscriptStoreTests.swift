@@ -187,9 +187,67 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertTrue(store.transcripts.allSatisfy { $0.summary == nil })
     }
 
-    // MARK: - Schema migration (v0 → v1)
+    // MARK: - Notes (Sprint 4c)
 
-    func testMigrationAddsSummaryColumnsToOldSchemaAndKeepsRows() throws {
+    func testNotesDefaultsToEmpty() {
+        let store = makeStore()
+        let t = store.addDictation(text: "no notes yet", rawText: "raw")
+        XCTAssertEqual(store.transcripts.first { $0.id == t.id }?.notes, "")
+    }
+
+    func testUpdateNotesPersistsAcrossReload() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let id: UUID
+        do {
+            let store = TranscriptStore(path: path)
+            id = store.addDictation(text: "meeting recap", rawText: "raw").id
+            store.updateNotes(id: id, notes: "follow up with Sarah\ncheck the numbers")
+            XCTAssertEqual(store.transcripts.first { $0.id == id }?.notes,
+                           "follow up with Sarah\ncheck the numbers")
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.transcripts.first { $0.id == id }?.notes,
+                       "follow up with Sarah\ncheck the numbers")
+    }
+
+    func testClearingNotesRoundTripsAsEmpty() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let id: UUID
+        do {
+            let store = TranscriptStore(path: path)
+            id = store.addDictation(text: "note", rawText: "raw").id
+            store.updateNotes(id: id, notes: "temporary")
+            store.updateNotes(id: id, notes: "")   // cleared
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.transcripts.first { $0.id == id }?.notes, "")
+    }
+
+    func testUpdateNotesUnknownIDIsNoOp() {
+        let store = makeStore()
+        store.addDictation(text: "one", rawText: "one")
+        store.updateNotes(id: UUID(), notes: "orphan")
+        XCTAssertTrue(store.transcripts.allSatisfy { $0.notes.isEmpty })
+    }
+
+    func testSearchMatchesNotes() {
+        let store = makeStore()
+        let t = store.addDictation(text: "unrelated body", rawText: "raw")
+        store.updateNotes(id: t.id, notes: "Zephyr project kickoff")
+        XCTAssertEqual(store.matching("zephyr").count, 1)   // case-insensitive, notes-only hit
+        XCTAssertEqual(store.matching("nothere").count, 0)
+    }
+
+    // MARK: - Schema migration (v0 → latest)
+
+    /// Latest schema version — bumped as migrations are added (v1 summary, v2 notes).
+    private let latestSchemaVersion: Int32 = 2
+
+    func testMigrationAddsColumnsToOldSchemaAndKeepsRows() throws {
         let path = tempDBPath()
         defer { try? FileManager.default.removeItem(atPath: path) }
 
@@ -197,43 +255,68 @@ final class TranscriptStoreTests: XCTestCase {
         let existingID = UUID()
         seedOldSchemaDB(at: path, id: existingID)
 
-        // Opening with the current store must ALTER in the summary columns,
-        // preserve the old row, and bump user_version to 1.
+        // Opening with the current store must ALTER in all later columns,
+        // preserve the old row, and bump user_version to the latest.
         let store = TranscriptStore(path: path)
         XCTAssertEqual(store.transcripts.count, 1)
         let old = store.transcripts.first
         XCTAssertEqual(old?.id, existingID)
         XCTAssertEqual(old?.text, "legacy body")
-        XCTAssertNil(old?.summary)                 // new column defaults to NULL
+        XCTAssertNil(old?.summary)                 // new columns default to NULL
         XCTAssertEqual(old?.actionItems, [])
         XCTAssertNil(old?.summaryGeneratedAt)
-        XCTAssertEqual(userVersion(at: path), 1)
+        XCTAssertEqual(old?.notes, "")             // v2 column, coalesced from NULL
+        XCTAssertEqual(userVersion(at: path), latestSchemaVersion)
 
-        // And the migrated DB is fully writable via the new column path.
+        // And the migrated DB is fully writable via the new column paths.
         store.updateSummary(id: existingID, summary: "now summarized", actionItems: ["do it"])
+        store.updateNotes(id: existingID, notes: "my note")
         let reopened = TranscriptStore(path: path)
         XCTAssertEqual(reopened.transcripts.first?.summary, "now summarized")
         XCTAssertEqual(reopened.transcripts.first?.actionItems, ["do it"])
+        XCTAssertEqual(reopened.transcripts.first?.notes, "my note")
     }
 
     func testMigrationHealsPartiallyAppliedSchema() throws {
         let path = tempDBPath()
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        // Simulate a migration that was interrupted after adding only `summary`
-        // (user_version still 0). Re-opening must add ONLY the missing columns —
-        // not fail on "duplicate column name" for `summary` — and then bump to 1.
+        // Simulate a migration interrupted after adding only `summary` (still at
+        // user_version 0). Re-opening must add ONLY the missing columns — not
+        // fail on "duplicate column name" for `summary` — and reach the latest.
         let existingID = UUID()
         seedOldSchemaDB(at: path, id: existingID, extraColumns: ["summary TEXT"])
 
         let store = TranscriptStore(path: path)
         XCTAssertEqual(store.transcripts.count, 1)
-        XCTAssertEqual(userVersion(at: path), 1)
-        // All summary columns now usable end to end.
+        XCTAssertEqual(userVersion(at: path), latestSchemaVersion)
+        // All columns now usable end to end.
         store.updateSummary(id: existingID, summary: "healed", actionItems: ["a", "b"])
+        store.updateNotes(id: existingID, notes: "healed note")
         let reopened = TranscriptStore(path: path)
         XCTAssertEqual(reopened.transcripts.first?.summary, "healed")
         XCTAssertEqual(reopened.transcripts.first?.actionItems, ["a", "b"])
+        XCTAssertEqual(reopened.transcripts.first?.notes, "healed note")
+    }
+
+    /// A DB already at v1 (summary columns present, notes absent) must take only
+    /// the v2 step and add `notes`.
+    func testMigrationV1ToV2AddsNotes() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let existingID = UUID()
+        seedOldSchemaDB(at: path, id: existingID,
+                        extraColumns: ["summary TEXT", "actionItems TEXT", "summaryGeneratedAt REAL"],
+                        userVersion: 1)
+
+        let store = TranscriptStore(path: path)
+        XCTAssertEqual(store.transcripts.count, 1)
+        XCTAssertEqual(store.transcripts.first?.notes, "")
+        XCTAssertEqual(userVersion(at: path), latestSchemaVersion)
+        store.updateNotes(id: existingID, notes: "added at v2")
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.transcripts.first?.notes, "added at v2")
     }
 
     // MARK: - Helpers
@@ -245,7 +328,7 @@ final class TranscriptStoreTests: XCTestCase {
 
     /// Creates a database matching the original (pre-summary) schema so the
     /// migration path can be exercised against a realistic upgrade.
-    private func seedOldSchemaDB(at path: String, id: UUID, extraColumns: [String] = []) {
+    private func seedOldSchemaDB(at path: String, id: UUID, extraColumns: [String] = [], userVersion: Int32 = 0) {
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
         defer { sqlite3_close(db) }
@@ -257,7 +340,7 @@ final class TranscriptStoreTests: XCTestCase {
         );
         """
         XCTAssertEqual(sqlite3_exec(db, create, nil, nil, nil), SQLITE_OK)
-        // Optionally pre-add some of the v1 columns to model a partial migration.
+        // Optionally pre-add some later columns to model a partial/prior migration.
         for column in extraColumns {
             XCTAssertEqual(sqlite3_exec(db, "ALTER TABLE transcripts ADD COLUMN \(column);", nil, nil, nil), SQLITE_OK)
         }
@@ -266,7 +349,10 @@ final class TranscriptStoreTests: XCTestCase {
         VALUES ('\(id.uuidString)', 1000.0, 'dictation', 'Legacy', 'legacy body', 'legacy raw', NULL, NULL, NULL);
         """
         XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
-        // user_version defaults to 0 — no need to set it explicitly.
+        // user_version defaults to 0; set explicitly when modeling a prior migration.
+        if userVersion != 0 {
+            XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = \(userVersion);", nil, nil, nil), SQLITE_OK)
+        }
     }
 
     private func userVersion(at path: String) -> Int32 {
