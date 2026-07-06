@@ -125,8 +125,11 @@ final class FileTranscriber: ObservableObject {
 
             let raw = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             // Identical pipeline to dictation (dictionary → cleanup|filler),
-            // respecting transcriptCleanupEnabled with no length cap.
-            let final = await TranscriptPipeline.process(raw)
+            // respecting transcriptCleanupEnabled with no length cap. Snapshot the
+            // dictionary on the main actor (this method is @MainActor) before the
+            // await hops the nonisolated pipeline off-main.
+            let dictionary = store.dictionaryEntries
+            let final = await TranscriptPipeline.process(raw, dictionary: dictionary)
 
             guard !final.isEmpty else {
                 status = .failed(fileName: name, message: "No speech detected")

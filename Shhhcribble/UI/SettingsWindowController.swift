@@ -4,8 +4,8 @@ import SwiftUI
 /// Hosts the SwiftUI SettingsView in a regular titled window.
 final class SettingsWindowController: NSWindowController {
 
-    convenience init(transcriptionEngine: TranscriptionEngine, appDelegate: AppDelegate) {
-        let rootView  = SettingsView(transcriptionEngine: transcriptionEngine, appDelegate: appDelegate)
+    convenience init(transcriptionEngine: TranscriptionEngine, appDelegate: AppDelegate, transcriptStore: TranscriptStore) {
+        let rootView  = SettingsView(transcriptionEngine: transcriptionEngine, appDelegate: appDelegate, transcriptStore: transcriptStore)
         let hostingVC = NSHostingController(rootView: rootView)
 
         let window = NSWindow(contentViewController: hostingVC)

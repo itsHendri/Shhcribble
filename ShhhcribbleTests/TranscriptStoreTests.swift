@@ -10,10 +10,14 @@ final class TranscriptStoreTests: XCTestCase {
 
     private let legacyKey = "transcriptionHistory"
     private let migrationFlag = "didMigrateHistoryToSQLite"
+    private let dictLegacyKey = "dictionaryEntries"
+    private let dictMigrationFlag = "didMigrateDictionaryToSQLite"
 
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: legacyKey)
         UserDefaults.standard.removeObject(forKey: migrationFlag)
+        UserDefaults.standard.removeObject(forKey: dictLegacyKey)
+        UserDefaults.standard.removeObject(forKey: dictMigrationFlag)
         super.tearDown()
     }
 
@@ -244,8 +248,9 @@ final class TranscriptStoreTests: XCTestCase {
 
     // MARK: - Schema migration (v0 → latest)
 
-    /// Latest schema version — bumped as migrations are added (v1 summary, v2 notes).
-    private let latestSchemaVersion: Int32 = 2
+    /// Latest schema version — bumped as migrations are added (v1 summary, v2
+    /// notes, v3 dictionary_entries table).
+    private let latestSchemaVersion: Int32 = 3
 
     func testMigrationAddsColumnsToOldSchemaAndKeepsRows() throws {
         let path = tempDBPath()
@@ -317,6 +322,136 @@ final class TranscriptStoreTests: XCTestCase {
         store.updateNotes(id: existingID, notes: "added at v2")
         let reopened = TranscriptStore(path: path)
         XCTAssertEqual(reopened.transcripts.first?.notes, "added at v2")
+    }
+
+    // MARK: - Personal Dictionary (Sprint 4d)
+
+    func testDictionaryDefaultsEmpty() {
+        XCTAssertTrue(makeStore().dictionaryEntries.isEmpty)
+    }
+
+    func testAddDictionaryEntryAppendsAndPersistsAcrossReload() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let store = TranscriptStore(path: path)
+            store.addDictionaryEntry(DictionaryEntry(phrase: "swiss borg", replacement: "SwissBorg"))
+            store.addDictionaryEntry(DictionaryEntry(phrase: "parakeet", replacement: "Parakeet", caseSensitive: true))
+            XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["swiss borg", "parakeet"])
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.dictionaryEntries.map(\.phrase), ["swiss borg", "parakeet"])
+        XCTAssertEqual(reopened.dictionaryEntries.map(\.replacement), ["SwissBorg", "Parakeet"])
+        XCTAssertEqual(reopened.dictionaryEntries.map(\.caseSensitive), [false, true])
+    }
+
+    func testUpdateDictionaryEntryEditsFieldsInPlace() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let id: UUID
+        do {
+            let store = TranscriptStore(path: path)
+            let e = DictionaryEntry(phrase: "old", replacement: "OLD")
+            id = e.id
+            store.addDictionaryEntry(e)
+            store.updateDictionaryEntry(id: id, phrase: "new", replacement: "NEW", caseSensitive: true)
+            let mem = store.dictionaryEntries.first
+            XCTAssertEqual(mem?.phrase, "new")
+            XCTAssertEqual(mem?.replacement, "NEW")
+            XCTAssertEqual(mem?.caseSensitive, true)
+            XCTAssertEqual(mem?.id, id)   // id is stable across edit
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.dictionaryEntries.first?.phrase, "new")
+        XCTAssertEqual(reopened.dictionaryEntries.first?.caseSensitive, true)
+    }
+
+    func testDeleteDictionaryEntryRenumbersDensely() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let middle: UUID
+        do {
+            let store = TranscriptStore(path: path)
+            store.addDictionaryEntry(DictionaryEntry(phrase: "a", replacement: "A"))
+            let b = DictionaryEntry(phrase: "b", replacement: "B"); middle = b.id
+            store.addDictionaryEntry(b)
+            store.addDictionaryEntry(DictionaryEntry(phrase: "c", replacement: "C"))
+            store.deleteDictionaryEntry(id: middle)
+            XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["a", "c"])
+        }
+        // Positions must be dense (0,1) so ORDER BY position ASC keeps a,c.
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.dictionaryEntries.map(\.phrase), ["a", "c"])
+    }
+
+    func testMoveDictionaryEntryReordersAndPersists() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let store = TranscriptStore(path: path)
+            store.addDictionaryEntry(DictionaryEntry(phrase: "a", replacement: "A"))
+            store.addDictionaryEntry(DictionaryEntry(phrase: "b", replacement: "B"))
+            store.addDictionaryEntry(DictionaryEntry(phrase: "c", replacement: "C"))
+            store.moveDictionaryEntry(at: 2, by: -1)   // c up → a, c, b
+            XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["a", "c", "b"])
+            store.moveDictionaryEntry(at: 0, by: -1)    // out of range → no-op
+            XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["a", "c", "b"])
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.dictionaryEntries.map(\.phrase), ["a", "c", "b"])
+    }
+
+    func testDictionaryUpdateAndDeleteUnknownIDAreNoOps() {
+        let store = makeStore()
+        store.addDictionaryEntry(DictionaryEntry(phrase: "keep", replacement: "Keep"))
+        store.updateDictionaryEntry(id: UUID(), phrase: "x", replacement: "X", caseSensitive: false)
+        store.deleteDictionaryEntry(id: UUID())
+        XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["keep"])
+    }
+
+    func testMigratesLegacyDictionaryPreservingOrder() throws {
+        let entries = [
+            DictionaryEntry(phrase: "one", replacement: "1"),
+            DictionaryEntry(phrase: "two", replacement: "2", caseSensitive: true),
+            DictionaryEntry(phrase: "three", replacement: "3"),
+        ]
+        UserDefaults.standard.set(try JSONEncoder().encode(entries), forKey: dictLegacyKey)
+        UserDefaults.standard.removeObject(forKey: dictMigrationFlag)
+
+        let store = makeStore()
+        store.migrateLegacyDictionaryIfNeeded()
+        XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["one", "two", "three"])
+        XCTAssertEqual(store.dictionaryEntries.map(\.caseSensitive), [false, true, false])
+        XCTAssertEqual(store.dictionaryEntries.map(\.id), entries.map(\.id))   // ids preserved
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: dictMigrationFlag))
+    }
+
+    func testDictionaryMigrationRunsOnlyOnce() throws {
+        UserDefaults.standard.set(try JSONEncoder().encode([DictionaryEntry(phrase: "x", replacement: "X")]),
+                                  forKey: dictLegacyKey)
+        UserDefaults.standard.removeObject(forKey: dictMigrationFlag)
+
+        let store = makeStore()
+        store.migrateLegacyDictionaryIfNeeded()
+        store.migrateLegacyDictionaryIfNeeded()   // second call is a no-op (flag set)
+        XCTAssertEqual(store.dictionaryEntries.count, 1)
+    }
+
+    func testDictionaryMigrationRetryDoesNotCollideOnStableIDs() throws {
+        // Model an interrupted migration: entries already imported but the flag
+        // never got set. Re-running must clear + re-import (stable ids don't hit
+        // a PRIMARY KEY conflict) rather than silently double or fail.
+        let entries = [DictionaryEntry(phrase: "a", replacement: "A"),
+                       DictionaryEntry(phrase: "b", replacement: "B")]
+        UserDefaults.standard.set(try JSONEncoder().encode(entries), forKey: dictLegacyKey)
+        UserDefaults.standard.removeObject(forKey: dictMigrationFlag)
+
+        let store = makeStore()
+        store.migrateLegacyDictionaryIfNeeded()
+        // Simulate the flag not persisting (interruption) and retry.
+        UserDefaults.standard.removeObject(forKey: dictMigrationFlag)
+        store.migrateLegacyDictionaryIfNeeded()
+        XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["a", "b"])   // no dupes
     }
 
     // MARK: - Helpers

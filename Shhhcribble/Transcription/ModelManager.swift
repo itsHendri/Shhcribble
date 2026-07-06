@@ -74,27 +74,15 @@ enum ModelManager {
     }
 
     // MARK: - Personal dictionary
-
-    private static let dictionaryKey = "dictionaryEntries"
-
-    /// Ordered phrase→replacement substitutions applied to the raw transcript
-    /// BEFORE AI cleanup / filler filtering, so the LLM sees corrected terms.
-    /// Order matters — see PersonalDictionary for the substitution semantics.
-    /// Persisted across launches via UserDefaults (JSON-encoded), no cap.
-    static var dictionaryEntries: [DictionaryEntry] = {
-        guard let data = UserDefaults.standard.data(forKey: dictionaryKey),
-              let decoded = try? JSONDecoder().decode([DictionaryEntry].self, from: data)
-        else { return [] }
-        return decoded
-    }() {
-        didSet { persistDictionary() }
-    }
-
-    private static func persistDictionary() {
-        if let data = try? JSONEncoder().encode(dictionaryEntries) {
-            UserDefaults.standard.set(data, forKey: dictionaryKey)
-        }
-    }
+    //
+    // Dictionary entries moved out of UserDefaults into the SQLite-backed
+    // `TranscriptStore` (see Storage/TranscriptStore.swift) in Sprint 4d — it
+    // completes the Studio data layer and the ordered CRUD lives with the store.
+    // The legacy `dictionaryEntries` UserDefaults JSON is migrated in once by
+    // `TranscriptStore.migrateLegacyDictionaryIfNeeded()`; the old key is left in
+    // place (harmless) so a rollback build still finds it. The pipeline now
+    // snapshots `store.dictionaryEntries` on the main actor and passes it into
+    // `TranscriptPipeline.process(_:dictionary:)`.
 
     // MARK: - Transcription history
     //

@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Personal Dictionary now persists in SQLite** (was a UserDefaults JSON blob). Entries
+  live in a new `dictionary_entries` table in the transcript store (schema **v3**), with
+  order-preserving CRUD; the legacy `dictionaryEntries` UserDefaults JSON is imported once
+  on first launch (`didMigrateDictionaryToSQLite` flag; the old key is left in place for
+  rollback). The Settings editor now drives directly off the store. `TranscriptPipeline`
+  takes the dictionary as a parameter — the dictation / file / live-preview paths snapshot
+  it on the main actor and pass it in (the store is `@MainActor`; the pipeline runs
+  off-main). Substitution behavior is unchanged — same entries, order, and `apply()`.
+
 ### Added
 - **Editable Notes (Transcription Studio Notes tab).** A free-text notes area per
   transcript — a third detail tab alongside Transcript and Summary. Notes **auto-save**

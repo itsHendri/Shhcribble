@@ -5,12 +5,14 @@ import AVFoundation
 struct SettingsView: View {
     @ObservedObject var transcriptionEngine: TranscriptionEngine
     var appDelegate: AppDelegate
+    /// Source of truth for the Personal Dictionary (SQLite-backed). The list +
+    /// CRUD drive off `transcriptStore.dictionaryEntries` directly — no @State copy.
+    @ObservedObject var transcriptStore: TranscriptStore
 
     @State private var selectedModel:        String = ModelManager.selectedModel
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
     @State private var transcriptCleanupEnabled: Bool = ModelManager.transcriptCleanupEnabled
 
-    @State private var dictionaryEntries: [DictionaryEntry] = ModelManager.dictionaryEntries
     @State private var showingAddEntrySheet = false
     @State private var editingEntry: DictionaryEntry? = nil
 
@@ -116,12 +118,12 @@ struct SettingsView: View {
 
             // MARK: Personal dictionary
             Section {
-                if dictionaryEntries.isEmpty {
+                if transcriptStore.dictionaryEntries.isEmpty {
                     Text("No entries yet — add names or jargon the transcriber gets wrong.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                ForEach(Array(dictionaryEntries.enumerated()), id: \.element.id) { index, entry in
+                ForEach(Array(transcriptStore.dictionaryEntries.enumerated()), id: \.element.id) { index, entry in
                     dictionaryRow(entry: entry, index: index)
                 }
                 Button("Add Entry…") { showingAddEntrySheet = true }
@@ -216,10 +218,9 @@ struct SettingsView: View {
         .onReceive(permissionTimer) { _ in checkPermissions() }
         .sheet(isPresented: $showingAddEntrySheet) {
             DictionaryEntryEditor(title: "Add Dictionary Entry") { phrase, replacement, caseSensitive in
-                dictionaryEntries.append(
+                transcriptStore.addDictionaryEntry(
                     DictionaryEntry(phrase: phrase, replacement: replacement, caseSensitive: caseSensitive)
                 )
-                saveDictionary()
             }
         }
         .sheet(item: $editingEntry) { entry in
@@ -229,12 +230,9 @@ struct SettingsView: View {
                 replacement: entry.replacement,
                 caseSensitive: entry.caseSensitive
             ) { phrase, replacement, caseSensitive in
-                if let i = dictionaryEntries.firstIndex(where: { $0.id == entry.id }) {
-                    dictionaryEntries[i].phrase = phrase
-                    dictionaryEntries[i].replacement = replacement
-                    dictionaryEntries[i].caseSensitive = caseSensitive
-                    saveDictionary()
-                }
+                transcriptStore.updateDictionaryEntry(
+                    id: entry.id, phrase: phrase, replacement: replacement, caseSensitive: caseSensitive
+                )
             }
         }
     }
@@ -261,46 +259,29 @@ struct SettingsView: View {
             Spacer(minLength: 8)
             // Explicit reorder buttons — drag-reorder inside a grouped Form is
             // unreliable on macOS, and order is meaningful (entries apply top-down).
-            Button { moveDictionaryEntry(at: index, by: -1) } label: {
+            Button { transcriptStore.moveDictionaryEntry(at: index, by: -1) } label: {
                 Image(systemName: "chevron.up")
             }
             .buttonStyle(.borderless)
             .disabled(index == 0)
             .help("Move up")
-            Button { moveDictionaryEntry(at: index, by: 1) } label: {
+            Button { transcriptStore.moveDictionaryEntry(at: index, by: 1) } label: {
                 Image(systemName: "chevron.down")
             }
             .buttonStyle(.borderless)
-            .disabled(index == dictionaryEntries.count - 1)
+            .disabled(index == transcriptStore.dictionaryEntries.count - 1)
             .help("Move down")
             Button { editingEntry = entry } label: {
                 Image(systemName: "pencil")
             }
             .buttonStyle(.borderless)
             .help("Edit")
-            Button { deleteDictionaryEntry(id: entry.id) } label: {
+            Button { transcriptStore.deleteDictionaryEntry(id: entry.id) } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
             .help("Delete")
         }
-    }
-
-    private func saveDictionary() {
-        ModelManager.dictionaryEntries = dictionaryEntries
-    }
-
-    private func moveDictionaryEntry(at index: Int, by offset: Int) {
-        let target = index + offset
-        guard dictionaryEntries.indices.contains(index),
-              dictionaryEntries.indices.contains(target) else { return }
-        dictionaryEntries.swapAt(index, target)
-        saveDictionary()
-    }
-
-    private func deleteDictionaryEntry(id: UUID) {
-        dictionaryEntries.removeAll { $0.id == id }
-        saveDictionary()
     }
 
     /// Single source of truth for the displayed version. Reads

@@ -399,8 +399,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rawTranscript = trimmed
             // Shared pipeline: dictionary → AI cleanup (if enabled + available)
             // or FillerWordFilter. See TranscriptPipeline; the file path uses
-            // the exact same call so the two can't drift.
-            let result = await TranscriptPipeline.process(trimmed)
+            // the exact same call so the two can't drift. Snapshot the dictionary
+            // on the main actor here — the pipeline is nonisolated / runs off-main.
+            let dictionary = transcriptStore.dictionaryEntries
+            let result = await TranscriptPipeline.process(trimmed, dictionary: dictionary)
             textToInsert = result.isEmpty ? nil : result
         } catch {
             print("[Shhhcribble] ❌ Transcription error: \(error.localizedDescription)")
@@ -518,6 +520,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .seconds(liveTranscriptionInterval))
 
             while !Task.isCancelled, self.state == .recording {
+                // Snapshot the dictionary on the main actor each pass so mid-session
+                // edits are reflected (the store is @MainActor).
+                let dictionary = self.transcriptStore.dictionaryEntries
                 let snapshot = self.audioRecorder.currentSamples
                 // Need at least 1s of audio before attempting live transcription
                 if snapshot.count > 16_000 {
@@ -527,7 +532,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             // Same dictionary pass as the final transcript so the
                             // live preview shows the user's corrected terms.
                             self.soundwavePanel.updateLiveText(
-                                PersonalDictionary.apply(ModelManager.dictionaryEntries, to: trimmed)
+                                PersonalDictionary.apply(dictionary, to: trimmed)
                             )
                         }
                     }
@@ -566,7 +571,8 @@ extension AppDelegate: MenuBarControllerDelegate {
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController(
                 transcriptionEngine: transcriptionEngine,
-                appDelegate: self
+                appDelegate: self,
+                transcriptStore: transcriptStore
             )
             settingsWindowController?.window?.delegate = self
         }

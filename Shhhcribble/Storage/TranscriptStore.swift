@@ -62,6 +62,11 @@ final class TranscriptStore: ObservableObject {
     /// Newest first. The single source of truth the UI binds to.
     @Published private(set) var transcripts: [Transcript] = []
 
+    /// Personal Dictionary entries, in apply order (position ascending). The
+    /// dictation / file / live-preview paths snapshot this on the main actor and
+    /// pass it into the off-main `TranscriptPipeline`; Settings binds to it live.
+    @Published private(set) var dictionaryEntries: [DictionaryEntry] = []
+
     private var db: OpaquePointer?
     private let log = Logger(subsystem: "com.shhhcribble.app", category: "store")
 
@@ -76,6 +81,7 @@ final class TranscriptStore: ObservableObject {
         createSchema()
         migrateSchema()
         reload()
+        reloadDictionary()
     }
 
     /// Production store at Application Support/Shhhcribble/transcripts.sqlite,
@@ -83,6 +89,7 @@ final class TranscriptStore: ObservableObject {
     static func makeDefault() -> TranscriptStore {
         let store = TranscriptStore(path: defaultDatabaseURL().path)
         store.migrateLegacyHistoryIfNeeded()
+        store.migrateLegacyDictionaryIfNeeded()
         return store
     }
 
@@ -158,6 +165,84 @@ final class TranscriptStore: ObservableObject {
         transcripts[idx].notes = notes
     }
 
+    // MARK: - Personal Dictionary
+    //
+    // Mirrors the `updateNotes` template: every mutation does a SQL write plus an
+    // in-memory `@Published` mutation so the Settings UI refreshes. `position` is
+    // kept equal to the array index (0-based, dense) — the simplest robust scheme
+    // for small lists, and `reloadDictionary`'s `ORDER BY position ASC` reproduces
+    // the array exactly.
+
+    /// Append a new entry at the end of the list. Guards the INSERT before the
+    /// in-memory mutation so we never show a row the DB doesn't have.
+    func addDictionaryEntry(_ entry: DictionaryEntry) {
+        let position = dictionaryEntries.count
+        guard exec("""
+        INSERT INTO dictionary_entries (id, phrase, replacement, caseSensitive, position)
+        VALUES (?, ?, ?, ?, ?);
+        """, bind: { stmt in
+            sqlite3_bind_text(stmt, 1, entry.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, entry.phrase, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, entry.replacement, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_int(stmt, 4, entry.caseSensitive ? 1 : 0)
+            sqlite3_bind_int(stmt, 5, Int32(position))
+        }) else { return }
+        dictionaryEntries.append(entry)
+    }
+
+    /// Update an existing entry's editable fields (id + position unchanged).
+    func updateDictionaryEntry(id: UUID, phrase: String, replacement: String, caseSensitive: Bool) {
+        guard let idx = dictionaryEntries.firstIndex(where: { $0.id == id }) else { return }
+        exec("UPDATE dictionary_entries SET phrase = ?, replacement = ?, caseSensitive = ? WHERE id = ?;") { stmt in
+            sqlite3_bind_text(stmt, 1, phrase, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, replacement, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_int(stmt, 3, caseSensitive ? 1 : 0)
+            sqlite3_bind_text(stmt, 4, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+        dictionaryEntries[idx].phrase = phrase
+        dictionaryEntries[idx].replacement = replacement
+        dictionaryEntries[idx].caseSensitive = caseSensitive
+    }
+
+    /// Delete an entry, then renumber the remaining rows so positions stay a
+    /// dense 0..<count sequence (no gaps).
+    func deleteDictionaryEntry(id: UUID) {
+        guard let idx = dictionaryEntries.firstIndex(where: { $0.id == id }) else { return }
+        exec("DELETE FROM dictionary_entries WHERE id = ?;") { stmt in
+            sqlite3_bind_text(stmt, 1, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+        dictionaryEntries.remove(at: idx)
+        renumberDictionaryPositions(from: idx)
+    }
+
+    /// Move an entry up (`offset == -1`) or down (`offset == +1`), matching the
+    /// Settings up/down buttons. No-op if the target index is out of range.
+    func moveDictionaryEntry(at index: Int, by offset: Int) {
+        let target = index + offset
+        guard dictionaryEntries.indices.contains(index),
+              dictionaryEntries.indices.contains(target) else { return }
+        dictionaryEntries.swapAt(index, target)
+        persistDictionaryPosition(at: index)
+        persistDictionaryPosition(at: target)
+    }
+
+    /// Write one array slot's index as its stored `position`.
+    private func persistDictionaryPosition(at index: Int) {
+        guard dictionaryEntries.indices.contains(index) else { return }
+        let entry = dictionaryEntries[index]
+        exec("UPDATE dictionary_entries SET position = ? WHERE id = ?;") { stmt in
+            sqlite3_bind_int(stmt, 1, Int32(index))
+            sqlite3_bind_text(stmt, 2, entry.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+    }
+
+    /// After a delete, rewrite `position` = array index for every entry from
+    /// `start` onward so stored positions stay contiguous and match array order.
+    private func renumberDictionaryPositions(from start: Int) {
+        guard start < dictionaryEntries.count else { return }
+        for i in start..<dictionaryEntries.count { persistDictionaryPosition(at: i) }
+    }
+
     /// Case-insensitive substring match over title + text, newest first.
     /// Empty query returns everything (already newest-first in `transcripts`).
     func matching(_ query: String) -> [Transcript] {
@@ -216,6 +301,37 @@ final class TranscriptStore: ObservableObject {
         let date: Date
     }
 
+    private static let dictionaryMigrationFlagKey = "didMigrateDictionaryToSQLite"
+
+    /// One-shot import of the legacy `dictionaryEntries` UserDefaults JSON
+    /// (`[DictionaryEntry]`) into the `dictionary_entries` table, order preserved.
+    /// The old key is left in place (harmless) so a rollback build still finds it.
+    ///
+    /// Unlike history migration (which mints fresh UUIDs each attempt), dictionary
+    /// entries carry stable ids from the JSON, so a retried-after-interruption
+    /// import would hit PRIMARY KEY conflicts. Clearing the table (+ the in-memory
+    /// array) first makes a retry start clean — safe because this only runs before
+    /// the dictionary is ever used.
+    func migrateLegacyDictionaryIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.dictionaryMigrationFlagKey) else { return }
+        // If the DB failed to open, don't mark migrated — retry next launch.
+        guard db != nil else { return }
+        defer { defaults.set(true, forKey: Self.dictionaryMigrationFlagKey) }
+
+        guard let data = defaults.data(forKey: "dictionaryEntries"),
+              let legacy = try? JSONDecoder().decode([DictionaryEntry].self, from: data),
+              !legacy.isEmpty else { return }
+
+        // Start clean so an interrupted-then-retried import can't collide on ids.
+        exec("DELETE FROM dictionary_entries;", bind: nil)
+        dictionaryEntries.removeAll()
+
+        // Legacy JSON is already in apply-order; insert in order so position = index.
+        for entry in legacy { addDictionaryEntry(entry) }
+        log.notice("Migrated \(legacy.count) legacy dictionary entries into SQLite.")
+    }
+
     // MARK: - SQLite plumbing
 
     private func openDatabase(at path: String) {
@@ -241,6 +357,20 @@ final class TranscriptStore: ObservableObject {
         );
         """, bind: nil)
         exec("CREATE INDEX IF NOT EXISTS idx_transcripts_createdAt ON transcripts(createdAt DESC);", bind: nil)
+
+        // Personal Dictionary lives in its own table (position-ordered). Created
+        // idempotently here so a fresh DB and an upgraded one take the same path;
+        // `migrateSchema` only records the version bump (see v3 there).
+        exec("""
+        CREATE TABLE IF NOT EXISTS dictionary_entries (
+            id TEXT PRIMARY KEY,
+            phrase TEXT NOT NULL,
+            replacement TEXT NOT NULL,
+            caseSensitive INTEGER NOT NULL DEFAULT 0,
+            position INTEGER NOT NULL
+        );
+        """, bind: nil)
+        exec("CREATE INDEX IF NOT EXISTS idx_dictionary_position ON dictionary_entries(position ASC);", bind: nil)
     }
 
     /// Additive schema migrations, versioned via `PRAGMA user_version`. Runs on
@@ -258,6 +388,9 @@ final class TranscriptStore: ObservableObject {
     ///
     /// v1: summary columns (summary, actionItems JSON, summaryGeneratedAt).
     /// v2: notes column.
+    /// v3: dictionary_entries table (created in `createSchema`; this step only
+    ///     records the version bump — the data import is a separate one-shot
+    ///     UserDefaults flag, see `migrateLegacyDictionaryIfNeeded`).
     ///
     /// Each version is an independent, self-committing step: it adds only its
     /// missing columns, then bumps `user_version` **only once they're all
@@ -287,6 +420,15 @@ final class TranscriptStore: ObservableObject {
             exec("PRAGMA user_version = 2;", bind: nil)
             log.notice("Migrated schema to v2 (notes column).")
             version = 2
+        }
+
+        if version < 3 {
+            // No DDL: `dictionary_entries` is created idempotently in
+            // `createSchema`. This step only records the version so the
+            // migration sequence stays monotonic for future changes.
+            exec("PRAGMA user_version = 3;", bind: nil)
+            log.notice("Migrated schema to v3 (dictionary_entries table).")
+            version = 3
         }
     }
 
@@ -373,6 +515,26 @@ final class TranscriptStore: ObservableObject {
             ))
         }
         transcripts = rows
+    }
+
+    /// Hydrate `dictionaryEntries` from the `dictionary_entries` table in apply
+    /// order. `position` drives the ORDER BY; the array index is the effective
+    /// position afterward (see the CRUD note), so it isn't read into the struct.
+    private func reloadDictionary() {
+        var rows: [DictionaryEntry] = []
+        forEachRow("""
+        SELECT id, phrase, replacement, caseSensitive
+        FROM dictionary_entries ORDER BY position ASC;
+        """) { stmt in
+            guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
+            rows.append(DictionaryEntry(
+                id: id,
+                phrase: Self.columnText(stmt, 1) ?? "",
+                replacement: Self.columnText(stmt, 2) ?? "",
+                caseSensitive: sqlite3_column_int(stmt, 3) != 0
+            ))
+        }
+        dictionaryEntries = rows
     }
 
     // MARK: - Low-level helpers

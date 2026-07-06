@@ -10,9 +10,12 @@ enum TranscriptPipeline {
     /// Clean a trimmed raw transcript. Returns the final text, which may be
     /// empty (e.g. an all-filler utterance) — callers treat empty as "no result".
     /// - `rawTrimmed` should already be whitespace-trimmed.
-    static func process(_ rawTrimmed: String) async -> String {
+    /// - `dictionary` is snapshotted by the caller on the main actor (the store
+    ///   is `@MainActor`) and passed in, because this func is nonisolated and runs
+    ///   off-main — it cannot read the store directly.
+    static func process(_ rawTrimmed: String, dictionary: [DictionaryEntry]) async -> String {
         // Personal-dictionary substitutions run on the RAW transcript first.
-        let corrected = PersonalDictionary.apply(ModelManager.dictionaryEntries, to: rawTrimmed)
+        let corrected = PersonalDictionary.apply(dictionary, to: rawTrimmed)
         guard !corrected.isEmpty else { return "" }
 
         // On-device LLM cleanup (Apple FoundationModels) replaces the regex
