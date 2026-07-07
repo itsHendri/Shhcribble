@@ -40,14 +40,44 @@ fi
 # ── 2. Sign ───────────────────────────────────────────────────────────────────
 # Developer ID + Hardened Runtime is required so (a) the embedded Sparkle helpers
 # (Autoupdate.app / Updater.app / XPC services) are Developer-ID signed for
-# notarization, and (b) Gatekeeper accepts the downloaded build. --options runtime
-# keeps Hardened Runtime on; --deep signs nested code (Sparkle.framework + helpers).
+# notarization, and (b) Gatekeeper accepts the downloaded build.
+#
+# Signed INSIDE-OUT, not --deep. Two hard-won reasons (v1.7.0 release, 2026-07):
+#   1. `codesign --force` STRIPS existing entitlements unless told otherwise.
+#      With Hardened Runtime on (-o runtime), a mic app without the
+#      com.apple.security.device.audio-input entitlement is denied the
+#      microphone BEFORE TCC is consulted — "permission denied" no reset can
+#      fix. The app must be re-signed WITH --entitlements.
+#   2. --deep would stamp those same app entitlements over Sparkle's nested
+#      helpers (whose XPC services carry their own) — Apple and Sparkle both
+#      say: sign nested code individually, preserving its metadata.
+ENTITLEMENTS="${PROJECT_ROOT}/Shhhcribble/Resources/Shhhcribble.entitlements"
+SPARKLE_FW="${BUILD_APP}/Contents/Frameworks/Sparkle.framework"
 if [ -n "${DEVID_APP_IDENTITY}" ]; then
   echo "▶ Signing with Developer ID: ${DEVID_APP_IDENTITY}"
-  codesign --force --deep --options runtime --timestamp \
+  if [ -d "${SPARKLE_FW}" ]; then
+    # Sparkle helpers first (inside-out), preserving their own entitlements.
+    codesign --force --options runtime --timestamp --preserve-metadata=entitlements \
+      --sign "${DEVID_APP_IDENTITY}" "${SPARKLE_FW}/Versions/B/XPCServices/Installer.xpc"
+    codesign --force --options runtime --timestamp --preserve-metadata=entitlements \
+      --sign "${DEVID_APP_IDENTITY}" "${SPARKLE_FW}/Versions/B/XPCServices/Downloader.xpc"
+    codesign --force --options runtime --timestamp \
+      --sign "${DEVID_APP_IDENTITY}" "${SPARKLE_FW}/Versions/B/Autoupdate"
+    codesign --force --options runtime --timestamp \
+      --sign "${DEVID_APP_IDENTITY}" "${SPARKLE_FW}/Versions/B/Updater.app"
+    codesign --force --options runtime --timestamp \
+      --sign "${DEVID_APP_IDENTITY}" "${SPARKLE_FW}"
+  fi
+  # Main app last, WITH the app entitlements (audio-input for Hardened Runtime).
+  codesign --force --options runtime --timestamp \
+    --entitlements "${ENTITLEMENTS}" \
     --sign "${DEVID_APP_IDENTITY}" "${BUILD_APP}"
-  echo "▶ Verifying signature..."
+  echo "▶ Verifying signature + entitlements..."
   codesign --verify --deep --strict --verbose=2 "${BUILD_APP}"
+  if ! codesign -d --entitlements - "${BUILD_APP}" 2>/dev/null | grep -q "audio-input"; then
+    echo "❌ audio-input entitlement missing after signing — mic would be denied under Hardened Runtime."
+    exit 1
+  fi
 else
   echo "⚠️  DEVID_APP_IDENTITY unset — AD-HOC signing (LOCAL TEST ONLY, not shippable)."
   codesign --force --deep --sign - "${BUILD_APP}"
