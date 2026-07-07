@@ -76,10 +76,14 @@ mkdir -p "${DMG_STAGING}"
 cp -R "${BUILD_APP}" "${DMG_STAGING}/"
 ln -s /Applications "${DMG_STAGING}/Applications"
 
-# ── 5. Create writable DMG ────────────────────────────────────────────────────
-# UDRW (writable) so we can mount and write DS_Store to the live volume path.
-# We never convert — avoids the hdiutil convert EAGAIN bug on macOS 26 Tahoe.
-echo "▶ Creating DMG..."
+# ── 5. Create scratch UDRW DMG for Finder layout ──────────────────────────────
+# The UDRW image exists ONLY to generate the .DS_Store: Finder layout must be
+# written to a live mounted volume. The final image is created fresh as UDZO in
+# step 7 — `hdiutil convert` is NOT used anywhere because it fails persistently
+# with EAGAIN on macOS 26 Tahoe (fails even on a trivial never-mounted image,
+# sandboxed or not — verified 2026-07-07), while `hdiutil create -format UDZO`
+# works fine. notarytool also rejects UDRW, so the shipped DMG must be UDZO.
+echo "▶ Creating scratch DMG for Finder layout..."
 rm -f "${DMG_RW}.dmg"
 hdiutil create \
   -volname "${APP_NAME}" \
@@ -87,16 +91,26 @@ hdiutil create \
   -format UDRW \
   "${DMG_RW}"
 
-# ── 6. Mount, write Finder layout, unmount ────────────────────────────────────
+# ── 6. Mount, write Finder layout, harvest .DS_Store, unmount ─────────────────
 echo "▶ Configuring Finder layout..."
 MOUNT_POINT=$(hdiutil attach "${DMG_RW}.dmg" -readwrite -noverify -noautoopen \
               | grep "/Volumes" | awk '{print $NF}')
 python3 "${PROJECT_ROOT}/Distribution/set-dmg-layout.py" "${MOUNT_POINT}"
+# Copy the generated .DS_Store back into staging so the final UDZO image
+# carries the same icon layout without ever mounting it.
+cp "${MOUNT_POINT}/.DS_Store" "${DMG_STAGING}/.DS_Store"
 hdiutil detach "${MOUNT_POINT}" -force
+rm -f "${DMG_RW}.dmg"
 
-# ── 7. Move finished DMG to Desktop ───────────────────────────────────────────
+# ── 7. Create the final compressed read-only DMG on the Desktop ───────────────
+echo "▶ Creating final UDZO DMG..."
 rm -f "${OUT_DMG}"
-mv "${DMG_RW}.dmg" "${OUT_DMG}"
+hdiutil create \
+  -volname "${APP_NAME}" \
+  -srcfolder "${DMG_STAGING}" \
+  -format UDZO \
+  -imagekey zlib-level=9 \
+  "${OUT_DMG}"
 
 # ── 8. Notarize + staple the DMG itself ───────────────────────────────────────
 # Stapling the DMG lets it pass Gatekeeper on first download without an online
