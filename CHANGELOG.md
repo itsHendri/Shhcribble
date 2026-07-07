@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(nothing yet — the tabbed Studio-shell redesign is in progress on `shhhcribble/studio-tabs`)_
+
+## [1.7.0] - 2026-07-07
+
+First Developer ID-signed, notarized release with Sparkle auto-update enabled.
+
 ### Changed
 - **Personal Dictionary now persists in SQLite** (was a UserDefaults JSON blob). Entries
   live in a new `dictionary_entries` table in the transcript store (schema **v3**), with
@@ -110,8 +116,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reactivate automatically; releases are Developer ID-signed + notarized DMGs with
   in-app updates driven by the GitHub-hosted appcast.
 
-> Not yet released; in progress as **v1.7.0** (`Info.plist` bumped to 1.7.0 /
-> build 8) — planned as the first notarized, Sparkle-enabled release.
 
 ## [1.6.0] - 2026-06-03
 
