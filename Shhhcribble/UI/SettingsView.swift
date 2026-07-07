@@ -13,9 +13,6 @@ struct SettingsView: View {
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
     @State private var transcriptCleanupEnabled: Bool = ModelManager.transcriptCleanupEnabled
 
-    @State private var showingAddEntrySheet = false
-    @State private var editingEntry: DictionaryEntry? = nil
-
     @State private var axGranted        = false
     @State private var micGranted       = false
     @State private var micNotDetermined = false
@@ -116,26 +113,6 @@ struct SettingsView: View {
                 .foregroundColor(.secondary)
             }
 
-            // MARK: Personal dictionary
-            Section {
-                if transcriptStore.dictionaryEntries.isEmpty {
-                    Text("No entries yet — add names or jargon the transcriber gets wrong.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                ForEach(Array(transcriptStore.dictionaryEntries.enumerated()), id: \.element.id) { index, entry in
-                    dictionaryRow(entry: entry, index: index)
-                }
-                Button("Add Entry…") { showingAddEntrySheet = true }
-            } header: {
-                Text("Personal Dictionary")
-            } footer: {
-                Text("Replacements are applied to the raw transcript before AI cleanup, " +
-                     "in list order. Whole words only — \"cat\" never matches inside \"catalog\".")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
             // MARK: Permissions
             Section {
                 // Accessibility
@@ -213,75 +190,8 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440)
         .onAppear { checkPermissions() }
         .onReceive(permissionTimer) { _ in checkPermissions() }
-        .sheet(isPresented: $showingAddEntrySheet) {
-            DictionaryEntryEditor(title: "Add Dictionary Entry") { phrase, replacement, caseSensitive in
-                transcriptStore.addDictionaryEntry(
-                    DictionaryEntry(phrase: phrase, replacement: replacement, caseSensitive: caseSensitive)
-                )
-            }
-        }
-        .sheet(item: $editingEntry) { entry in
-            DictionaryEntryEditor(
-                title: "Edit Dictionary Entry",
-                phrase: entry.phrase,
-                replacement: entry.replacement,
-                caseSensitive: entry.caseSensitive
-            ) { phrase, replacement, caseSensitive in
-                transcriptStore.updateDictionaryEntry(
-                    id: entry.id, phrase: phrase, replacement: replacement, caseSensitive: caseSensitive
-                )
-            }
-        }
-    }
-
-    // MARK: - Personal dictionary rows & helpers
-
-    @ViewBuilder
-    private func dictionaryRow(entry: DictionaryEntry, index: Int) -> some View {
-        HStack(spacing: 8) {
-            Text(entry.phrase)
-                .lineLimit(1).truncationMode(.tail)
-            Image(systemName: "arrow.right")
-                .font(.caption2).foregroundColor(.secondary)
-            Text(entry.replacement)
-                .fontWeight(.medium)
-                .lineLimit(1).truncationMode(.tail)
-            if entry.caseSensitive {
-                Text("Aa")
-                    .font(.caption2).foregroundColor(.secondary)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.15)))
-                    .help("Matches case exactly")
-            }
-            Spacer(minLength: 8)
-            // Explicit reorder buttons — drag-reorder inside a grouped Form is
-            // unreliable on macOS, and order is meaningful (entries apply top-down).
-            Button { transcriptStore.moveDictionaryEntry(at: index, by: -1) } label: {
-                Image(systemName: "chevron.up")
-            }
-            .buttonStyle(.borderless)
-            .disabled(index == 0)
-            .help("Move up")
-            Button { transcriptStore.moveDictionaryEntry(at: index, by: 1) } label: {
-                Image(systemName: "chevron.down")
-            }
-            .buttonStyle(.borderless)
-            .disabled(index == transcriptStore.dictionaryEntries.count - 1)
-            .help("Move down")
-            Button { editingEntry = entry } label: {
-                Image(systemName: "pencil")
-            }
-            .buttonStyle(.borderless)
-            .help("Edit")
-            Button { transcriptStore.deleteDictionaryEntry(id: entry.id) } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help("Delete")
-        }
     }
 
     /// Single source of truth for the displayed version. Reads
@@ -346,6 +256,106 @@ struct SettingsView: View {
     private func openSystemPrivacy(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+// MARK: - Personal Dictionary tab
+
+/// The Personal Dictionary editor — its own left-nav tab in the Studio shell
+/// (moved out of Settings). Drives directly off the SQLite-backed store (no
+/// `@State` copy); reorder via explicit up/down buttons since drag-reorder
+/// inside a grouped `Form` is unreliable on macOS and order is meaningful
+/// (entries apply top-down).
+struct DictionarySettingsView: View {
+    @ObservedObject var store: TranscriptStore
+
+    @State private var showingAddEntrySheet = false
+    @State private var editingEntry: DictionaryEntry? = nil
+
+    var body: some View {
+        Form {
+            Section {
+                if store.dictionaryEntries.isEmpty {
+                    Text("No entries yet — add names or jargon the transcriber gets wrong.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                ForEach(Array(store.dictionaryEntries.enumerated()), id: \.element.id) { index, entry in
+                    dictionaryRow(entry: entry, index: index)
+                }
+                Button("Add Entry…") { showingAddEntrySheet = true }
+            } header: {
+                Text("Personal Dictionary")
+            } footer: {
+                Text("Replacements are applied to the raw transcript before AI cleanup, " +
+                     "in list order. Whole words only — \"cat\" never matches inside \"catalog\".")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .sheet(isPresented: $showingAddEntrySheet) {
+            DictionaryEntryEditor(title: "Add Dictionary Entry") { phrase, replacement, caseSensitive in
+                store.addDictionaryEntry(
+                    DictionaryEntry(phrase: phrase, replacement: replacement, caseSensitive: caseSensitive)
+                )
+            }
+        }
+        .sheet(item: $editingEntry) { entry in
+            DictionaryEntryEditor(
+                title: "Edit Dictionary Entry",
+                phrase: entry.phrase,
+                replacement: entry.replacement,
+                caseSensitive: entry.caseSensitive
+            ) { phrase, replacement, caseSensitive in
+                store.updateDictionaryEntry(
+                    id: entry.id, phrase: phrase, replacement: replacement, caseSensitive: caseSensitive
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func dictionaryRow(entry: DictionaryEntry, index: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(entry.phrase)
+                .lineLimit(1).truncationMode(.tail)
+            Image(systemName: "arrow.right")
+                .font(.caption2).foregroundColor(.secondary)
+            Text(entry.replacement)
+                .fontWeight(.medium)
+                .lineLimit(1).truncationMode(.tail)
+            if entry.caseSensitive {
+                Text("Aa")
+                    .font(.caption2).foregroundColor(.secondary)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.15)))
+                    .help("Matches case exactly")
+            }
+            Spacer(minLength: 8)
+            Button { store.moveDictionaryEntry(at: index, by: -1) } label: {
+                Image(systemName: "chevron.up")
+            }
+            .buttonStyle(.borderless)
+            .disabled(index == 0)
+            .help("Move up")
+            Button { store.moveDictionaryEntry(at: index, by: 1) } label: {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(.borderless)
+            .disabled(index == store.dictionaryEntries.count - 1)
+            .help("Move down")
+            Button { editingEntry = entry } label: {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+            .help("Edit")
+            Button { store.deleteDictionaryEntry(id: entry.id) } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Delete")
         }
     }
 }

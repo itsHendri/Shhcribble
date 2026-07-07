@@ -9,15 +9,15 @@ final class TranscriptionsWindowController: NSWindowController {
     convenience init(store: TranscriptStore,
                      fileTranscriber: FileTranscriber,
                      engine: TranscriptionEngine,
+                     appDelegate: AppDelegate,
                      onTranscribeFile: @escaping () -> Void,
-                     onOpenSettings: @escaping () -> Void,
                      onQuit: @escaping () -> Void) {
         let root = TranscriptionsView(
             store: store,
             fileTranscriber: fileTranscriber,
             engine: engine,
+            appDelegate: appDelegate,
             onTranscribeFile: onTranscribeFile,
-            onOpenSettings: onOpenSettings,
             onQuit: onQuit
         )
         let hostingVC = NSHostingController(rootView: root)
@@ -28,8 +28,12 @@ final class TranscriptionsWindowController: NSWindowController {
         // menu-bar icon can sit directly in front of the app name.
         window.titleVisibility = .hidden
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 900, height: 560))
-        window.setFrameAutosaveName("TranscriptionsWindow")
+        // Floor the size so the sidebar + list + reader always fit — below this
+        // the split columns overflow and clip. Autosave name is bumped (.v2) so a
+        // stale small frame saved under the old 3-column layout isn't restored.
+        window.contentMinSize = NSSize(width: 840, height: 520)
+        window.setContentSize(NSSize(width: 1000, height: 640))
+        window.setFrameAutosaveName("TranscriptionsWindow.v2")
         window.center()
 
         let titleAccessory = NSTitlebarAccessoryViewController()

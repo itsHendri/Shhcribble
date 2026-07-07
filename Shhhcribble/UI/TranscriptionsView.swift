@@ -8,19 +8,35 @@ struct TranscriptionsView: View {
     @ObservedObject var store: TranscriptStore
     @ObservedObject var fileTranscriber: FileTranscriber
     @ObservedObject var engine: TranscriptionEngine
+    var appDelegate: AppDelegate
     var onTranscribeFile: () -> Void
-    var onOpenSettings: () -> Void
     var onQuit: () -> Void
 
     @State private var section: RailSection? = .transcriptions
     @State private var selectedID: UUID?
     @State private var searchText = ""
+    @State private var showingQuitConfirm = false
 
+    /// Left-nav tabs. Transcriptions is a master-detail (list + reader); the
+    /// other two fill the pane. Settings + Personal Dictionary moved in here
+    /// from the old separate settings window.
     enum RailSection: String, CaseIterable, Identifiable {
-        case home, transcriptions
+        case transcriptions, dictionary, settings
         var id: String { rawValue }
-        var label: String { self == .home ? "Home" : "Transcriptions" }
-        var systemImage: String { self == .home ? "house" : "text.bubble" }
+        var label: String {
+            switch self {
+            case .transcriptions: return "Transcriptions"
+            case .dictionary:     return "Personal Dictionary"
+            case .settings:       return "Settings"
+            }
+        }
+        var systemImage: String {
+            switch self {
+            case .transcriptions: return "text.bubble"
+            case .dictionary:     return "character.book.closed"
+            case .settings:       return "gearshape"
+            }
+        }
     }
 
     private var filtered: [Transcript] { store.matching(searchText) }
@@ -29,96 +45,127 @@ struct TranscriptionsView: View {
     var body: some View {
         NavigationSplitView {
             rail
-        } content: {
-            switch section ?? .transcriptions {
-            case .home:            homeColumn
-            case .transcriptions:  listColumn
-            }
         } detail: {
-            detailColumn
+            switch section ?? .transcriptions {
+            case .transcriptions: transcriptionsPane
+            case .dictionary:     dictionaryPane
+            case .settings:       settingsPane
+            }
         }
-        .frame(minWidth: 860, minHeight: 500)
     }
 
     // MARK: - Rail
 
     private var rail: some View {
         List(selection: $section) {
-            ForEach(RailSection.allCases) { s in
-                Label(s.label, systemImage: s.systemImage).tag(s)
+            Section {
+                ForEach([RailSection.transcriptions, .dictionary]) { s in
+                    Label(s.label, systemImage: s.systemImage).tag(s)
+                }
+            }
+            Section {
+                Label(RailSection.settings.label, systemImage: RailSection.settings.systemImage)
+                    .tag(RailSection.settings)
             }
         }
-        .navigationSplitViewColumnWidth(min: 150, ideal: 172, max: 210)
+        .navigationSplitViewColumnWidth(min: 172, ideal: 196, max: 240)
         .safeAreaInset(edge: .bottom) {
-            VStack(alignment: .leading, spacing: 6) {
-                Button(action: onTranscribeFile) {
-                    Label("Transcribe File…", systemImage: "waveform.badge.plus")
-                }
-                Button(action: onOpenSettings) {
-                    Label("Settings…", systemImage: "gearshape")
-                }
-                Button(action: onQuit) {
-                    Label("Quit Shhhcribble", systemImage: "power")
-                }
+            Button { showingQuitConfirm = true } label: {
+                Label("Quit", systemImage: "power")
             }
             .buttonStyle(.borderless)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .alert("Quit Shhhcribble?", isPresented: $showingQuitConfirm) {
+            Button("Quit", role: .destructive) { onQuit() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Shhhcribble will stop running and your hotkey won’t work until you open it again.")
+        }
     }
 
-    // MARK: - Home
+    // MARK: - Transcriptions pane (list + reader)
 
-    private var homeColumn: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "waveform")
-                .font(.system(size: 40))
-                .foregroundStyle(.secondary)
-            Text("Transcription Studio")
-                .font(.title2).fontWeight(.medium)
-            Text("Hold \(ModelManager.selectedHotkey.symbol) and speak to dictate, or transcribe an audio or video file.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button(action: onTranscribeFile) {
-                Label("Transcribe File…", systemImage: "waveform.badge.plus")
-            }
-            .controlSize(.large)
-
-            Label(engine.statusText, systemImage: engine.isReady ? "checkmark.circle" : "clock")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.top, 4)
+    private var transcriptionsPane: some View {
+        HStack(spacing: 0) {
+            listColumn
+                .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
+            Divider()
+            detailColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - List
-
     private var listColumn: some View {
-        List(selection: $selectedID) {
-            if case .running = fileTranscriber.status {
-                progressBanner
-                    .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+        VStack(spacing: 0) {
+            searchField
+            Divider()
+            List(selection: $selectedID) {
+                if case .running = fileTranscriber.status {
+                    progressBanner
+                        .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+                }
+                ForEach(filtered) { t in
+                    TranscriptRow(transcript: t).tag(t.id)
+                }
             }
-            ForEach(filtered) { t in
-                TranscriptRow(transcript: t).tag(t.id)
+            .overlay {
+                if filtered.isEmpty && searchText.isEmpty {
+                    ContentUnavailableView(
+                        "No transcripts yet",
+                        systemImage: "text.bubble",
+                        description: Text("Dictate with your hotkey or transcribe a file to get started.")
+                    )
+                } else if filtered.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            Divider()
+            Button(action: onTranscribeFile) {
+                Label("Transcribe File…", systemImage: "waveform.badge.plus")
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .buttonStyle(.borderless)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 10)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+            TextField("Search transcripts", text: $searchText)
+                .textFieldStyle(.plain)
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search transcripts")
-        .overlay {
-            if filtered.isEmpty && searchText.isEmpty {
-                ContentUnavailableView(
-                    "No transcripts yet",
-                    systemImage: "text.bubble",
-                    description: Text("Dictate with your hotkey or transcribe a file to get started.")
-                )
-            } else if filtered.isEmpty {
-                ContentUnavailableView.search(text: searchText)
-            }
-        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(10)
+    }
+
+    // MARK: - Dictionary & Settings panes
+
+    private var dictionaryPane: some View {
+        DictionarySettingsView(store: store)
+            .frame(maxWidth: 620, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var settingsPane: some View {
+        SettingsView(transcriptionEngine: engine, appDelegate: appDelegate, transcriptStore: store)
+            .frame(maxWidth: 560, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -211,6 +258,8 @@ private struct TranscriptDetail: View {
     @State private var didPrewarm = false
     @State private var notesText = ""
     @State private var noteSaveTask: Task<Void, Never>?
+    @State private var copiedToast = false
+    @State private var copiedToastTask: Task<Void, Never>?
     enum Tab: Hashable { case transcript, summary, notes }
 
     var body: some View {
@@ -234,6 +283,18 @@ private struct TranscriptDetail: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .overlay(alignment: .bottom) {
+            if copiedToast {
+                Label("Copied", systemImage: "checkmark.circle.fill")
+                    .font(.callout).fontWeight(.medium)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .padding(.bottom, 18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .alert("Delete this transcript?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) { store.delete(transcript.id) }
@@ -425,6 +486,20 @@ private struct TranscriptDetail: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(transcript.text, forType: .string)
+        flashCopied()
+    }
+
+    /// Briefly show the "Copied" toast, auto-dismissing after ~1.4 s. Cancels any
+    /// in-flight dismissal so rapid re-copies keep the toast up rather than
+    /// flickering.
+    private func flashCopied() {
+        copiedToastTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        copiedToastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+        }
     }
 
     private func saveTxt() {
@@ -451,6 +526,7 @@ private struct TranscriptDetail: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(out, forType: .string)
+        flashCopied()
     }
 
     /// Debounce writes while typing — reschedule a save 700 ms after the last

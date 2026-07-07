@@ -495,11 +495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store: transcriptStore,
                 fileTranscriber: fileTranscriber,
                 engine: transcriptionEngine,
+                appDelegate: self,
                 onTranscribeFile: { [weak self] in self?.presentFilePicker() },
-                onOpenSettings: { [weak self] in
-                    guard let self else { return }
-                    self.menuBarControllerDidRequestSettings(self.menuBarController)
-                },
                 onQuit: { NSApp.terminate(nil) }
             )
             transcriptionsWindowController?.window?.delegate = self
