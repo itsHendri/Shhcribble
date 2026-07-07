@@ -103,14 +103,29 @@ hdiutil detach "${MOUNT_POINT}" -force
 rm -f "${DMG_RW}.dmg"
 
 # ── 7. Create the final compressed read-only DMG on the Desktop ───────────────
+# The diskimages service holds a cooldown after the detach above, during which
+# compressed creates fail with EAGAIN ("Resource temporarily unavailable") on
+# macOS 26 Tahoe — it clears after a minute or two, so retry with real waits.
 echo "▶ Creating final UDZO DMG..."
 rm -f "${OUT_DMG}"
-hdiutil create \
-  -volname "${APP_NAME}" \
-  -srcfolder "${DMG_STAGING}" \
-  -format UDZO \
-  -imagekey zlib-level=9 \
-  "${OUT_DMG}"
+CREATED=0
+for attempt in 1 2 3 4 5 6; do
+  if hdiutil create \
+       -volname "${APP_NAME}" \
+       -srcfolder "${DMG_STAGING}" \
+       -format UDZO \
+       -imagekey zlib-level=9 \
+       "${OUT_DMG}"; then
+    CREATED=1
+    break
+  fi
+  echo "  create attempt ${attempt} hit the post-detach cooldown — waiting 30s..."
+  sleep 30
+done
+if [ "${CREATED}" -ne 1 ]; then
+  echo "❌ hdiutil create (UDZO) failed after 6 attempts."
+  exit 1
+fi
 
 # ── 8. Notarize + staple the DMG itself ───────────────────────────────────────
 # Stapling the DMG lets it pass Gatekeeper on first download without an online
