@@ -103,19 +103,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Completion-sound playback is now logged (`os.Logger`, category `sound`) and its
   `play()` result checked, so a silent failure is diagnosable.
-- **Sparkle auto-update integrated but detached from the build** (pending a
-  Developer ID cert): this build ships as a plain ad-hoc DMG with no in-app
-  updater, so it still updates by downloading a new DMG. The Sparkle SPM package,
-  product dependency, and framework link are removed from the Xcode project; the
-  Sparkle Swift code, the `Distribution/` signing pipeline, and the Info.plist
-  feed keys are preserved behind `#if canImport(Sparkle)` for one-step re-enable
-  once the cert is in place. The "Check for Updates…" menu item is hidden while
-  detached.
+- **Sparkle auto-update re-attached to the build.** The Developer ID cert +
+  notarization credentials are now in place, so the Sparkle SPM package, product
+  dependency, and framework link are restored to the Xcode project (reverting the
+  earlier cert-free detach). The preserved `#if canImport(Sparkle)` code paths
+  reactivate automatically; releases are Developer ID-signed + notarized DMGs with
+  in-app updates driven by the GitHub-hosted appcast.
 
 > Not yet released; in progress as **v1.7.0** (`Info.plist` bumped to 1.7.0 /
-> build 8). Ships as a plain ad-hoc DMG — Sparkle auto-update stays detached until
-> a Developer ID cert is available; the notarized, Sparkle-enabled release remains
-> a separately-planned later build.
+> build 8) — planned as the first notarized, Sparkle-enabled release.
 
 ## [1.6.0] - 2026-06-03
 
