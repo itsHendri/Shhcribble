@@ -127,10 +127,15 @@ if [ "${CREATED}" -ne 1 ]; then
   exit 1
 fi
 
-# ── 8. Notarize + staple the DMG itself ───────────────────────────────────────
-# Stapling the DMG lets it pass Gatekeeper on first download without an online
-# notarization check. (The app inside was already stapled in step 3.)
+# ── 8. Sign, notarize + staple the DMG itself ─────────────────────────────────
+# The DMG must be codesigned BEFORE notarization — an unsigned DMG notarizes
+# fine but assesses as "no usable signature" (spctl), while signing after
+# stapling would invalidate the ticket. Signed + stapled, it passes Gatekeeper
+# on first download without an online check. (The app inside was stapled in
+# step 3.)
 if [ -n "${NOTARY_PROFILE}" ] && [ -n "${DEVID_APP_IDENTITY}" ]; then
+  echo "▶ Signing DMG..."
+  codesign --force --sign "${DEVID_APP_IDENTITY}" --timestamp "${OUT_DMG}"
   echo "▶ Notarizing DMG..."
   xcrun notarytool submit "${OUT_DMG}" \
     --keychain-profile "${NOTARY_PROFILE}" --wait
