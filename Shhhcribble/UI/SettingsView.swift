@@ -267,9 +267,9 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Personal Dictionary tab
+// MARK: - Dictionary tab
 
-/// The Personal Dictionary editor — its own left-nav tab in the Studio shell
+/// The Dictionary editor — its own left-nav tab in the Studio shell
 /// (moved out of Settings). Drives directly off the SQLite-backed store (no
 /// `@State` copy); reorder via explicit up/down buttons since drag-reorder
 /// inside a grouped `Form` is unreliable on macOS and order is meaningful
@@ -279,6 +279,10 @@ struct DictionarySettingsView: View {
 
     @State private var showingAddEntrySheet = false
     @State private var editingEntry: DictionaryEntry? = nil
+    @State private var deletingEntry: DictionaryEntry? = nil
+    @State private var showingImportSheet = false
+    @State private var copiedToast = false
+    @State private var copiedToastTask: Task<Void, Never>?
 
     var body: some View {
         Form {
@@ -293,15 +297,63 @@ struct DictionarySettingsView: View {
                 }
                 Button("Add Entry…") { showingAddEntrySheet = true }
             } header: {
-                Text("Personal Dictionary")
+                Text("Dictionary")
+            }
+
+            Section {
+                Text(Self.wordListPrompt)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Copy prompt") {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(Self.wordListPrompt, forType: .string)
+                    flashCopied()
+                }
+            } header: {
+                HStack {
+                    Text("Build a word list with AI")
+                    Spacer()
+                    Button("Paste list") { showingImportSheet = true }
+                        .textCase(nil)
+                }
             } footer: {
-                Text("Replacements are applied to the raw transcript before AI cleanup, " +
-                     "in list order. Whole words only — \"cat\" never matches inside \"catalog\".")
+                Text("Copy this prompt into any AI. Tell it about your work, then tell it which words keep " +
+                     "coming out wrong when you dictate. It replies with `misheard => correct` lines; paste " +
+                     "those back here and they're added to your dictionary in one go.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
         }
         .formStyle(.grouped)
+        .overlay(alignment: .bottom) {
+            if copiedToast {
+                Label("Copied", systemImage: "checkmark.circle.fill")
+                    .font(.callout).fontWeight(.medium)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .padding(.bottom, 18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .onDisappear { copiedToastTask?.cancel() }
+        .sheet(isPresented: $showingImportSheet) {
+            DictionaryBulkImportView { entries in
+                store.addDictionaryEntries(entries)
+            }
+        }
+        .alert("Delete this word?", isPresented: Binding(
+            get: { deletingEntry != nil },
+            set: { if !$0 { deletingEntry = nil } }
+        ), presenting: deletingEntry) { entry in
+            Button("Delete", role: .destructive) { store.deleteDictionaryEntry(id: entry.id) }
+            Button("Cancel", role: .cancel) { }
+        } message: { entry in
+            Text("“\(entry.phrase)” → “\(entry.replacement)” will be removed from your dictionary.")
+        }
         .sheet(isPresented: $showingAddEntrySheet) {
             DictionaryEntryEditor(title: "Add Dictionary Entry") { phrase, replacement, caseSensitive in
                 store.addDictionaryEntry(
@@ -358,13 +410,42 @@ struct DictionarySettingsView: View {
             }
             .buttonStyle(.borderless)
             .help("Edit")
-            Button { store.deleteDictionaryEntry(id: entry.id) } label: {
+            Button { deletingEntry = entry } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
             .help("Delete")
         }
     }
+
+    /// Flash the shared "Copied" toast (same as the transcripts view) — the
+    /// universal rule that any copy action gives visible confirmation.
+    private func flashCopied() {
+        copiedToastTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        copiedToastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+        }
+    }
+
+    /// A ready-to-paste prompt users drop into any AI to generate a custom word
+    /// list. The output format (`misheard => correct`, one per line) is baked in
+    /// so the reply pastes straight into the bulk-import sheet
+    /// (`DictionaryBulkImportView`), which parses exactly that.
+    static let wordListPrompt = """
+        I use a voice-to-text app whose speech model often mis-transcribes proper nouns, brand and product \
+        names, technical jargon, and non-English names. Help me build a correction list. First, ask me about my \
+        job, company, tools, teammates' names, and the topics I dictate about — and ask which words tend to come \
+        out wrong when I dictate. Then give me 20–40 likely-mis-transcribed terms.
+
+        Format the result as ONLY these lines, nothing else — one entry per line:
+        misheard spelling => correct spelling
+
+        (put the wrong transcription on the left, the correct word on the right). Prioritise names, acronyms, \
+        product names, and domain jargon.
+        """
 }
 
 // MARK: - Dictionary entry editor
@@ -411,6 +492,79 @@ private struct DictionaryEntryEditor: View {
         }
         .padding(20)
         .frame(width: 360)
+    }
+}
+
+// MARK: - Dictionary bulk import
+
+/// Paste a list of `misheard => correct` lines (the format the "Build a word
+/// list with AI" prompt asks for) and add them all at once. Tolerant of arrows,
+/// commas, tabs, and Markdown-table pipes so a pasted table still parses.
+private struct DictionaryBulkImportView: View {
+    let onAdd: ([DictionaryEntry]) -> Void
+    @State private var text = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var parsed: [DictionaryEntry] { DictionaryImport.parse(text) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Paste a word list").font(.headline)
+            Text("One entry per line as `misheard => correct`. Lines from a Markdown table " +
+                 "(`|`- or comma-separated) work too.")
+                .font(.caption).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextEditor(text: $text)
+                .font(.body.monospaced())
+                .frame(height: 200)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+
+            HStack {
+                Text(parsed.isEmpty ? "No entries detected yet" : countLabel)
+                    .font(.caption).foregroundColor(.secondary)
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Add \(countLabel)") {
+                    onAdd(parsed)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(parsed.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+
+    private var countLabel: String { "\(parsed.count) word\(parsed.count == 1 ? "" : "s")" }
+}
+
+/// Parses a pasted word list into dictionary entries. Extracted from the view so
+/// it's unit-testable. Left = misheard (phrase), right = correct (replacement).
+/// Accepts `=>`, `->`, `→`, `|`, tab, comma, or `=` as the separator; strips
+/// Markdown pipes; skips blanks, separator rows, and an obvious header row.
+enum DictionaryImport {
+    static func parse(_ text: String) -> [DictionaryEntry] {
+        let separators = ["=>", "->", "→", "|", "\t", ",", "="]
+        var result: [DictionaryEntry] = []
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            line = line.trimmingCharacters(in: CharacterSet(charactersIn: "|"))
+                       .trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("---") else { continue }
+            guard let sep = separators.first(where: { line.contains($0) }) else { continue }
+            let parts = line.components(separatedBy: sep)
+            guard parts.count >= 2 else { continue }
+            let phrase = parts[0].trimmingCharacters(in: .whitespaces)
+            let replacement = parts[1].trimmingCharacters(in: .whitespaces)
+            guard !phrase.isEmpty, !replacement.isEmpty else { continue }
+            let low = phrase.lowercased()
+            if low == "misheard" || low == "wrong" || low == "misheard spelling" { continue }
+            result.append(DictionaryEntry(phrase: phrase, replacement: replacement, caseSensitive: false))
+        }
+        return result
     }
 }
 

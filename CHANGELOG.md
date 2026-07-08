@@ -10,6 +10,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **License: GNU GPL v3.0.** Added a `LICENSE` file (canonical GPLv3 text) and a
+  License section in the README — the project was previously unlicensed
+  (implicitly all-rights-reserved).
+- **Dictionary starter words + AI word-list builder.** A fresh dictionary is
+  seeded once with a few example entries (real mis-hearings + a couple of names);
+  a "Build a word list with AI" section provides a copy-able prompt to run in any
+  AI and a **Paste list** importer that bulk-adds its `misheard => correct` reply
+  (also parses Markdown tables / CSV).
+- **Menu-bar right-click menu** — right-click the icon for **Upload Audio…** and
+  **Quit**; left-click still opens the window.
+- **Collapsible Transcriptions sidebar**, toggled from the title bar.
+- **Hover-to-copy** on transcript rows, and a **"Copied" toast** on every copy
+  action (transcript, row, summary, and the AI prompt).
+
+### Changed
+- Renamed **"Personal Dictionary" → "Dictionary"** throughout.
+- **Transcript list rows redesigned** — title-only (up to two lines) with a
+  prominent trailing date and a vertically-centered source icon; the duplicate
+  snippet line was removed.
+- **First open of Transcriptions auto-selects the latest transcript** (later
+  visits keep the last selection).
+- **List and rail selection restyled** to a subtle neutral highlight (was a
+  prominent accent blue), with the list a shade lighter than the rail tabs.
+- **"Transcribe File…" is now a floating "Upload Audio…" glass action** over the
+  transcript list.
+- **Deleting a Dictionary word now asks for confirmation** (matching transcript
+  delete / Quit).
+- The Settings pane now uses the same content width as the Dictionary pane.
+- Title bar consolidated to a single branded icon+name beside the sidebar toggle.
+
 ## [1.8.0] - 2026-07-08
 
 The Transcription Studio window becomes a tabbed shell, and in-app updates gain
@@ -187,7 +218,9 @@ First public release (as Shhhcribble; formerly FieldWhisperer).
 - Replaced WhisperKit with Parakeet V3 (FluidAudio).
 - Renamed FieldWhisperer → Shhhcribble.
 
-[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.8.0
+[1.7.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.7.0
 [1.6.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.6.0
 [1.5.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.5.0
 [1.4.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.4.0

@@ -10,10 +10,11 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerDidRequestOpenTranscriptions(_ controller: MenuBarController)
 }
 
-/// Owns the NSStatusItem (menu-bar icon). Clicking the icon (left or right)
-/// opens the main Transcriptions window — every action (settings, quit, recent,
-/// engine status, transcribe file) lives in that window now, so there is no
-/// dropdown menu to maintain.
+/// Owns the NSStatusItem (menu-bar icon). **Left-click** opens the main
+/// Transcriptions window (where every action lives). **Right-click** pops a
+/// small menu with the two things worth reaching without the window open —
+/// Upload Audio (file transcription) and Quit — which also gives Quit a home
+/// outside the (now collapsible) window rail.
 @MainActor
 final class MenuBarController: NSObject {
 
@@ -42,7 +43,43 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func iconClicked() {
-        delegate?.menuBarControllerDidRequestOpenTranscriptions(self)
+        // Right-click → small menu; any other click → open the window.
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            showRightClickMenu()
+        } else {
+            delegate?.menuBarControllerDidRequestOpenTranscriptions(self)
+        }
+    }
+
+    private func showRightClickMenu() {
+        guard let button = statusItem.button else { return }
+        let menu = NSMenu()
+
+        let upload = NSMenuItem(title: "Upload Audio…",
+                                action: #selector(uploadAudioClicked), keyEquivalent: "")
+        upload.target = self
+        menu.addItem(upload)
+
+        menu.addItem(.separator())
+
+        let quit = NSMenuItem(title: "Quit Shhhcribble",
+                              action: #selector(quitClicked), keyEquivalent: "")
+        quit.target = self
+        menu.addItem(quit)
+
+        // popUp(...) shows the menu without permanently assigning statusItem.menu,
+        // so left-click keeps firing `iconClicked` (assigning a menu would steal it).
+        menu.popUp(positioning: nil,
+                   at: NSPoint(x: 0, y: button.bounds.height + 4),
+                   in: button)
+    }
+
+    @objc private func uploadAudioClicked() {
+        delegate?.menuBarControllerDidRequestTranscribeFile(self)
+    }
+
+    @objc private func quitClicked() {
+        delegate?.menuBarControllerDidRequestQuit(self)
     }
 
     // MARK: - Recording indicator

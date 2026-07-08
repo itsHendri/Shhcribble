@@ -2,13 +2,14 @@ import SwiftUI
 import AppKit
 
 /// The Transcription Studio window: a three-pane environment (rail → searchable
-/// list → tabbed detail) unifying dictation and file transcripts. This sprint
-/// the detail is text-only; the Summary tab is scaffolded for Sprint 4b.
+/// list → tabbed detail) unifying dictation and file transcripts. The detail is a
+/// tabbed reader — Transcript, on-device AI Summary, and editable Notes.
 struct TranscriptionsView: View {
     @ObservedObject var store: TranscriptStore
     @ObservedObject var fileTranscriber: FileTranscriber
     @ObservedObject var engine: TranscriptionEngine
     var appDelegate: AppDelegate
+    @ObservedObject var chrome: TranscriptionsChrome
     var onTranscribeFile: () -> Void
     var onQuit: () -> Void
 
@@ -16,17 +17,20 @@ struct TranscriptionsView: View {
     @State private var selectedID: UUID?
     @State private var searchText = ""
     @State private var showingQuitConfirm = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var copiedToast = false
+    @State private var copiedToastTask: Task<Void, Never>?
 
     /// Left-nav tabs. Transcriptions is a master-detail (list + reader); the
-    /// other two fill the pane. Settings + Personal Dictionary moved in here
-    /// from the old separate settings window.
+    /// other two fill the pane. Settings + Dictionary moved in here from the
+    /// old separate settings window.
     enum RailSection: String, CaseIterable, Identifiable {
         case transcriptions, dictionary, settings
         var id: String { rawValue }
         var label: String {
             switch self {
             case .transcriptions: return "Transcriptions"
-            case .dictionary:     return "Personal Dictionary"
+            case .dictionary:     return "Dictionary"
             case .settings:       return "Settings"
             }
         }
@@ -43,13 +47,24 @@ struct TranscriptionsView: View {
     private var selected: Transcript? { store.transcripts.first { $0.id == selectedID } }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             rail
         } detail: {
             switch section ?? .transcriptions {
             case .transcriptions: transcriptionsPane
             case .dictionary:     dictionaryPane
             case .settings:       settingsPane
+            }
+        }
+        // Explicit collapse control: the automatic sidebar toggle doesn't render
+        // reliably with a custom (non-List) rail, so drive `columnVisibility`
+        // ourselves. Quit stays reachable via the menu-bar right-click menu.
+        // The sidebar toggle + branded title live in the window's titlebar bar
+        // (TranscriptionsWindowController); the toggle flips `chrome.sidebarCollapsed`,
+        // which we mirror onto the split view's column visibility here.
+        .onChange(of: chrome.sidebarCollapsed) { _, collapsed in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                columnVisibility = collapsed ? .detailOnly : .all
             }
         }
         // The progress banner + Cancel live in the Transcriptions list, so a
@@ -63,35 +78,62 @@ struct TranscriptionsView: View {
     // MARK: - Rail
 
     private var rail: some View {
-        List(selection: $section) {
-            Section {
-                ForEach([RailSection.transcriptions, .dictionary]) { s in
-                    Label(s.label, systemImage: s.systemImage).tag(s)
-                }
-            }
-            Section {
-                Label(RailSection.settings.label, systemImage: RailSection.settings.systemImage)
-                    .tag(RailSection.settings)
+        VStack(alignment: .leading, spacing: 2) {
+            railTab(.transcriptions)
+            railTab(.dictionary)
+
+            Spacer(minLength: 0)
+
+            // Settings sits at the bottom, just above Quit. Quit reuses the exact
+            // same row styling as the tabs (same icon/text weight and colour) and
+            // only differs by asking for confirmation instead of switching panes.
+            railTab(.settings)
+            railRow(label: "Quit", systemImage: "power", selected: false) {
+                showingQuitConfirm = true
             }
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationSplitViewColumnWidth(min: 172, ideal: 196, max: 240)
-        // No sidebar-collapse toggle: the rail carries Quit, which must stay
-        // reachable — an LSUIElement app has no app menu (no ⌘Q fallback).
-        .toolbar(removing: .sidebarToggle)
-        .safeAreaInset(edge: .bottom) {
-            Button { showingQuitConfirm = true } label: {
-                Label("Quit", systemImage: "power")
-            }
-            .buttonStyle(.borderless)
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        // The native sidebar-collapse toggle stays available now: Quit is also
+        // reachable from the menu-bar icon's right-click menu (Upload Audio +
+        // Quit), so collapsing the rail no longer strands the only quit path.
         .alert("Quit Shhhcribble?", isPresented: $showingQuitConfirm) {
             Button("Quit", role: .destructive) { onQuit() }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Shhhcribble will stop running and your hotkey won’t work until you open it again.")
         }
+    }
+
+    private func railTab(_ s: RailSection) -> some View {
+        railRow(label: s.label, systemImage: s.systemImage, selected: section == s) {
+            section = s
+        }
+    }
+
+    /// One rail row — used by every nav tab *and* Quit so they share identical
+    /// icon/text weight and colour; only the selected fill differs.
+    private func railRow(label: String, systemImage: String, selected: Bool,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: systemImage)
+                .font(.body)
+                .fontWeight(selected ? .medium : .regular)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        // Neutral, subtle — same family as the list-row selection,
+                        // a touch lighter there so the two read as a hierarchy.
+                        .fill(selected ? Color.primary.opacity(0.09) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Transcriptions pane (list + reader)
@@ -105,19 +147,40 @@ struct TranscriptionsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) { copiedToastView }
+        // Preselect the newest transcript the first time the list is shown; the
+        // `== nil` guard means a later visit keeps whatever the user last picked.
+        .onAppear {
+            if selectedID == nil { selectedID = filtered.first?.id }
+        }
+        .onDisappear { copiedToastTask?.cancel() }
     }
 
     private var listColumn: some View {
         VStack(spacing: 0) {
             searchField
             Divider()
-            List(selection: $selectedID) {
+            // Custom row selection (tap → `selectedID`, subtle rounded fill)
+            // instead of `List(selection:)` — the native focused selection turns
+            // a prominent accent blue; a quiet, consistent highlight reads better
+            // whether the row was auto-selected or clicked.
+            List {
                 if case .running = fileTranscriber.status {
                     progressBanner
                         .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
                 }
                 ForEach(filtered) { t in
-                    TranscriptRow(transcript: t).tag(t.id)
+                    TranscriptRow(transcript: t, onCopy: { copyTranscript(t) })
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedID = t.id }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                // A shade lighter than the rail-tab selection.
+                                .fill(selectedID == t.id ? Color.primary.opacity(0.14) : Color.clear)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                        )
                 }
             }
             .overlay {
@@ -131,16 +194,35 @@ struct TranscriptionsView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
-            Divider()
-            Button(action: onTranscribeFile) {
-                Label("Transcribe File…", systemImage: "waveform.badge.plus")
-                    .frame(maxWidth: .infinity, alignment: .center)
+            // Floating glass action hovering over the bottom of the list.
+            .overlay(alignment: .bottom) {
+                Button(action: onTranscribeFile) {
+                    Label("Upload Audio…", systemImage: "waveform.badge.plus")
+                        .font(.callout).fontWeight(.medium)
+                        .padding(.horizontal, 16).padding(.vertical, 9)
+                        .background(.regularMaterial, in: Capsule())
+                        .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 14)
             }
-            .buttonStyle(.borderless)
-            .padding(.vertical, 9)
-            .padding(.horizontal, 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var copiedToastView: some View {
+        if copiedToast {
+            Label("Copied", systemImage: "checkmark.circle.fill")
+                .font(.callout).fontWeight(.medium)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .padding(.bottom, 18)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     private var searchField: some View {
@@ -173,7 +255,7 @@ struct TranscriptionsView: View {
 
     private var settingsPane: some View {
         SettingsView(transcriptionEngine: engine, appDelegate: appDelegate, transcriptStore: store)
-            .frame(maxWidth: 560, alignment: .topLeading)
+            .frame(maxWidth: 620, alignment: .topLeading)   // match the Dictionary pane width
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -211,41 +293,79 @@ struct TranscriptionsView: View {
             )
         }
     }
+
+    /// Copy a row's text straight to the clipboard — the hover affordance so a
+    /// transcript can be grabbed without selecting it first — and flash the same
+    /// "Copied" toast the detail pane uses.
+    private func copyTranscript(_ t: Transcript) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(t.text, forType: .string)
+        copiedToastTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        copiedToastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+        }
+    }
 }
 
-/// One row in the transcripts list — source icon, title, snippet, and a
-/// date · duration footer.
+/// One row in the transcripts list — source icon, a title (up to two lines), and
+/// a prominent trailing date. Hovering reveals a copy button in the *same
+/// fixed-width slot* as the date, so the title never reflows on hover.
 private struct TranscriptRow: View {
     let transcript: Transcript
+    var onCopy: () -> Void = {}
+
+    @State private var hovering = false
+
+    // Fixed trailing width keeps the title's wrap point constant whether the slot
+    // shows the date or the copy button (no hover jump).
+    private let trailingWidth: CGFloat = 84
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .center, spacing: 10) {
             Image(systemName: transcript.source == .file ? "waveform" : "mic")
-                .font(.system(size: 13))
+                .font(.system(size: 14))
                 .foregroundStyle(transcript.source == .file ? Color.accentColor : Color.secondary)
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(transcript.menuTitle)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                Text(transcript.text)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(footer)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
+                .frame(width: 18)
+            Text(transcript.menuTitle)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            trailing
+                .frame(width: trailingWidth, alignment: .trailing)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
+        .onHover { hovering = $0 }
     }
 
-    private var footer: String {
-        var parts = [transcript.createdAt.formatted(date: .abbreviated, time: .shortened)]
-        if let d = transcript.durationSec, d > 0 {
-            parts.append(Self.durationString(d))
+    @ViewBuilder
+    private var trailing: some View {
+        if hovering {
+            Button(action: onCopy) {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("Copy transcript")
+        } else {
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(transcript.createdAt.formatted(date: .abbreviated, time: .omitted))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if let d = transcript.durationSec, d > 0 {
+                    Text(Self.durationString(d))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
-        return parts.joined(separator: " · ")
     }
 
     static func durationString(_ seconds: Double) -> String {
@@ -254,8 +374,9 @@ private struct TranscriptRow: View {
     }
 }
 
-/// The detail pane: a tabbed reader (Transcript | Summary) with Copy / Save /
-/// Reveal actions. Summary is a scaffolded placeholder for Sprint 4b.
+/// The detail pane: a tabbed reader (Transcript | Summary | Notes) with Copy /
+/// Save / Reveal actions. Summary is generated on-device on demand; Notes
+/// auto-save.
 private struct TranscriptDetail: View {
     let transcript: Transcript
     @ObservedObject var store: TranscriptStore

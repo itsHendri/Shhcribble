@@ -4,6 +4,21 @@
 
 ---
 
+## Re-prioritization (2026-07-08) — LIVE pointer, supersedes the sprint order below
+
+Everything through **v1.8.0** shipped (Sparkle; Personal Dictionary; Transcription Studio = file transcription + Summary + Notes + SQLite store & dictionary). Then a UI-polish pass + a feedback-driven backlog re-think with the human. New shape/order:
+
+1. **Custom Styles / Skills** *(absorbs the old Sprint 3 "Modes")* — **RAISED.** Skills-upload + custom writing-style editing + per-app Modes converge into one program: *user-authored prompts that shape transcript output*. Ship as **portable `SKILL.md` export** (copy / ZIP into Claude Code, Codex, Cursor, Gemini CLI — real today); do **not** promise live-sync into a claude.ai account (no third-party API exists — frame as export). Still **design-gated (human)** — start with the axes/scope session.
+2. **Phase B — Notes as a standalone environment + desktop sticky notes** — **PULLED FORWARD, next design session.** Today notes are a `notes` column on a transcript; standalone needs a note entity/table (schema v4), its own rail module + CRUD, then the sticky-note widget (B2). Verify the local **ShhhcribbleiOS** target state first (it exists locally).
+3. **Pause → line break** — **NEAR-TERM, buildable now (own branch).** `ASRResult.tokenTimings` is already returned by FluidAudio and currently discarded; thread it through and insert a break where the inter-token gap > ~0.6–1.0 s. Touches the shared transcription pipeline (dictation + file + live-preview).
+4. **Cinematic transcription view** — future "delight": full-window dark pan with live word-highlighting (feasible via the same timestamps).
+
+**Done 2026-07-08 (not in the sprints below):** dictionary bulk-import + AI word-list prompt + first-launch starter seeding; universal copy-toast + destructive-confirm conventions; menu-bar right-click menu; collapsible rail; row redesign; neutral selection. **Open (final visual refinement, next session):** titlebar toggle glass/padding + selection-shade balance. **Still parked** (see COMPETITIVE-REFERENCE): ASR context-biasing (highest-value spike), multi-language, revert-to-raw cleanup, streaming live-preview.
+
+*(The dated sprint sections below are kept as history; this block is the live pointer.)*
+
+---
+
 ## Current state (2026-06, v1.6.0 build 7)
 
 - **Shipped:** Phase-1 polish/reliability (v1.5.1); on-device Apple FM transcript cleanup (v1.6.0); first-AirPods warm-up + mic-route crash fixes — all reflected in CLAUDE.md.

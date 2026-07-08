@@ -121,3 +121,53 @@ final class PersonalDictionaryTests: XCTestCase {
         )
     }
 }
+
+/// Tests for `DictionaryImport.parse` — the bulk "paste a word list" parser
+/// (left = misheard/phrase, right = correct/replacement).
+final class DictionaryImportTests: XCTestCase {
+
+    func testParsesArrowLines() {
+        let entries = DictionaryImport.parse("entropic => Anthropic\nclawed => Claude")
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries[0].phrase, "entropic")
+        XCTAssertEqual(entries[0].replacement, "Anthropic")
+        XCTAssertEqual(entries[1].phrase, "clawed")
+        XCTAssertEqual(entries[1].replacement, "Claude")
+    }
+
+    func testAcceptsAlternateSeparators() {
+        // ->, →, comma
+        let entries = DictionaryImport.parse("cube control -> kubectl\nzoo shang → Xuchang\nnext fi, Nexlify")
+        XCTAssertEqual(entries.map(\.replacement), ["kubectl", "Xuchang", "Nexlify"])
+    }
+
+    func testParsesMarkdownTableRowsAndSkipsHeaderAndSeparator() {
+        let table = """
+        | Misheard | Correct |
+        | --- | --- |
+        | entropic | Anthropic |
+        | clawed | Claude |
+        """
+        let entries = DictionaryImport.parse(table)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries[0].phrase, "entropic")
+        XCTAssertEqual(entries[0].replacement, "Anthropic")
+    }
+
+    func testSkipsBlankAndUnparseableLines() {
+        let entries = DictionaryImport.parse("\n  \nentropic => Anthropic\njust some prose with no separator\n")
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].replacement, "Anthropic")
+    }
+
+    func testTrimsWhitespaceAroundTerms() {
+        let entries = DictionaryImport.parse("   entropic    =>    Anthropic   ")
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].phrase, "entropic")
+        XCTAssertEqual(entries[0].replacement, "Anthropic")
+    }
+
+    func testEmptyInputYieldsNoEntries() {
+        XCTAssertTrue(DictionaryImport.parse("").isEmpty)
+    }
+}

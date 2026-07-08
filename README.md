@@ -114,4 +114,14 @@ Produces **Shhhcribble.dmg** on your Desktop. Recipients right-click → Open on
 
 ---
 
+## License
+
+Copyright (C) 2026 Tiuri Hartog ([@itsHendri](https://github.com/itsHendri)).
+
+Shhhcribble is free software released under the **GNU General Public License
+v3.0** — see [LICENSE](LICENSE) for the full text. You may redistribute and/or
+modify it under those terms; it comes with no warranty.
+
+---
+
 *Built by [Hendri](https://github.com/itsHendri). Uses [FluidAudio](https://github.com/FluidInference/FluidAudio) and NVIDIA Parakeet V3 for on-device transcription.*

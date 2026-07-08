@@ -25,7 +25,7 @@ Already present in the FluidAudio version we ship (pinned `0.13.6`, revision `57
 
 ## Constraints / corrections (2026-07)
 
-- **Repo has no LICENSE file** → Shhhcribble is currently *all-rights-reserved*. Housekeeping item; pick a license deliberately before any open-source-adjacent decision. (A research agent wrongly asserted "Apache 2.0" — it is not.)
+- **License: GPLv3** (chosen 2026-07-08). Shhhcribble is released under the GNU GPL v3.0 — `LICENSE` (canonical text) + a copyright/notice section in `README.md`. (Earlier flagged as an open "no LICENSE file → all-rights-reserved" housekeeping item; now resolved.)
 - **FluidVoice is GPLv3.** Study patterns/architecture; **do not copy** code, data models, or logic. Any adopted idea must be a clean first-principles rewrite.
 
 ---

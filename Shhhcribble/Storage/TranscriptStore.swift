@@ -90,6 +90,7 @@ final class TranscriptStore: ObservableObject {
         let store = TranscriptStore(path: defaultDatabaseURL().path)
         store.migrateLegacyHistoryIfNeeded()
         store.migrateLegacyDictionaryIfNeeded()
+        store.seedExampleDictionaryIfNeeded()
         return store
     }
 
@@ -188,6 +189,41 @@ final class TranscriptStore: ObservableObject {
             sqlite3_bind_int(stmt, 5, Int32(position))
         }) else { return }
         dictionaryEntries.append(entry)
+    }
+
+    /// Bulk-append entries in order (the "paste a word list" import). Each goes
+    /// through `addDictionaryEntry`, so positions stay dense and the `@Published`
+    /// array updates per row.
+    func addDictionaryEntries(_ entries: [DictionaryEntry]) {
+        for entry in entries { addDictionaryEntry(entry) }
+    }
+
+    private static let dictionarySeedFlagKey = "didSeedExampleDictionary"
+
+    /// One-shot on first launch: drop a few starter entries into an *empty*
+    /// dictionary so the feature isn't a blank slate. Runs once ever (flag) and
+    /// only while empty, so a returning user (or the legacy migration) keeps their
+    /// own entries and nothing is re-seeded after they delete the examples. These
+    /// are ordinary entries — real mis-hearings the model tends to produce, plus a
+    /// couple of names — meant to be edited or removed freely.
+    func seedExampleDictionaryIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.dictionarySeedFlagKey) else { return }
+        guard db != nil else { return }   // DB not open — retry next launch
+        defer { defaults.set(true, forKey: Self.dictionarySeedFlagKey) }
+        guard dictionaryEntries.isEmpty else { return }
+
+        let examples: [(String, String)] = [
+            ("entropic", "Anthropic"),
+            ("clawed", "Claude"),
+            ("scribble", "Shhhcribble"),
+            ("hendry", "Hendri"),
+            ("tury", "Tiuri"),
+        ]
+        addDictionaryEntries(examples.map {
+            DictionaryEntry(phrase: $0.0, replacement: $0.1, caseSensitive: false)
+        })
+        log.notice("Seeded \(examples.count) example dictionary entries.")
     }
 
     /// Update an existing entry's editable fields (id + position unchanged).
