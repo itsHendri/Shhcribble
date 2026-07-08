@@ -10,7 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(nothing yet — the tabbed Studio-shell redesign is in progress on `shhhcribble/studio-tabs`)_
+### Added
+- **"Check for Updates…" button** in Settings → About — the manual-check
+  affordance lost when the menu-bar dropdown was retired. Activates the app
+  first so Sparkle's window isn't hidden behind others.
+- **Gentle update reminders.** When a background check finds an update, the
+  menu-bar icon tints amber until you engage (recording red still wins) instead
+  of Sparkle popping an alert nobody sees behind other windows — the fix for a
+  menu-bar-only app having no dock icon to badge.
+
+### Changed
+- **Transcriptions window restructured into a tabbed shell.** The Home tab is
+  gone; the left rail now reads **Transcriptions / Personal Dictionary /
+  Settings**, each rendering inside the window (Settings no longer opens a
+  separate window from the rail; the Personal Dictionary editor moved out of
+  Settings into its own tab). "Transcribe File…" now lives at the bottom of the
+  transcript list; the rail keeps only Quit, which now asks for confirmation.
+  Copy actions show a brief "Copied" toast. The window opens at 1000×640
+  (minimum 840×520) and no longer restores the old cramped frame.
+- Settings → About shows the version as **Beta** (display-only label; the
+  underlying version stays numeric).
 
 ## [1.7.0] - 2026-07-07
 

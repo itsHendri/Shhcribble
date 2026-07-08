@@ -52,6 +52,12 @@ struct TranscriptionsView: View {
             case .settings:       settingsPane
             }
         }
+        // The progress banner + Cancel live in the Transcriptions list, so a
+        // file job starting while another tab is up would otherwise run with no
+        // visible progress or way to cancel — jump to where they are.
+        .onChange(of: fileTranscriber.status) { _, newStatus in
+            if case .running = newStatus { section = .transcriptions }
+        }
     }
 
     // MARK: - Rail
@@ -69,6 +75,9 @@ struct TranscriptionsView: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 172, ideal: 196, max: 240)
+        // No sidebar-collapse toggle: the rail carries Quit, which must stay
+        // reachable — an LSUIElement app has no app menu (no ⌘Q fallback).
+        .toolbar(removing: .sidebarToggle)
         .safeAreaInset(edge: .bottom) {
             Button { showingQuitConfirm = true } label: {
                 Label("Quit", systemImage: "power")
@@ -296,6 +305,9 @@ private struct TranscriptDetail: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // Tidy up the pending auto-dismiss when switching transcripts (the view
+        // is identity-keyed, so a stray task would write into dead state).
+        .onDisappear { copiedToastTask?.cancel() }
         .alert("Delete this transcript?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) { store.delete(transcript.id) }
             Button("Cancel", role: .cancel) { }
