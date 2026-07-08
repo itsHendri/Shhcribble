@@ -201,10 +201,12 @@ struct SettingsView: View {
 
     /// Single source of truth for the displayed version. Reads
     /// CFBundleShortVersionString from Info.plist so bumping the plist
-    /// is all that's required at release time.
+    /// is all that's required at release time. "Beta" is a display-only label
+    /// (the plist version stays plain numeric for Sparkle/tooling) — drop the
+    /// suffix here when the app graduates.
     private var appVersionString: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        return "v\(v)"
+        return "v\(v) Beta"
     }
 
     private var aboutShortcutHint: String {
