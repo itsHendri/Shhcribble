@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-08
+
+The Transcription Studio window becomes a tabbed shell, and in-app updates gain
+a manual check + gentle reminders. Released as a **Beta**.
+
 ### Added
 - **"Check for Updates…" button** in Settings → About — the manual-check
   affordance lost when the menu-bar dropdown was retired. Activates the app
