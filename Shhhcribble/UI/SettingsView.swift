@@ -172,6 +172,11 @@ struct SettingsView: View {
                     Spacer()
                     Text(appVersionString).foregroundColor(.secondary)
                 }
+                // Manual update check — Sparkle also checks automatically in the
+                // background; a pending update tints the menu-bar icon amber.
+                if appDelegate.updaterAvailable {
+                    Button("Check for Updates…") { appDelegate.checkForUpdates() }
+                }
                 Text(aboutShortcutHint)
                     .font(.caption)
                     .foregroundColor(.secondary)

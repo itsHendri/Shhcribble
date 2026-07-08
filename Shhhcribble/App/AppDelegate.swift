@@ -120,11 +120,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         #if canImport(Sparkle)
         // Start Sparkle. Reads SUFeedURL + SUPublicEDKey from Info.plist; runs
-        // automatic background update checks and backs the menu item.
+        // automatic background update checks. `userDriverDelegate: self` opts
+        // into "gentle reminders" — as an LSUIElement app we badge the menu-bar
+        // icon instead of letting a scheduled-update alert pop unnoticed in the
+        // background (see the SPUStandardUserDriverDelegate extension below).
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,
-            userDriverDelegate: nil
+            userDriverDelegate: self
         )
         #endif
 
@@ -552,6 +555,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         print("[Shhhcribble] Hotkey changed to \(option.label)")
     }
 
+    // MARK: - Updates (called from SettingsView)
+
+    /// True when the in-app updater is compiled in (Sparkle package attached).
+    /// Drives whether Settings shows the "Check for Updates…" button.
+    var updaterAvailable: Bool {
+        #if canImport(Sparkle)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// Manual update check. Activates the app first so Sparkle's update window
+    /// isn't lost behind other apps (we're an LSUIElement menu-bar app with no
+    /// dock icon), and clears any pending gentle-reminder badge — the user is
+    /// engaging with updates right now.
+    func checkForUpdates() {
+        #if canImport(Sparkle)
+        menuBarController.setUpdateBadge(visible: false)
+        NSApp.activate(ignoringOtherApps: true)
+        updaterController.checkForUpdates(nil)
+        #endif
+    }
+
     // MARK: - Permissions
 
     @discardableResult
@@ -560,6 +587,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 }
+
+#if canImport(Sparkle)
+// MARK: - Sparkle gentle reminders (SPUStandardUserDriverDelegate)
+//
+// As a menu-bar-only app (LSUIElement) we have no dock icon and usually no
+// window, so Sparkle's scheduled "update available" alert would appear in the
+// background where nobody sees it (Sparkle logs a one-time warning about
+// exactly this). Instead: when a *scheduled* check finds an update and the app
+// isn't in immediate focus, we suppress the alert and badge the menu-bar icon
+// amber. The user notices, opens the window, hits "Check for Updates…" in
+// Settings (or Sparkle re-presents on the next launch in focus). User-initiated
+// checks are untouched — those always show Sparkle's UI directly.
+extension AppDelegate: SPUStandardUserDriverDelegate {
+
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    func standardUserDriverShouldHandleShowingScheduledUpdate(
+        _ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool
+    ) -> Bool {
+        // In immediate focus (e.g. right at launch, app frontmost) Sparkle's
+        // own alert is fine; otherwise we take over with the badge.
+        immediateFocus
+    }
+
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState
+    ) {
+        guard !handleShowingUpdate else { return }
+        menuBarController.setUpdateBadge(visible: true)
+    }
+
+    func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        menuBarController.setUpdateBadge(visible: false)
+    }
+
+    func standardUserDriverWillFinishUpdateSession() {
+        menuBarController.setUpdateBadge(visible: false)
+    }
+}
+#endif
 
 // MARK: - MenuBarControllerDelegate
 
@@ -579,12 +646,7 @@ extension AppDelegate: MenuBarControllerDelegate {
     }
 
     func menuBarControllerDidRequestCheckForUpdates(_ controller: MenuBarController) {
-        #if canImport(Sparkle)
-        // Bring the app forward so Sparkle's update window isn't lost behind
-        // other apps (we're an LSUIElement menu-bar app with no dock icon).
-        NSApp.activate(ignoringOtherApps: true)
-        updaterController.checkForUpdates(nil)
-        #endif
+        checkForUpdates()
     }
 
     func menuBarControllerDidRequestQuit(_ controller: MenuBarController) {

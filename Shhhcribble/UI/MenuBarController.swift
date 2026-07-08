@@ -20,6 +20,7 @@ final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem!
     weak var delegate: MenuBarControllerDelegate?
     private var isRecording = false
+    private var updateBadged = false
 
     init(delegate: MenuBarControllerDelegate) {
         self.delegate = delegate
@@ -52,13 +53,33 @@ final class MenuBarController: NSObject {
         button.contentTintColor = .systemOrange
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self, !self.isRecording else { return }
-            button.contentTintColor = nil
+            self.applyTint()
         }
     }
 
     func setRecordingIndicator(active: Bool) {
         isRecording = active
         updateButtonImage(recording: active)
+    }
+
+    // MARK: - Update badge (Sparkle gentle reminder)
+
+    /// Persistent amber tint while an update is waiting — the menu-bar-app
+    /// version of a dock badge (see Sparkle "gentle reminders"; a background
+    /// LSUIElement app has no dock icon or window to badge, so a silent
+    /// scheduled-update alert would go unnoticed). Recording red wins while
+    /// active; the badge tint resurfaces when recording ends.
+    func setUpdateBadge(visible: Bool) {
+        updateBadged = visible
+        applyTint()
+    }
+
+    /// Recording red > update-pending amber > default template tint.
+    private func applyTint() {
+        guard let button = statusItem.button else { return }
+        if isRecording { button.contentTintColor = .systemRed }
+        else if updateBadged { button.contentTintColor = .systemOrange }
+        else { button.contentTintColor = nil }
     }
 
     private func updateButtonImage(recording: Bool) {
@@ -77,6 +98,6 @@ final class MenuBarController: NSObject {
         }
         image?.isTemplate = !recording   // template = macOS handles dark/light tinting
         button.image = image
-        button.contentTintColor = recording ? .systemRed : nil
+        applyTint()
     }
 }
