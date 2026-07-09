@@ -37,6 +37,25 @@ final class PersonalDictionaryTests: XCTestCase {
         XCTAssertEqual(PersonalDictionary.apply(entries, to: "ask HENDRI"), "ask HENDRI")
     }
 
+    func testCommaSeparatedVariantsAllMapToOneReplacement() {
+        let entries = [entry("henry, hendry, henri", "Hendri")]
+        XCTAssertEqual(PersonalDictionary.apply(entries, to: "ask henry"), "ask Hendri")
+        XCTAssertEqual(PersonalDictionary.apply(entries, to: "ask Hendry"), "ask Hendri")
+        XCTAssertEqual(PersonalDictionary.apply(entries, to: "call henri please"), "call Hendri please")
+        // Whole-word still holds — a variant embedded in a larger word is untouched.
+        XCTAssertEqual(PersonalDictionary.apply(entries, to: "henrymania"), "henrymania")
+    }
+
+    func testMultiWordVariantsAreSupported() {
+        let entries = [entry("swiss borg, swissborg", "SwissBorg")]
+        XCTAssertEqual(PersonalDictionary.apply(entries, to: "Swiss Borg and swissborg"), "SwissBorg and SwissBorg")
+    }
+
+    func testSinglePhraseWithoutCommaIsUnchangedBehavior() {
+        let entries = [entry("swiss borg", "SwissBorg")]
+        XCTAssertEqual(PersonalDictionary.apply(entries, to: "Swiss Borg rocks"), "SwissBorg rocks")
+    }
+
     func testMultiWordPhraseMidSentence() {
         XCTAssertEqual(
             PersonalDictionary.apply([entry("fluid audio", "FluidAudio")],

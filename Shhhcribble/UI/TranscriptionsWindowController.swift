@@ -47,8 +47,12 @@ final class TranscriptionsWindowController: NSWindowController {
         // second — which mixing a toolbar item with an accessory does not.
         let titleAccessory = NSTitlebarAccessoryViewController()
         titleAccessory.layoutAttribute = .leading
+        // Span the full titlebar width so the branded title can center across it
+        // (a content-width accessory would only center within its own small box).
         let host = NSHostingView(rootView: TitlebarBar(chrome: chrome))
-        host.frame = NSRect(x: 0, y: 0, width: 200, height: 30)
+        host.translatesAutoresizingMaskIntoConstraints = true
+        host.autoresizingMask = [.width, .height]
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 30)
         titleAccessory.view = host
         window.addTitlebarAccessoryViewController(titleAccessory)
 
@@ -69,34 +73,46 @@ private struct TitlebarBar: View {
     @ObservedObject var chrome: TranscriptionsChrome
 
     var body: some View {
-        HStack(spacing: 10) {
-            toggle
+        ZStack {
+            // Branded title centered across the whole titlebar.
             HStack(spacing: 6) {
                 icon
                 Text("Shhhcribble").font(.system(size: 13, weight: .semibold))
             }
+            .frame(maxWidth: .infinity, alignment: .center)
+
+            // Sidebar toggle pinned to the leading edge, tucked up against the
+            // window's traffic-light controls.
+            toggle
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.leading, 8)
+        .padding(.leading, 2)
+        .padding(.trailing, 10)
     }
 
-    /// Sidebar toggle styled with the system Liquid Glass on macOS 26 (matching
-    /// the look it had as a toolbar item), falling back to a bordered button on
-    /// earlier systems where that style doesn't exist.
+    /// Sidebar toggle as an explicit glass lozenge — `.regularMaterial` in a
+    /// rounded rect with a hairline stroke, matching the app's other glass
+    /// affordances (the "Upload Audio…" lozenge, the Copied toast). The system
+    /// `.buttonStyle(.glass)` renders too faintly for a lone titlebar icon to
+    /// read as a button, so we draw the material ourselves for a consistent look
+    /// on every supported OS.
     @ViewBuilder private var toggle: some View {
-        let button = Button {
+        Button {
             chrome.sidebarCollapsed.toggle()
         } label: {
             Image(systemName: "sidebar.leading")
-                .frame(width: 24, height: 22)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 30, height: 23)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(.quaternary, lineWidth: 0.5)
+                )
                 .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .help("Show or hide the sidebar")
-
-        if #available(macOS 26.0, *) {
-            button.buttonStyle(.glass)
-        } else {
-            button.buttonStyle(.bordered)
-        }
     }
 
     @ViewBuilder private var icon: some View {

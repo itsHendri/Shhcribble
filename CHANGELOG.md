@@ -10,15 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-09
+
 ### Added
+- **Paragraphs in transcripts.** With on-device AI cleanup enabled, dictation and
+  file transcripts now break into paragraphs at natural topic/thought shifts
+  instead of one wall of text. (Semantic paragraphing by the cleanup model — the
+  approach the leading dictation tools use — after a pause-timing approach proved
+  unreliable on our TDT engine.)
+- **Multiple spoken variants per dictionary entry.** Separate variants with commas
+  — e.g. `henry, hendry, henri` — and any of them maps to the one replacement.
 - **License: GNU GPL v3.0.** Added a `LICENSE` file (canonical GPLv3 text) and a
-  License section in the README — the project was previously unlicensed
-  (implicitly all-rights-reserved).
+  License section in the README — the project was previously unlicensed.
 - **Dictionary starter words + AI word-list builder.** A fresh dictionary is
-  seeded once with a few example entries (real mis-hearings + a couple of names);
-  a "Build a word list with AI" section provides a copy-able prompt to run in any
-  AI and a **Paste list** importer that bulk-adds its `misheard => correct` reply
-  (also parses Markdown tables / CSV).
+  seeded once with a few example entries; a "Build a word list with AI" section
+  provides a copy-able prompt and a **Paste list** importer that bulk-adds its
+  `misheard => correct` reply (also parses Markdown tables / CSV).
 - **Menu-bar right-click menu** — right-click the icon for **Upload Audio…** and
   **Quit**; left-click still opens the window.
 - **Collapsible Transcriptions sidebar**, toggled from the title bar.
@@ -26,20 +33,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   action (transcript, row, summary, and the AI prompt).
 
 ### Changed
+- **AI cleanup now punctuates sentence endings** — complete sentences (including
+  the last) get a terminal period / question / exclamation mark, while a genuine
+  unfinished fragment is left alone (was: never append a trailing period).
+- **Dictionary starter seed** trimmed to Shhhcribble / Hendri / Tiuri, each seeded
+  with variant spellings baked in; dropped the Anthropic and Claude examples.
+- **Transcript rows** are now single-line titles with no source icon and more room
+  for text; hovering highlights the whole row (the same quiet grey as selection)
+  and reveals a blue copy button; fixed a height-jump on hover.
+- **Studio chrome polish** — outlined-pill search field; a lighter list-selection
+  grey; removed the divider under the search; a glass sidebar-toggle button;
+  centered titlebar title; neutral (non-blue) Transcript / Summary / Notes tab
+  selection.
 - Renamed **"Personal Dictionary" → "Dictionary"** throughout.
-- **Transcript list rows redesigned** — title-only (up to two lines) with a
-  prominent trailing date and a vertically-centered source icon; the duplicate
-  snippet line was removed.
 - **First open of Transcriptions auto-selects the latest transcript** (later
   visits keep the last selection).
-- **List and rail selection restyled** to a subtle neutral highlight (was a
-  prominent accent blue), with the list a shade lighter than the rail tabs.
 - **"Transcribe File…" is now a floating "Upload Audio…" glass action** over the
   transcript list.
 - **Deleting a Dictionary word now asks for confirmation** (matching transcript
   delete / Quit).
 - The Settings pane now uses the same content width as the Dictionary pane.
-- Title bar consolidated to a single branded icon+name beside the sidebar toggle.
 
 ## [1.8.0] - 2026-07-08
 

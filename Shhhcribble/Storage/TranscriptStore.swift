@@ -214,11 +214,9 @@ final class TranscriptStore: ObservableObject {
         guard dictionaryEntries.isEmpty else { return }
 
         let examples: [(String, String)] = [
-            ("entropic", "Anthropic"),
-            ("clawed", "Claude"),
-            ("scribble", "Shhhcribble"),
-            ("hendry", "Hendri"),
-            ("tury", "Tiuri"),
+            ("scribble, shribble, shcribble", "Shhhcribble"),
+            ("henry, hendry, henri", "Hendri"),
+            ("tury, turi, tewri", "Tiuri"),
         ]
         addDictionaryEntries(examples.map {
             DictionaryEntry(phrase: $0.0, replacement: $0.1, caseSensitive: false)
