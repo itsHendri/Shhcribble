@@ -472,8 +472,13 @@ private struct DictionaryEntryEditor: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title).font(.headline)
 
-            TextField("Spoken phrase (what the transcriber hears)", text: $phrase)
-                .textFieldStyle(.roundedBorder)
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Spoken phrase (what the transcriber hears)", text: $phrase)
+                    .textFieldStyle(.roundedBorder)
+                Text("Separate multiple variants with commas — e.g. henry, hendry, henri")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             TextField("Replace with", text: $replacement)
                 .textFieldStyle(.roundedBorder)
             Toggle("Match case exactly", isOn: $caseSensitive)

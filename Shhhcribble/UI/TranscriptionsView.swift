@@ -15,6 +15,7 @@ struct TranscriptionsView: View {
 
     @State private var section: RailSection? = .transcriptions
     @State private var selectedID: UUID?
+    @State private var hoveredID: UUID?
     @State private var searchText = ""
     @State private var showingQuitConfirm = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -159,7 +160,6 @@ struct TranscriptionsView: View {
     private var listColumn: some View {
         VStack(spacing: 0) {
             searchField
-            Divider()
             // Custom row selection (tap → `selectedID`, subtle rounded fill)
             // instead of `List(selection:)` — the native focused selection turns
             // a prominent accent blue; a quiet, consistent highlight reads better
@@ -170,14 +170,17 @@ struct TranscriptionsView: View {
                         .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
                 }
                 ForEach(filtered) { t in
-                    TranscriptRow(transcript: t, onCopy: { copyTranscript(t) })
+                    TranscriptRow(transcript: t, hovered: hoveredID == t.id, onCopy: { copyTranscript(t) })
                         .contentShape(Rectangle())
                         .onTapGesture { selectedID = t.id }
+                        .onHover { hoveredID = $0 ? t.id : (hoveredID == t.id ? nil : hoveredID) }
                         .listRowSeparator(.hidden)
                         .listRowBackground(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                // A shade lighter than the rail-tab selection.
-                                .fill(selectedID == t.id ? Color.primary.opacity(0.14) : Color.clear)
+                                // Selected OR hovered rows get the same quiet grey
+                                // (lighter than the rail-tab selection at 0.09) so
+                                // hover and selection read as one affordance.
+                                .fill(selectedID == t.id || hoveredID == t.id ? Color.primary.opacity(0.04) : Color.clear)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                         )
@@ -239,9 +242,11 @@ struct TranscriptionsView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        // Outlined pill (no fill) so the search reads as a distinct affordance
+        // rather than sharing the neutral grey of the selection highlights.
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1))
         .padding(10)
     }
 
@@ -316,38 +321,34 @@ struct TranscriptionsView: View {
 /// fixed-width slot* as the date, so the title never reflows on hover.
 private struct TranscriptRow: View {
     let transcript: Transcript
+    var hovered: Bool = false
     var onCopy: () -> Void = {}
 
-    @State private var hovering = false
-
-    // Fixed trailing width keeps the title's wrap point constant whether the slot
-    // shows the date or the copy button (no hover jump).
-    private let trailingWidth: CGFloat = 84
+    // Fixed trailing width keeps the title's truncation point constant whether the
+    // slot shows the date or the copy button; the fixed trailing HEIGHT keeps the
+    // row from growing on hover (the copy button is taller than the date).
+    private let trailingWidth: CGFloat = 72
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Image(systemName: transcript.source == .file ? "waveform" : "mic")
-                .font(.system(size: 14))
-                .foregroundStyle(transcript.source == .file ? Color.accentColor : Color.secondary)
-                .frame(width: 18)
             Text(transcript.menuTitle)
                 .font(.system(size: 13, weight: .medium))
-                .lineLimit(2)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             trailing
-                .frame(width: trailingWidth, alignment: .trailing)
+                .frame(width: trailingWidth, height: 24, alignment: .trailing)
         }
-        .padding(.vertical, 4)
-        .onHover { hovering = $0 }
+        .padding(.vertical, 5)
     }
 
     @ViewBuilder
     private var trailing: some View {
-        if hovering {
+        if hovered {
             Button(action: onCopy) {
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.accentColor)
                     .frame(width: 26, height: 24)
                     .contentShape(Rectangle())
             }
@@ -403,6 +404,9 @@ private struct TranscriptDetail: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            // Neutral (adaptive gray) selected segment instead of the accent blue,
+            // which read too heavy against the quiet neutral list/rail highlights.
+            .tint(Color(nsColor: .secondaryLabelColor))
             .padding(12)
             Divider()
             Group {

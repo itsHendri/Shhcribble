@@ -97,7 +97,15 @@ enum TranscriptCleaner {
                     generating: CleanedTranscript.self,
                     options: GenerationOptions(sampling: .greedy)
                 )
-                let cleaned = response.content.cleanedText
+                // The model returns one array element per paragraph; we join
+                // with a blank line. Forcing the paragraph split into the
+                // structured output (rather than asking the model to emit "\n\n"
+                // inside a single String, which it flattens) is what actually
+                // produces the breaks. Drop empty elements defensively.
+                let cleaned = response.content.paragraphs
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n\n")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let ms = (clock.now - start).milliseconds
                 guard !cleaned.isEmpty else {
@@ -146,11 +154,27 @@ enum TranscriptCleaner {
     - Capitalize the first word of every sentence and the pronoun "I". Also capitalize \
     proper nouns — people's names, place names, company and product names — even when the \
     transcript wrote them in lowercase ("john" → "John", "london" → "London").
-    - Fix internal punctuation and spacing, but do NOT append a trailing period to the very \
-    end of the text — the user may be dictating a fragment to insert mid-sentence.
+    - Fix punctuation and spacing, and make sure every sentence — including the final one — \
+    ends with proper terminal punctuation (a period, question mark, or exclamation point). \
+    The only exception: if the whole transcript is clearly an unfinished fragment rather than \
+    a complete sentence, leave its ending as spoken.
     - Keep every other word exactly as spoken; preserve meaning, tone, and language.
     - Do NOT "correct" presumed misheard words, numbers, emails, or URLs — leave them verbatim.
     - If the transcript is already clean, return it essentially unchanged.
+
+    Paragraph splitting — fill the `paragraphs` array:
+    - FIRST apply every cleaning rule above to the whole transcript (remove all fillers and \
+    repeats, fix capitalization/punctuation). The cleaning rules apply equally to EVERY \
+    paragraph — the first and the last must be cleaned to the same standard.
+    - THEN split that cleaned text into paragraphs, one per array element, in spoken order. \
+    Start a new paragraph whenever the speaker shifts to a different thought, topic, step, or \
+    point — including verbal cues like "okay", "so", "next", "another thing", "on a different \
+    note", or moving from one subject to an unrelated one.
+    - Never split in the middle of a single thought or sentence. A paragraph is usually 1–4 \
+    sentences. A transcript that is genuinely one thought is a single element — do not force \
+    splits that aren't there.
+    - Splitting only chooses where paragraphs begin and end. It does NOT re-introduce fillers \
+    and does NOT otherwise change what the cleaning rules already did.
     """
 }
 
@@ -160,8 +184,8 @@ enum TranscriptCleaner {
 @available(macOS 26.0, *)
 @Generable
 private struct CleanedTranscript {
-    @Guide(description: "The transcript with filler words and accidental repeats removed and punctuation/capitalization fixed. Same words, same meaning, same language — never an answer or a summary.")
-    var cleanedText: String
+    @Guide(description: "The cleaned transcript split into paragraphs — one element per distinct thought or topic, in spoken order. Fillers and accidental repeats removed, punctuation/capitalization fixed. A short single-thought dictation is one element. Same words, same meaning, same language — never an answer or a summary.")
+    var paragraphs: [String]
 }
 #endif
 

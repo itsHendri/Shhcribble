@@ -40,6 +40,10 @@ struct DictionaryEntry: Codable, Identifiable, Equatable {
 ///   `\b`, so phrases that start or end with non-word characters ("C++",
 ///   ".NET") still anchor correctly. Multi-word phrases need no special
 ///   handling — escaped spaces match literally.
+/// - A single entry may list **several spoken variants separated by commas**
+///   ("henry, hendry, henri"); any of them maps to the one replacement. Each
+///   variant is matched as a whole word via an escaped regex alternation, so a
+///   one-variant entry (no comma) behaves exactly as before.
 /// - `caseSensitive == false` matches any casing; the **replacement is always
 ///   used verbatim** (no smart-case adaption) because the dominant use case is
 ///   fixing proper nouns where the replacement's own casing is the point.
@@ -50,10 +54,19 @@ enum PersonalDictionary {
 
         var s = text
         for entry in entries {
-            let phrase = entry.phrase.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !phrase.isEmpty else { continue }
+            // One entry can hold several comma-separated spoken variants, all
+            // mapping to the same replacement. Split, trim, drop empties.
+            let variants = entry.phrase
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !variants.isEmpty else { continue }
 
-            let pattern = "(?<!\\w)" + NSRegularExpression.escapedPattern(for: phrase) + "(?!\\w)"
+            // Whole-word alternation over the escaped variants.
+            let alternation = variants
+                .map { NSRegularExpression.escapedPattern(for: $0) }
+                .joined(separator: "|")
+            let pattern = "(?<!\\w)(?:" + alternation + ")(?!\\w)"
             var options: NSRegularExpression.Options = []
             if !entry.caseSensitive { options.insert(.caseInsensitive) }
             guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { continue }
