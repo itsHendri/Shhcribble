@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-07-10
+
+A security and reliability patch. Both fixes land on the dictation path, so
+updating is recommended.
+
 ### Fixed
 - **Quick tap on a cold mic route no longer dies with "No speech detected".** The
   hold-vs-tap decision now uses the keyboard event's own timestamps instead of a
