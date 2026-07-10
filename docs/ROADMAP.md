@@ -4,16 +4,25 @@
 
 ---
 
-## Re-prioritization (2026-07-08) — LIVE pointer, supersedes the sprint order below
+## Re-prioritization (2026-07-09) — LIVE pointer, supersedes the sprint order below
 
-Everything through **v1.8.0** shipped (Sparkle; Personal Dictionary; Transcription Studio = file transcription + Summary + Notes + SQLite store & dictionary). Then a UI-polish pass + a feedback-driven backlog re-think with the human. New shape/order:
+Everything through **v1.8.1** shipped (Sparkle; Personal Dictionary; Transcription Studio = file transcription + Summary + Notes + SQLite store & dictionary; **LLM-semantic paragraphing**; **multi-variant dictionary entries**; the Studio polish pass). Next, in order:
 
-1. **Custom Styles / Skills** *(absorbs the old Sprint 3 "Modes")* — **RAISED.** Skills-upload + custom writing-style editing + per-app Modes converge into one program: *user-authored prompts that shape transcript output*. Ship as **portable `SKILL.md` export** (copy / ZIP into Claude Code, Codex, Cursor, Gemini CLI — real today); do **not** promise live-sync into a claude.ai account (no third-party API exists — frame as export). Still **design-gated (human)** — start with the axes/scope session.
-2. **Phase B — Notes as a standalone environment + desktop sticky notes** — **PULLED FORWARD, next design session.** Today notes are a `notes` column on a transcript; standalone needs a note entity/table (schema v4), its own rail module + CRUD, then the sticky-note widget (B2). Verify the local **ShhhcribbleiOS** target state first (it exists locally).
-3. **Pause → line break** — **NEAR-TERM, buildable now (own branch).** `ASRResult.tokenTimings` is already returned by FluidAudio and currently discarded; thread it through and insert a break where the inter-token gap > ~0.6–1.0 s. Touches the shared transcription pipeline (dictation + file + live-preview).
-4. **Cinematic transcription view** — future "delight": full-window dark pan with live word-highlighting (feasible via the same timestamps).
+1. **Custom Styles / Skills** *(absorbs the old Sprint 3 "Modes")* — **NEXT.** Skills-upload + custom writing-style editing + per-app Modes converge into one program: *user-authored prompts that shape transcript output*. Ship as **portable `SKILL.md` export** (copy / ZIP into Claude Code, Codex, Cursor, Gemini CLI — real today); do **not** promise live-sync into a claude.ai account (no third-party API exists — frame as export). **Design-gated (human)** — start with the axes/scope session.
+2. **Phase B — Notes as a standalone environment + desktop sticky notes** — Today notes are a `notes` column on a transcript; standalone needs a note entity/table (schema v4), its own rail module + CRUD, then the sticky-note widget (B2). Verify the local **ShhhcribbleiOS** target state first (it exists locally). **Design-gated (human).**
+3. **Cinematic transcription view** — future "delight": full-window dark pan with live word-highlighting.
 
-**Done 2026-07-08 (not in the sprints below):** dictionary bulk-import + AI word-list prompt + first-launch starter seeding; universal copy-toast + destructive-confirm conventions; menu-bar right-click menu; collapsible rail; row redesign; neutral selection. **Open (final visual refinement, next session):** titlebar toggle glass/padding + selection-shade balance. **Still parked** (see COMPETITIVE-REFERENCE): ASR context-biasing (highest-value spike), multi-language, revert-to-raw cleanup, streaming live-preview.
+### Open bugs / gates (clear before Phase work)
+
+- **Cold fast-tap "No speech detected"** (logged 2026-07-08d, unfixed). On a cold / un-primed input route, a quick **tap** (toggle activation) sometimes opens and near-instantly closes with "No speech detected"; a **hold** (push-to-talk) grabs reliably. Suspected: the warm-up window vs. the fast-tap path (see CLAUDE.md "Waking mic…" placeholder). **Audio path → human-gated:** investigate read-only and propose; do **not** touch `AudioRecorder`/routing without approval.
+- **"Waking mic…" placeholder** — visual check on genuinely cold AirPods still pending (CLAUDE.md).
+- **Prompt-injection probe on the rewritten `TranscriptCleaner` prompt** (v1.8.1 changed the instructions + moved output to `paragraphs: [String]`). The `<transcript>` delimiter framing is unchanged so the defense should hold, but it was shipped unverified. Run ~6 adversarial transcripts (direct instruction, dictated question, prompt-leak, role override, `</transcript>` delimiter escape) through `clean()` and confirm *described-not-obeyed*; harden + re-run if any is obeyed.
+
+### Settled — don't relitigate
+
+- **Pause → line break via token timings: REJECTED (2026-07-09).** A `PauseSegmenter` splitting on `ASRResult.tokenTimings` gaps was built and reverted. FluidAudio's Parakeet-**TDT** duration head **absorbs trailing silence into the preceding token's duration**, so after a real pause `nextWord.start − prevWord.end ≈ 0` and the gap vanishes — a 5 s pause produced no break. Raising the threshold can't recover a gap that isn't there. Competitor research (Wispr Flow, Aqua Voice, Willow, SuperWhisper) confirmed **all** do LLM-semantic paragraphing, not pause timing; Apple Dictation requires a spoken "new paragraph". We shipped **LLM-semantic paragraphing** in the cleaner instead. Don't rebuild pause-timing without a different signal (e.g. audio VAD).
+
+**Done 2026-07-09:** LLM paragraphing + terminal punctuation; comma-separated dictionary variants + trimmed starter seed; Studio polish (outlined-pill search, lighter list selection, glass sidebar toggle, centered titlebar title, single-line iconless rows, unified hover/selection, neutral tabs). **Closed:** titlebar toggle glass/padding + selection-shade balance (signed off). **Still parked** (see COMPETITIVE-REFERENCE): ASR context-biasing (highest-value spike), multi-language, revert-to-raw cleanup, streaming live-preview.
 
 *(The dated sprint sections below are kept as history; this block is the live pointer.)*
 
