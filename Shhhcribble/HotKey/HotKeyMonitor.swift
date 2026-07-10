@@ -6,16 +6,27 @@ import AppKit
 /// - Never auto-disabled by macOS
 /// - keyDown fires onKeyDown; keyUp fires onKeyUp (push-to-talk style)
 /// - Call updateHotkey() to change the key combo at runtime
+///
+/// **Both callbacks receive the Carbon event's own timestamp** (`GetEventTime`,
+/// seconds since boot) — the moment the key was physically pressed or released.
+/// This is load-bearing for the hold-vs-tap decision: the handlers are delivered
+/// as `Task { @MainActor }`, so a keyUp cannot run until the keyDown's work
+/// finishes. The recording start blocks the main actor (synchronous AppleScript
+/// music-pause, then a cold-route `engine.start()`), so measuring elapsed time
+/// with `DispatchTime.now()` *inside* the keyUp handler measured "how long until
+/// the main actor freed up", not how long the key was held — a quick tap on a
+/// cold route was misread as a 500 ms+ push-to-talk hold and stopped the
+/// recording instantly ("No speech detected"). Event times are immune to that.
 final class HotKeyMonitor {
 
-    private let onKeyDown: () async -> Void
-    private let onKeyUp:   () async -> Void
+    private let onKeyDown: (Double) async -> Void
+    private let onKeyUp:   (Double) async -> Void
 
     private var hotKeyRef:    EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
 
-    init(onKeyDown: @escaping () async -> Void,
-         onKeyUp:   @escaping () async -> Void) {
+    init(onKeyDown: @escaping (Double) async -> Void,
+         onKeyUp:   @escaping (Double) async -> Void) {
         self.onKeyDown = onKeyDown
         self.onKeyUp   = onKeyUp
     }
@@ -91,12 +102,12 @@ final class HotKeyMonitor {
 
     // MARK: - Internal (called from C callback)
 
-    fileprivate func handleKeyDown() {
-        Task { @MainActor in await onKeyDown() }
+    fileprivate func handleKeyDown(at eventTime: Double) {
+        Task { @MainActor in await onKeyDown(eventTime) }
     }
 
-    fileprivate func handleKeyUp() {
-        Task { @MainActor in await onKeyUp() }
+    fileprivate func handleKeyUp(at eventTime: Double) {
+        Task { @MainActor in await onKeyUp(eventTime) }
     }
 }
 
@@ -105,9 +116,12 @@ final class HotKeyMonitor {
 private let hotKeyEventCallback: EventHandlerUPP = { _, event, userData in
     guard let event, let userData else { return OSStatus(eventNotHandledErr) }
     let monitor = Unmanaged<HotKeyMonitor>.fromOpaque(userData).takeUnretainedValue()
+    // The time the event OCCURRED — captured here in the Carbon callback, before
+    // the work is hopped onto the (possibly blocked) main actor. See the type doc.
+    let eventTime = Double(GetEventTime(event))
     switch Int(GetEventKind(event)) {
-    case kEventHotKeyPressed:  monitor.handleKeyDown()
-    case kEventHotKeyReleased: monitor.handleKeyUp()
+    case kEventHotKeyPressed:  monitor.handleKeyDown(at: eventTime)
+    case kEventHotKeyReleased: monitor.handleKeyUp(at: eventTime)
     default: break
     }
     return noErr

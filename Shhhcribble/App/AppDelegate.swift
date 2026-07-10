@@ -74,7 +74,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// On keyUp we measure the elapsed hold: a long hold (≥ holdThreshold) is
     /// read as push-to-talk and releases stop the recording; a quick tap is
     /// read as toggle and the recording stays on until the next tap.
-    private var recordingStartedByKeyDownAt: DispatchTime?
+    /// Carbon event time (seconds since boot) of the keyDown that started the
+    /// current recording — the moment the key was *physically* pressed, not when
+    /// our handler got to run. See HotKeyMonitor's doc: the handlers are
+    /// serialized on the main actor behind a blocking recording start, so
+    /// wall-clock inside the keyUp handler misread quick taps as long holds.
+    private var recordingStartedByKeyDownAt: Double?
     private let holdThreshold: TimeInterval = 0.5
 
     /// Cancellable "Waking mic…" placeholder. Only shown if the input route
@@ -143,11 +148,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hotkey = ModelManager.selectedHotkey
         hotKeyMonitor = HotKeyMonitor(
-            onKeyDown: { [weak self] in
+            onKeyDown: { [weak self] eventTime in
                 guard let self else { return }
                 switch self.state {
                 case .idle:
-                    self.recordingStartedByKeyDownAt = .now()
+                    self.recordingStartedByKeyDownAt = eventTime
                     await self.beginRecording()
                 case .recording:
                     // Second tap of a toggle-style use — stop and transcribe.
@@ -156,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     break  // ignore hotkey while we're transcribing
                 }
             },
-            onKeyUp: { [weak self] in
+            onKeyUp: { [weak self] eventTime in
                 guard let self else { return }
                 // Only a release that ends an active recording matters. If the
                 // hold lasted ≥ holdThreshold, treat it as push-to-talk and
@@ -164,9 +169,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // next keyDown. A keyUp seen in any other state — notably the
                 // release of a toggle "stop" tap, which already moved us to
                 // .transcribing — is ignored.
+                //
+                // `heldFor` is the difference of the two Carbon *event* times, so
+                // it is the real key-hold duration. Measuring with a clock read
+                // here instead would time how long the main actor was blocked by
+                // the recording start (AppleScript pause + cold engine.start) and
+                // misclassify a quick tap as push-to-talk — stopping the recording
+                // instantly with "No speech detected".
                 guard self.state == .recording,
                       let startedAt = self.recordingStartedByKeyDownAt else { return }
-                let heldFor = Double(DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000_000
+                let heldFor = eventTime - startedAt
                 if heldFor >= self.holdThreshold {
                     await self.endRecording()
                 }
