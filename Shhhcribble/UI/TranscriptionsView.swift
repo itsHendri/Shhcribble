@@ -21,17 +21,22 @@ struct TranscriptionsView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var copiedToast = false
     @State private var copiedToastTask: Task<Void, Never>?
+    // Owned here (not inside FeedbackView) so a half-written report survives
+    // switching to another rail tab and back — the detail `switch` rebuilds the
+    // FeedbackView, but this window and its draft persist.
+    @StateObject private var feedbackDraft = FeedbackDraft()
 
     /// Left-nav tabs. Transcriptions is a master-detail (list + reader); the
     /// other two fill the pane. Settings + Dictionary moved in here from the
     /// old separate settings window.
     enum RailSection: String, CaseIterable, Identifiable {
-        case transcriptions, dictionary, settings
+        case transcriptions, dictionary, feedback, settings
         var id: String { rawValue }
         var label: String {
             switch self {
             case .transcriptions: return "Transcriptions"
             case .dictionary:     return "Dictionary"
+            case .feedback:       return "Feedback"
             case .settings:       return "Settings"
             }
         }
@@ -39,6 +44,7 @@ struct TranscriptionsView: View {
             switch self {
             case .transcriptions: return "text.bubble"
             case .dictionary:     return "character.book.closed"
+            case .feedback:       return "exclamationmark.bubble"
             case .settings:       return "gearshape"
             }
         }
@@ -54,6 +60,7 @@ struct TranscriptionsView: View {
             switch section ?? .transcriptions {
             case .transcriptions: transcriptionsPane
             case .dictionary:     dictionaryPane
+            case .feedback:       feedbackPane
             case .settings:       settingsPane
             }
         }
@@ -85,9 +92,11 @@ struct TranscriptionsView: View {
 
             Spacer(minLength: 0)
 
-            // Settings sits at the bottom, just above Quit. Quit reuses the exact
-            // same row styling as the tabs (same icon/text weight and colour) and
-            // only differs by asking for confirmation instead of switching panes.
+            // Feedback + Settings sit at the bottom, just above Quit — the two
+            // utility tabs grouped together. Quit reuses the exact same row styling
+            // as the tabs (same icon/text weight and colour) and only differs by
+            // asking for confirmation instead of switching panes.
+            railTab(.feedback)
             railTab(.settings)
             railRow(label: "Quit", systemImage: "power", selected: false) {
                 showingQuitConfirm = true
@@ -261,6 +270,12 @@ struct TranscriptionsView: View {
     private var settingsPane: some View {
         SettingsView(transcriptionEngine: engine, appDelegate: appDelegate, transcriptStore: store)
             .frame(maxWidth: 620, alignment: .topLeading)   // match the Dictionary pane width
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var feedbackPane: some View {
+        FeedbackView(draft: feedbackDraft)
+            .frame(maxWidth: 620, alignment: .topLeading)   // match the Settings pane width
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 

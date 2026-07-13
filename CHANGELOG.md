@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Feedback tab.** A fourth rail tab in the Transcription Studio window for
+  sending a bug report or feature request. Pick a report type, fill in a short
+  form, and either open a prefilled email (`mailto:` — you review and press Send)
+  or copy the report to the clipboard. Auto-attached, editable diagnostics (app
+  version + build, macOS version, Mac model, Apple Intelligence availability,
+  selected model + hotkey) help debugging and **never** include any of your
+  transcribed text. `mailto:` is deliberate — the app ships no backend or API key,
+  so nothing leaves your machine except the email you send yourself.
+
 ## [1.8.2] - 2026-07-10
 
 A security and reliability patch. Both fixes land on the dictation path, so
