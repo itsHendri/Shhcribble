@@ -2,10 +2,69 @@ import CoreAudio
 import Foundation
 import os
 
+/// Runs NSAppleScript on a dedicated background thread that keeps a live run loop.
+///
+/// **Why a whole thread and not a GCD queue:** `NSAppleScript.executeAndReturnError`
+/// sends an Apple Event to Spotify/Music and *waits for the reply*; that wait is
+/// delivered through a run loop on the calling thread. A GCD queue worker has no
+/// run loop, so the reply wait can stall there. The main thread *does* have a run
+/// loop, but keeping the pause off it during recording start is the entire point
+/// (see the MusicPauser decision in CLAUDE.md). So we own one thread with a run
+/// loop. A single serial thread also preserves pause→resume ordering for free:
+/// resume is always enqueued after the pause that populated the state it reads.
+private final class ScriptThread: NSObject {
+    private var thread: Thread!
+
+    override init() {
+        super.init()
+        let t = Thread(target: self, selector: #selector(main), object: nil)
+        t.name = "com.shhhcribble.musicpauser"
+        t.stackSize = 1 << 20
+        t.start()
+        thread = t
+    }
+
+    @objc private func main() {
+        // A mach port gives the run loop a source, so `run` blocks waiting for
+        // input instead of returning immediately and busy-spinning the `while`.
+        let rl = RunLoop.current
+        rl.add(NSMachPort(), forMode: .default)
+        while !Thread.current.isCancelled {
+            rl.run(mode: .default, before: .distantFuture)
+        }
+    }
+
+    /// Enqueue a block on the thread — FIFO, fire-and-forget.
+    func async(_ block: @escaping () -> Void) {
+        perform(#selector(runBox(_:)), on: thread, with: Box(block), waitUntilDone: false)
+    }
+
+    /// Enqueue a block and block the caller until it finishes. Used only on app
+    /// quit, where the resume must complete before the process exits.
+    func sync(_ block: @escaping () -> Void) {
+        perform(#selector(runBox(_:)), on: thread, with: Box(block), waitUntilDone: true)
+    }
+
+    @objc private func runBox(_ box: Box) { box.block() }
+
+    private final class Box: NSObject {
+        let block: () -> Void
+        init(_ block: @escaping () -> Void) { self.block = block }
+    }
+}
+
 /// Pauses Spotify and Apple Music during recording, resumes them on stop.
 /// Uses AppleScript directly to each app — no private APIs, no Bluetooth
 /// audio bridge, no system-volume side effects. Works identically on
 /// AirPods, built-in speakers, USB DACs, and HDMI.
+///
+/// **Off-main (Fix B):** every AppleScript call runs on a private `ScriptThread`,
+/// never the main actor. The pause used to run synchronously inline in
+/// `AppDelegate.actuallyBeginRecording()`, blocking the main thread for hundreds
+/// of ms per playing app (an Apple Events round-trip each) *before* the engine
+/// started and before the "Waking mic…" placeholder's timer could fire. Now the
+/// public methods just enqueue work and return instantly, so recording start is
+/// no longer gated on the music apps answering.
 ///
 /// **Coverage scope:** Spotify and Apple Music only. YouTube and other
 /// browser-tab audio are NOT paused — the user accepted this trade-off
@@ -25,32 +84,61 @@ import os
 /// send Play and start music they'd intentionally silenced. AppleScript
 /// asks "are you currently playing?" first, so we only resume what we
 /// paused.
-@MainActor
 final class MusicPauser {
 
     private static let logger = Logger(subsystem: "com.shhhcribble.app", category: "pauser")
 
-    /// Per-app state — independent flags so we resume only what we paused.
-    /// Multiple apps can be playing simultaneously; we handle them as a set.
+    /// The private thread every AppleScript call runs on. Fix B: keeps the
+    /// synchronous Apple Events round-trips off the main actor.
+    private let scriptThread = ScriptThread()
+
+    /// Per-app state — resume only what we paused. **Touched ONLY on
+    /// `scriptThread`** (all reads and writes run inside its blocks), so it needs
+    /// no extra locking. Serial ordering on that thread guarantees a resume sees
+    /// the pause that preceded it.
     private var pausedApps: Set<TargetApp> = []
+
+    /// Bumped once per recording (at pause). A *delayed* resume captures the
+    /// generation it was scheduled for and skips if a newer recording has paused
+    /// since — otherwise recording 1's 2100 ms resume timer could fire during
+    /// recording 2 (rapid back-to-back dictation inside the BT settle window) and
+    /// un-pause music mid-capture. Read/written only on `scriptThread`.
+    private var generation = 0
 
     private enum TargetApp: String, CaseIterable {
         case spotify = "Spotify"
         case music   = "Music"
     }
 
+    /// Pause any playing target apps. Returns immediately; the AppleScript runs
+    /// on `scriptThread` so recording start is never blocked on it.
     func pauseIfPlaying() {
-        for app in TargetApp.allCases {
-            if pauseIfPlaying(app) {
-                pausedApps.insert(app)
+        scriptThread.async { [weak self] in
+            guard let self else { return }
+            self.generation &+= 1
+            for app in TargetApp.allCases where self.pauseIfPlaying(app) {
+                self.pausedApps.insert(app)
             }
         }
     }
 
+    /// Resume what we paused, now. Used by cancel / error paths. Returns
+    /// immediately; enqueued after any in-flight pause, so FIFO ordering
+    /// guarantees it sees the paused set.
     func resumeIfPaused() {
-        for app in pausedApps {
-            resume(app)
-        }
+        scriptThread.async { [weak self] in self?.resumeAll() }
+    }
+
+    /// Synchronous resume for app quit — the process is about to exit, so the
+    /// resume must finish before we return (a fire-and-forget hop might not run
+    /// in time and would strand the user's music paused).
+    func resumeIfPausedSync() {
+        scriptThread.sync { [weak self] in self?.resumeAll() }
+    }
+
+    /// Resume every paused app and clear the set. **Must run on `scriptThread`.**
+    private func resumeAll() {
+        for app in pausedApps { resume(app) }
         pausedApps.removeAll()
     }
 
@@ -70,24 +158,40 @@ final class MusicPauser {
     /// On non-Bluetooth outputs: 700 ms — no codec switch to wait on, just
     /// the chime/paste breathing room.
     ///
-    /// Fire-and-forget. Safe to call when nothing is paused (no-op).
+    /// Fire-and-forget. Safe to call when nothing is paused — the deferred
+    /// `resumeIfPaused()` is a no-op then (empty paused set).
     func scheduleResumeAfterOutputSettles() {
-        guard !pausedApps.isEmpty else {
-            Self.logger.notice("scheduleResume: nothing paused — no-op")
-            return
-        }
-
         let isBluetooth = Self.defaultOutputDevice().map { Self.isBluetoothDevice($0) } ?? false
         let delayMs = isBluetooth ? 2100 : 700
         Self.logger.notice("scheduleResume: \(isBluetooth ? "BT" : "non-BT", privacy: .public) output — \(delayMs)ms delay")
 
-        Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(delayMs))
-            await MainActor.run { self?.resumeIfPaused() }
+        // Capture this recording's generation on `scriptThread` (after its pause
+        // has run), then resume only if no newer recording paused in the meantime.
+        scriptThread.async { [weak self] in
+            guard let self else { return }
+            let scheduledGen = self.generation
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(delayMs))
+                self?.resumeIfPaused(ifGeneration: scheduledGen)
+            }
         }
     }
 
-    // MARK: - Per-app actions
+    /// Delayed-resume path: resume only if the recording that scheduled it is
+    /// still the current one. A newer `pauseIfPlaying()` bumps `generation`, which
+    /// supersedes this stale timer.
+    private func resumeIfPaused(ifGeneration gen: Int) {
+        scriptThread.async { [weak self] in
+            guard let self else { return }
+            guard self.generation == gen else {
+                Self.logger.notice("scheduleResume: superseded by newer recording (gen \(self.generation, privacy: .public) ≠ \(gen, privacy: .public)) — skip")
+                return
+            }
+            self.resumeAll()
+        }
+    }
+
+    // MARK: - Per-app actions (run on `scriptThread`)
 
     /// Returns true iff the app was running, was playing, and we paused it.
     /// Returns false if the app isn't running, isn't playing, or AppleScript
@@ -97,15 +201,21 @@ final class MusicPauser {
         // The `player state is playing` guard avoids the case where the user
         // has the app open but already paused — we don't want to send pause
         // again (no-op, but also nothing to track for resume).
+        // `with timeout` bounds the Apple Event reply wait (default is ~60 s) so a
+        // wedged music app can't hang the script thread — or, at quit, the main
+        // thread via resumeIfPausedSync. On timeout, executeAndReturnError returns
+        // an error → treated as "not paused", so nothing is tracked or stranded.
         let source = """
-        if application "\(app.rawValue)" is running then
-            tell application "\(app.rawValue)"
-                if player state is playing then
-                    pause
-                    return "paused"
-                end if
-            end tell
-        end if
+        with timeout of 5 seconds
+            if application "\(app.rawValue)" is running then
+                tell application "\(app.rawValue)"
+                    if player state is playing then
+                        pause
+                        return "paused"
+                    end if
+                end tell
+            end if
+        end timeout
         return "no"
         """
         let result = run(source, label: "pause \(app.rawValue)")
@@ -120,9 +230,11 @@ final class MusicPauser {
         // double-starting anything. Keeping this simple — the per-app
         // flag in pausedApps already gates whether we attempt resume at all.
         let source = """
-        if application "\(app.rawValue)" is running then
-            tell application "\(app.rawValue)" to play
-        end if
+        with timeout of 5 seconds
+            if application "\(app.rawValue)" is running then
+                tell application "\(app.rawValue)" to play
+            end if
+        end timeout
         """
         _ = run(source, label: "resume \(app.rawValue)")
         Self.logger.notice("resume \(app.rawValue, privacy: .public): sent")
@@ -131,8 +243,9 @@ final class MusicPauser {
     // MARK: - AppleScript runner
 
     /// Runs an AppleScript synchronously and returns its string result, or
-    /// nil on error. Errors are logged at .error so a denied-TCC prompt or
-    /// app crash shows up in `log stream`.
+    /// nil on error. **Called only on `scriptThread`**, which has a live run
+    /// loop to receive the target app's Apple Event reply. Errors are logged at
+    /// .error so a denied-TCC prompt or app crash shows up in `log stream`.
     @discardableResult
     private func run(_ source: String, label: String) -> String? {
         guard let script = NSAppleScript(source: source) else {

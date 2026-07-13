@@ -188,9 +188,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Defensive resume if the user quits mid-recording — otherwise music
-    /// we paused stays paused with no obvious way to discover why.
+    /// we paused stays paused with no obvious way to discover why. Synchronous:
+    /// the process is about to exit, so a fire-and-forget hop onto the pauser's
+    /// script thread might not run in time.
     func applicationWillTerminate(_ notification: Notification) {
-        musicPauser.resumeIfPaused()
+        musicPauser.resumeIfPausedSync()
     }
 
     // MARK: - Recording state machine

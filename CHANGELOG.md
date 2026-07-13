@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Music pause/resume runs off the main thread.** Pausing Spotify/Apple Music at
+  the start of a recording used to run its AppleScript synchronously on the main
+  thread, adding an Apple Events round-trip (hundreds of ms per playing app) of
+  latency before recording actually began — and starving the "Waking mic…"
+  placeholder on a cold AirPods start. It now runs on a dedicated background
+  thread, so recording starts without waiting on the music apps. (A cold
+  Bluetooth mic route can still add its own unavoidable startup delay.)
+
 ### Added
 - **Feedback tab.** A fourth rail tab in the Transcription Studio window for
   sending a bug report or feature request. Pick a report type, fill in a short
