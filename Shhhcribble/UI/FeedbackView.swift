@@ -156,9 +156,20 @@ struct FeedbackView: View {
         FeedbackReport(kind: draft.kind, fields: draft.fields, diagnostics: draft.diagnosticsText)
     }
 
+    // Neutral palette, shared with the rail/list selection so the whole Studio
+    // reads as one system (rail-tab fill is primary@0.09 at radius 7).
+    private let neutralFill = Color.primary.opacity(0.09)
+    private let boxFill = Color.primary.opacity(0.05)
+    private let boxStroke = Color.primary.opacity(0.10)
+    private let radius: CGFloat = 7
+
+    // Plain scrolling layout — deliberately NOT a grouped Form, which nested each
+    // section in its own card (and the inputs in a second card → card-in-card).
     var body: some View {
-        Form {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Bug / Feature switcher — neutral (adaptive gray) selected segment,
+                // matching the Transcript/Summary/Notes tabs, not the accent blue.
                 Picker("Report type", selection: $draft.kind) {
                     ForEach(FeedbackReport.Kind.allCases) { k in
                         Text(k.pickerLabel).tag(k)
@@ -166,69 +177,28 @@ struct FeedbackView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-            } footer: {
-                Text("Reports open in your email app so you can review before sending — nothing is sent automatically.")
+                .tint(Color(nsColor: .secondaryLabelColor))
+
+                // The three answer fields — real editable text boxes so the user
+                // writes directly in the app; the email is then prefilled from these.
+                ForEach(0..<3, id: \.self) { i in
+                    fieldEditor(index: i, label: draft.kind.fieldLabels[i])
+                }
+
+                diagnosticsSection
+
+                // Neutral, rectangular call-to-action buttons — not boxed in a card.
+                HStack(spacing: 10) {
+                    ctaButton("Compose Email", systemImage: "envelope", action: composeEmail)
+                    ctaButton("Copy report", systemImage: "doc.on.doc", action: copyReport)
+                    Spacer(minLength: 0)
+                }
+                Text("Compose Email opens your mail app with everything filled in — just review and press Send.")
                     .font(.caption).foregroundColor(.secondary)
             }
-
-            Section {
-                ForEach(Array(draft.kind.fieldLabels.enumerated()), id: \.offset) { i, label in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(label).fontWeight(.medium)
-                        TextField(label, text: fieldBinding(i), axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .lineLimit(2...6)
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color.primary.opacity(0.05))
-                            )
-                    }
-                    .padding(.vertical, 2)
-                }
-            } header: {
-                Text(draft.kind == .bug ? "Bug report" : "Feature request")
-            }
-
-            Section {
-                TextEditor(text: $draft.diagnosticsText)
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(minHeight: 108)
-                    .scrollContentBackground(.hidden)
-                    .padding(6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
-                    )
-            } header: {
-                Text("Diagnostics")
-            } footer: {
-                Text("Attached to your report to help debugging. Editable, and it never includes any of your transcribed text.")
-                    .font(.caption).foregroundColor(.secondary)
-            }
-
-            Section {
-                HStack {
-                    Button {
-                        composeEmail()
-                    } label: {
-                        Label("Compose Email", systemImage: "envelope")
-                    }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-
-                    Button {
-                        copyReport()
-                    } label: {
-                        Label("Copy report", systemImage: "doc.on.doc")
-                    }
-                    .controlSize(.large)
-
-                    Spacer()
-                }
-            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .formStyle(.grouped)
         .overlay(alignment: .bottom) { copiedToastView }
         // Bug and feature ask different questions, so answers must not carry over
         // under relabeled fields when the user flips the report type.
@@ -236,8 +206,8 @@ struct FeedbackView: View {
             draft.fields = ["", "", ""]
         }
         .onAppear {
-            // Seed once (guard lives on the draft, so this holds across tab
-            // switches too) so the user's diagnostics edits aren't clobbered.
+            // Seed the (read-only) diagnostics once; the guard lives on the draft
+            // so it holds across tab switches too.
             if !draft.didSeedDiagnostics {
                 draft.diagnosticsText = FeedbackReport.diagnostics()
                 draft.didSeedDiagnostics = true
@@ -246,11 +216,66 @@ struct FeedbackView: View {
         .onDisappear { copiedToastTask?.cancel() }
     }
 
+    // MARK: - Field editor
+
+    @ViewBuilder
+    private func fieldEditor(index: Int, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.subheadline).fontWeight(.medium)
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: fieldBinding(index))
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 64)
+                    .padding(.horizontal, 6).padding(.vertical, 4)
+                if draft.fields[index].isEmpty {
+                    Text("Type your answer…")
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 11).padding(.vertical, 12)
+                        .allowsHitTesting(false)
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(boxFill))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(boxStroke, lineWidth: 1))
+        }
+    }
+
     private func fieldBinding(_ i: Int) -> Binding<String> {
         Binding(
             get: { i < draft.fields.count ? draft.fields[i] : "" },
             set: { if i < draft.fields.count { draft.fields[i] = $0 } }
         )
+    }
+
+    // MARK: - Diagnostics (read-only)
+
+    private var diagnosticsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Diagnostics").font(.subheadline).fontWeight(.medium)
+            Text(draft.diagnosticsText)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(boxFill))
+            Text("Attached automatically to help with debugging — never any of your transcribed text.")
+                .font(.caption).foregroundColor(.secondary)
+        }
+    }
+
+    // MARK: - CTA button
+
+    private func ctaButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.callout).fontWeight(.medium)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(neutralFill))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Actions
