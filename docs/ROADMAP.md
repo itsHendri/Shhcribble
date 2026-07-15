@@ -9,11 +9,40 @@
 Everything through **v1.8.1** shipped (Sparkle; Personal Dictionary; Transcription Studio = file transcription + Summary + Notes + SQLite store & dictionary; **LLM-semantic paragraphing**; **multi-variant dictionary entries**; the Studio polish pass). Order agreed with the human 2026-07-10:
 
 0. **Cut v1.8.2 (patch)** — **DO FIRST.** v1.8.1 is public and carries the prompt-injection bug; the fix (`CleanupGuard` + `PromptFence`) and the cold fast-tap hotkey fix are on `main`, unreleased. Existing installs auto-update off the bad build.
-1. **Feedback tab** — **NEXT BUILD.** Small, self-contained, autonomy-safe, and now urgent: the app is publicly distributed and we just shipped a real bug with no channel to hear about it. Design below.
-2. **Music-pause off the main actor ("Fix B")** — small, high-leverage, **human-gated (`MusicPauser` timing)**. This is the *actual* remedy for the residual "first tap on cold AirPods" annoyance — see the audio note below.
+1. **Feedback tab** — ✅ **SHIPPED 2026-07-13/14** (single general form, `mailto:` + Gmail/Outlook web-compose picker + Copy). Design below.
+2. **Music-pause off the main actor ("Fix B")** — ✅ **SHIPPED 2026-07-13** (`ScriptThread` off-main, generation-guarded resume). ⚠ AirPods+Spotify smoke test still pending. See the audio note below.
 3. **Custom Styles / Skills** *(absorbs the old Sprint 3 "Modes")* — Skills-upload + custom writing-style editing + per-app Modes converge into one program: *user-authored prompts that shape transcript output*. Ship as **portable `SKILL.md` export** (copy / ZIP into Claude Code, Codex, Cursor, Gemini CLI — real today); do **not** promise live-sync into a claude.ai account (no third-party API exists — frame as export). **Design-gated (human)** — start with the axes/scope session.
 4. **Phase B — Cross-device sync + Notes as a standalone environment** — the biggest program; design session first. Scope clarified 2026-07-10, see below.
 5. **Cinematic transcription view** — future "delight": full-window dark pan with live word-highlighting.
+6. **Call / meeting detection + on-device call transcription** *(NEW — research done 2026-07-15, human-flagged)* — detect when another app (WhatsApp, Zoom, a phone call) puts the mic live and offer a one-tap "transcribe this call", capturing *both sides* on-device. Research + feasibility below. **Design-gated (human); touches audio capture → not autonomy-safe.**
+
+---
+
+### Call / meeting detection + on-device call transcription (item 6) — research 2026-07-15
+
+**Origin:** the human started recording a WhatsApp voice note and Granola popped a *"Call detected — Take notes"* notification. He wants the same for Shhhcribble: while on a call / WhatsApp, trigger a transcription (or note) that captures the conversation. Research into how Granola-class notetakers do this on macOS:
+
+**This is two separable features — scope them independently.**
+
+**(A) Detection → "transcribe this call?" prompt — LOW complexity, no new entitlement.**
+- The trigger is exactly the human's guess: **microphone activity**. Granola listens for *any* app engaging the mic and offers to take notes (it does **not** auto-record — the prompt is opt-in). ([Granola docs](https://docs.granola.ai/help-center/taking-notes/transcription))
+- Mechanism: register a Core Audio HAL property listener on **`kAudioDevicePropertyDeviceIsRunningSomewhere`** (global scope) across the input device(s). It fires the instant *any* process starts/stops using the mic — the same signal MicCheck uses. Only requires that we've already been granted mic access. ([Apple forum thread 741026](https://forums.developer.apple.com/forums/thread/741026), [naveen/miccheck](https://github.com/naveen/miccheck))
+- **Must not self-trigger:** Shhhcribble activates the mic itself during dictation. To tell "a call started" from "our own recording," enumerate **`AudioProcess`** objects (`kAudioHardwarePropertyProcessObjectList`) and read **`kAudioProcessPropertyIsRunningInput`** + map to bundle id via `kAudioProcessPropertyPID`/`kAudioProcessPropertyBundleID`. Ignore our own PID; optionally only prompt for known call apps (WhatsApp, Zoom, Teams, Meet, FaceTime, Slack huddles). Caveat: `IsRunning*` reflects IO *registration*, not live samples. ([Apple forums](https://developer.apple.com/forums/thread/133283))
+- Auto-**end** detection (mic goes idle) is the mirror signal. Granola notes macOS auto-end needs *admin rights* in their impl — verify whether that's inherent or a quirk of their approach before promising it.
+
+**(B) Capturing the call (both sides) — HIGH complexity, macOS 14.4+ gated.**
+- Mic-only (our current `AudioRecorder`) captures only the user's half — useless for a call. The other party's audio comes out the **output** device, so we need **system-audio capture**.
+- The modern API is **Core Audio process taps** (`CATapDescription` + `AudioHardwareCreateProcessTap` + an **aggregate device** via `AudioHardwareCreateAggregateDevice`, read with `AudioDeviceCreateIOProcIDWithBlock`). Introduced macOS 14.2, but the clean TCC path wants **≥ 14.4**. This is exactly how Granola captures locally. ([Apple: Capturing system audio with Core Audio taps](https://developer.apple.com/documentation/CoreAudio/capturing-system-audio-with-core-audio-taps), [insidegui/AudioCap](https://github.com/insidegui/AudioCap), [makeusabrew/audiotee](https://github.com/makeusabrew/audiotee))
+- **The differentiator:** Granola sends audio to a cloud transcription provider. Shhhcribble already transcribes **on-device** (FluidAudio/Parakeet) — so "record + transcribe a call, nothing leaves your Mac" is a genuinely stronger, on-brand pitch than the incumbents. This is the reason to do it.
+
+**Load-bearing constraints / gotchas (from the research — don't relitigate):**
+- **Deployment target.** We target macOS 14; taps need 14.2/14.4. Gate the *capture* feature behind `if #available(macOS 14.4, *)` (same pattern as the macOS-26 FoundationModels gating); on older OS, fall back to mic-only or hide it. Detection (A) works on 14.0.
+- **New permission + plist.** System-audio capture needs the **"Screen & System Audio Recording"** TCC grant (macOS files system audio under screen recording) **and** an `NSAudioCaptureUsageDescription` / `NSAudioUsageDescription` Info.plist string (not in the Xcode dropdown — add by hand). Requires a **signed** binary — we're now Developer ID signed, so OK. More permission friction for the user; must be disclosed.
+- **Separate capture path — do NOT touch `AudioRecorder`.** `AVAudioEngine` **cannot** be retargeted to a tap-backed aggregate device (it silently keeps reading the default input). Call capture must be its own `AudioDeviceCreateIOProcIDWithBlock` path — which is *good*, it keeps the fragile dictation `AudioRecorder` untouched.
+- **Aggregate/tap flags are trap-laden:** `stereoGlobalTapButExcludeProcesses` sets `isExclusive=true` (tap everything except listed PIDs); flipping `isExclusive` inverts the meaning. Needs a real output device as the aggregate's main sub-device + `kAudioAggregateDeviceTapAutoStartKey`. IOProc runs on the realtime audio thread — no heavy work / UI there.
+- **Privacy positioning (the big one).** Capturing system audio + the other party's voice is sensitive. Must be **opt-in, off by default**, clearly disclosed (Settings copy, README, `PrivacyInfo.xcprivacy`), and — ethically/legally — should surface a "you may need consent to record" note. It stays on-device (fits the pitch) but the *capability* alone will alarm privacy-minded users reading the public diff. Same care as the Phase B sync disclosure.
+
+**Recommended framing:** ship **(A) detection + prompt** first as a small, mostly-safe increment (it can trigger our existing mic-only dictation, or just a "start a note" action) — then tackle **(B) two-sided capture** as its own design-gated project. Verify the "admin rights for auto-end" claim and prototype the tap→FluidAudio path in a throwaway before committing.
 
 ---
 
