@@ -25,6 +25,7 @@
 		CF0000E5000000000000001A /* PromptFence.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000E4000000000000001A /* PromptFence.swift */; };
 		CF0000E7000000000000001A /* PromptFenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000E6000000000000001A /* PromptFenceTests.swift */; };
 		CF0000E9000000000000001A /* FeedbackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000E8000000000000001A /* FeedbackView.swift */; };
+		CF0000ED000000000000001A /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000EC000000000000001A /* DesignSystem.swift */; };
 		CF0000EB000000000000001A /* FeedbackReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000EA000000000000001A /* FeedbackReportTests.swift */; };
 		CF0000A1000000000000001A /* TranscriptCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000A0000000000000001A /* TranscriptCleaner.swift */; };
 		CF0000B1000000000000001A /* TranscriptSummarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000B0000000000000001A /* TranscriptSummarizer.swift */; };
@@ -75,6 +76,7 @@
 		CF0000E4000000000000001A /* PromptFence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptFence.swift; sourceTree = "<group>"; };
 		CF0000E6000000000000001A /* PromptFenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptFenceTests.swift; sourceTree = "<group>"; };
 		CF0000E8000000000000001A /* FeedbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackView.swift; sourceTree = "<group>"; };
+		CF0000EC000000000000001A /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		CF0000EA000000000000001A /* FeedbackReportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackReportTests.swift; sourceTree = "<group>"; };
 		CF0000A0000000000000001A /* TranscriptCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptCleaner.swift; sourceTree = "<group>"; };
 		CF0000B0000000000000001A /* TranscriptSummarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSummarizer.swift; sourceTree = "<group>"; };
@@ -220,6 +222,7 @@
 				CFE00003000000000000001A /* TranscriptionsWindowController.swift */,
 				CFE00004000000000000001A /* TranscriptionsView.swift */,
 				CF0000E8000000000000001A /* FeedbackView.swift */,
+				CF0000EC000000000000001A /* DesignSystem.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -378,6 +381,7 @@
 				CFE00016000000000000001A /* TranscriptPipeline.swift in Sources */,
 				CF0000E5000000000000001A /* PromptFence.swift in Sources */,
 				CF0000E9000000000000001A /* FeedbackView.swift in Sources */,
+				CF0000ED000000000000001A /* DesignSystem.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

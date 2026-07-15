@@ -58,7 +58,7 @@ struct SettingsView: View {
                         .font(.caption).foregroundColor(.secondary)
                 }
             } header: {
-                Text("Transcription Model")
+                Text("Transcription Model").font(.sectionTitle)
             } footer: {
                 Text("Models are downloaded once and cached on your Mac.\n" +
                      "Parakeet V3 (multilingual) is recommended for most users.")
@@ -80,7 +80,7 @@ struct SettingsView: View {
                     appDelegate.updateHotkey(option)
                 }
             } header: {
-                Text("Recording Shortcut")
+                Text("Recording Shortcut").font(.sectionTitle)
             } footer: {
                 Text("Tap the shortcut to start recording and tap again to stop, " +
                      "or hold it and release to transcribe — Shhhcribble picks the " +
@@ -102,7 +102,7 @@ struct SettingsView: View {
                     InlineWarning(message: reason)
                 }
             } header: {
-                Text("Options")
+                Text("Options").font(.sectionTitle)
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("On-device AI cleanup uses Apple Intelligence (macOS 26) to remove filler words and fix punctuation, capitalization and false starts. Nothing leaves your Mac.")
@@ -162,11 +162,11 @@ struct SettingsView: View {
                 // Microphone — distinguish "never asked" from "denied"
                 microphoneRow
             } header: {
-                Text("Permissions")
+                Text("Permissions").font(.sectionTitle)
             }
 
             // MARK: About
-            Section("About") {
+            Section {
                 HStack {
                     Text("Shhhcribble").fontWeight(.medium)
                     Spacer()
@@ -192,6 +192,8 @@ struct SettingsView: View {
                         .foregroundColor(.secondary.opacity(0.7))
                 }
                 .padding(.top, 2)
+            } header: {
+                Text("About").font(.sectionTitle)
             }
         }
         .formStyle(.grouped)
@@ -297,7 +299,7 @@ struct DictionarySettingsView: View {
                 }
                 Button("Add Entry…") { showingAddEntrySheet = true }
             } header: {
-                Text("Dictionary")
+                Text("Dictionary").font(.sectionTitle)
             }
 
             Section {
@@ -313,7 +315,7 @@ struct DictionarySettingsView: View {
                 }
             } header: {
                 HStack {
-                    Text("Build a word list with AI")
+                    Text("Build a word list with AI").font(.sectionTitle)
                     Spacer()
                     Button("Paste list") { showingImportSheet = true }
                         .textCase(nil)

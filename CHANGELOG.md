@@ -21,13 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Feedback tab.** A fourth rail tab in the Transcription Studio window for
-  sending a bug report or feature request. Pick a report type, fill in a short
-  form, and either open a prefilled email (`mailto:` — you review and press Send)
-  or copy the report to the clipboard. Auto-attached, editable diagnostics (app
-  version + build, macOS version, Mac model, Apple Intelligence availability,
-  selected model + hotkey) help debugging and **never** include any of your
-  transcribed text. `mailto:` is deliberate — the app ships no backend or API key,
-  so nothing leaves your machine except the email you send yourself.
+  sending feedback. Answer three short questions, then either open a prefilled
+  email — choosing **Gmail**, **Apple Mail**, or **Outlook** (Gmail/Outlook open a
+  compose window in your browser) — or **Copy** the report to the clipboard. A
+  read-only **Version** block (app version + build, macOS, Mac model, Apple
+  Intelligence availability, selected model + hotkey) is attached to help with
+  debugging and **never** includes any of your transcribed text. There's no
+  backend or API key — nothing leaves your machine except the email you send.
+- **Shared section-title design tokens.** A `DesignSystem` file is now the single
+  source of truth for section-title font and pane insets, applied across the
+  Settings, Dictionary, and Feedback panes so their titles render identically.
 
 ## [1.8.2] - 2026-07-10
 

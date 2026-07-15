@@ -1,73 +1,72 @@
 import XCTest
 @testable import Shhhcribble
 
-/// Pins the pure half of the Feedback tab — body assembly and `mailto:` encoding.
-/// The diagnostics *values* depend on the host machine, so they're not asserted
+/// Pins the pure half of the Feedback form — body assembly and `mailto:` encoding.
+/// The version-block *values* depend on the host machine, so they're not asserted
 /// here; the invariant that matters (no transcript content ever leaks) is
-/// structural: `plainText` only ever contains the fields the caller passed plus
+/// structural: `plainText` only ever contains the answers the caller passed plus
 /// the diagnostics string the caller passed.
 final class FeedbackReportTests: XCTestCase {
 
-    private func report(_ kind: FeedbackReport.Kind,
-                        _ fields: [String],
+    private func report(_ fields: [String],
                         diagnostics: String = "DIAGNOSTICS_BLOCK") -> FeedbackReport {
-        FeedbackReport(kind: kind, fields: fields, diagnostics: diagnostics)
+        FeedbackReport(fields: fields, diagnostics: diagnostics)
     }
 
-    // MARK: - Kind metadata
+    // MARK: - Metadata
 
-    func testBugSubjectAndLabels() {
-        XCTAssertEqual(FeedbackReport.Kind.bug.subject, "Shhhcribble bug report")
-        XCTAssertEqual(FeedbackReport.Kind.bug.fieldLabels,
-                       ["What happened", "What you expected", "Steps to reproduce"])
+    func testSubjectAndLabels() {
+        XCTAssertEqual(FeedbackReport.subject, "Shhhcribble feedback")
+        XCTAssertEqual(FeedbackReport.fieldLabels.count, 3)
     }
 
-    func testFeatureSubjectAndLabels() {
-        XCTAssertEqual(FeedbackReport.Kind.feature.subject, "Shhhcribble feature request")
-        XCTAssertEqual(FeedbackReport.Kind.feature.fieldLabels,
-                       ["What you'd like", "What problem it solves", "Who it's for"])
+    func testPlainTextStartsWithTitle() {
+        // A self-identifying title so a pasted copy isn't anonymous.
+        XCTAssertTrue(report(["a", "b", "c"]).plainText.hasPrefix("Shhhcribble feedback\n"))
     }
 
     // MARK: - plainText
 
     func testPlainTextContainsEachLabelAndValue() {
-        let r = report(.bug, ["it crashed", "no crash", "press hotkey"])
+        let r = report(["it crashed", "opening a file", "on AirPods"])
         let text = r.plainText
-        for label in FeedbackReport.Kind.bug.fieldLabels {
+        for label in FeedbackReport.fieldLabels {
             XCTAssertTrue(text.contains(label), "missing label \(label)")
         }
         XCTAssertTrue(text.contains("it crashed"))
-        XCTAssertTrue(text.contains("no crash"))
-        XCTAssertTrue(text.contains("press hotkey"))
-        XCTAssertTrue(text.contains("— Diagnostics —"))
+        XCTAssertTrue(text.contains("opening a file"))
+        XCTAssertTrue(text.contains("on AirPods"))
+        XCTAssertTrue(text.contains("— Version —"))
         XCTAssertTrue(text.contains("DIAGNOSTICS_BLOCK"))
     }
 
     func testPlainTextUsesEmDashForBlankFields() {
-        let r = report(.feature, ["", "  ", "designers"])
+        let r = report(["", "  ", "designers"])
         let text = r.plainText
         // Blank / whitespace-only answers render as a placeholder, not nothing.
-        XCTAssertTrue(text.contains("What you'd like:\n—"))
+        XCTAssertTrue(text.contains("\(FeedbackReport.fieldLabels[0])\n—"))
         XCTAssertTrue(text.contains("designers"))
     }
 
     func testPlainTextTrimsFieldWhitespace() {
-        let r = report(.bug, ["  spaced  ", "", ""])
-        XCTAssertTrue(r.plainText.contains("What happened:\nspaced"))
+        let r = report(["  spaced  ", "", ""])
+        XCTAssertTrue(r.plainText.contains("\(FeedbackReport.fieldLabels[0])\nspaced"))
     }
 
-    func testPlainTextTracksKind() {
-        // Switching kind changes which labels appear — a bug report never leaks
-        // feature labels and vice-versa.
-        XCTAssertTrue(report(.bug, ["a", "b", "c"]).plainText.contains("Steps to reproduce"))
-        XCTAssertFalse(report(.bug, ["a", "b", "c"]).plainText.contains("Who it's for"))
-        XCTAssertTrue(report(.feature, ["a", "b", "c"]).plainText.contains("Who it's for"))
+    func testPlainTextToleratesShortFieldArray() {
+        // Fewer than three answers still renders all three prompts (missing → —).
+        let r = report(["only one"])
+        let text = r.plainText
+        for label in FeedbackReport.fieldLabels {
+            XCTAssertTrue(text.contains(label))
+        }
+        XCTAssertTrue(text.contains("only one"))
     }
 
     // MARK: - mailtoURL
 
     func testMailtoURLBasics() throws {
-        let r = report(.bug, ["x", "y", "z"])
+        let r = report(["x", "y", "z"])
         let url = try XCTUnwrap(r.mailtoURL(to: "test@example.com"))
         XCTAssertEqual(url.scheme, "mailto")
         let str = url.absoluteString
@@ -77,14 +76,14 @@ final class FeedbackReportTests: XCTestCase {
     }
 
     func testMailtoURLEncodesSubject() throws {
-        let r = report(.bug, ["", "", ""])
+        let r = report(["", "", ""])
         let url = try XCTUnwrap(r.mailtoURL(to: "test@example.com"))
-        // "Shhhcribble bug report" — spaces must be %20, not raw or "+".
-        XCTAssertTrue(url.absoluteString.contains("Shhhcribble%20bug%20report"))
+        // "Shhhcribble feedback" — spaces must be %20, not raw or "+".
+        XCTAssertTrue(url.absoluteString.contains("Shhhcribble%20feedback"))
     }
 
     func testMailtoURLEncodesNewlinesAndSpaces() throws {
-        let r = report(.bug, ["line one", "", ""], diagnostics: "d")
+        let r = report(["line one", "", ""], diagnostics: "d")
         let url = try XCTUnwrap(r.mailtoURL(to: "test@example.com"))
         let str = url.absoluteString
         XCTAssertTrue(str.contains("%0A"), "newlines should encode to %0A")
@@ -94,7 +93,7 @@ final class FeedbackReportTests: XCTestCase {
     func testMailtoURLEncodesAmpersandInsideValue() throws {
         // A field value with reserved characters must not split the query into
         // extra parameters — `&` has to be percent-encoded inside the body.
-        let r = report(.bug, ["tom & jerry", "", ""])
+        let r = report(["tom & jerry", "", ""])
         let url = try XCTUnwrap(r.mailtoURL(to: "test@example.com"))
         let str = url.absoluteString
         XCTAssertTrue(str.contains("%26"), "ampersand should encode to %26")
@@ -102,10 +101,35 @@ final class FeedbackReportTests: XCTestCase {
         XCTAssertEqual(str.filter { $0 == "&" }.count, 1)
     }
 
+    func testGmailURLIsWebComposeWithEncodedFields() throws {
+        let r = report(["hi there", "", ""])
+        let url = try XCTUnwrap(r.composeURL(.gmail, to: "test@example.com"))
+        let str = url.absoluteString
+        XCTAssertTrue(str.hasPrefix("https://mail.google.com/mail/?view=cm&fs=1&to=test@example.com"))
+        XCTAssertTrue(str.contains("su=Shhhcribble%20feedback"))
+        XCTAssertTrue(str.contains("body="))
+        XCTAssertTrue(str.contains("hi%20there"))
+    }
+
+    func testOutlookURLIsWebCompose() throws {
+        let url = try XCTUnwrap(report(["x", "", ""]).composeURL(.outlook, to: "test@example.com"))
+        let str = url.absoluteString
+        XCTAssertTrue(str.hasPrefix("https://outlook.live.com/mail/0/deeplink/compose"))
+        XCTAssertTrue(str.contains("to=test@example.com"))
+        XCTAssertTrue(str.contains("subject=Shhhcribble%20feedback"))
+    }
+
+    func testAppleMailComposeMatchesMailto() throws {
+        // The .appleMail case and the mailtoURL convenience produce the same URL.
+        let r = report(["a", "b", "c"])
+        XCTAssertEqual(r.composeURL(.appleMail, to: "test@example.com"),
+                       r.mailtoURL(to: "test@example.com"))
+    }
+
     func testMailtoURLBodyMatchesPlainText() throws {
-        // The email body and Copy-report share one source, so decoding the body
-        // query item must reproduce plainText verbatim.
-        let r = report(.feature, ["want", "solves", "for"], diagnostics: "diag\nline")
+        // The email body and Copy share one source, so decoding the body query
+        // item must reproduce plainText verbatim.
+        let r = report(["want", "solves", "for"], diagnostics: "diag\nline")
         let url = try XCTUnwrap(r.mailtoURL(to: "test@example.com"))
         let comps = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
         let body = try XCTUnwrap(comps.queryItems?.first(where: { $0.name == "body" })?.value)
