@@ -30,12 +30,13 @@ struct TranscriptionsView: View {
     /// other two fill the pane. Settings + Dictionary moved in here from the
     /// old separate settings window.
     enum RailSection: String, CaseIterable, Identifiable {
-        case transcriptions, dictionary, feedback, settings
+        case transcriptions, dictionary, styles, feedback, settings
         var id: String { rawValue }
         var label: String {
             switch self {
             case .transcriptions: return "Transcriptions"
             case .dictionary:     return "Dictionary"
+            case .styles:         return "Styles"
             case .feedback:       return "Feedback"
             case .settings:       return "Settings"
             }
@@ -44,6 +45,7 @@ struct TranscriptionsView: View {
             switch self {
             case .transcriptions: return "text.bubble"
             case .dictionary:     return "character.book.closed"
+            case .styles:         return "wand.and.stars"
             case .feedback:       return "exclamationmark.bubble"
             case .settings:       return "gearshape"
             }
@@ -60,6 +62,7 @@ struct TranscriptionsView: View {
             switch section ?? .transcriptions {
             case .transcriptions: transcriptionsPane
             case .dictionary:     dictionaryPane
+            case .styles:         stylesPane
             case .feedback:       feedbackPane
             case .settings:       settingsPane
             }
@@ -89,6 +92,7 @@ struct TranscriptionsView: View {
         VStack(alignment: .leading, spacing: 2) {
             railTab(.transcriptions)
             railTab(.dictionary)
+            railTab(.styles)
 
             Spacer(minLength: 0)
 
@@ -264,6 +268,12 @@ struct TranscriptionsView: View {
     private var dictionaryPane: some View {
         DictionarySettingsView(store: store)
             .frame(maxWidth: 620, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var stylesPane: some View {
+        StylesView(store: store)
+            .frame(maxWidth: 620, alignment: .topLeading)   // match the Dictionary pane width
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 

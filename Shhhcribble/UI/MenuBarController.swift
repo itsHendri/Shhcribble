@@ -8,6 +8,11 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerDidRequestRepaste(_ controller: MenuBarController, text: String)
     func menuBarControllerDidRequestTranscribeFile(_ controller: MenuBarController)
     func menuBarControllerDidRequestOpenTranscriptions(_ controller: MenuBarController)
+    /// The stored transform styles + which id is currently active — used to build
+    /// the right-click "Style" submenu on demand.
+    func menuBarControllerStyleMenu(_ controller: MenuBarController) -> (activeID: String, styles: [Style])
+    /// The user picked a style (or Off / Default clean-up) from the submenu.
+    func menuBarController(_ controller: MenuBarController, didSelectStyleID id: String)
 }
 
 /// Owns the NSStatusItem (menu-bar icon). **Left-click** opens the main
@@ -60,6 +65,10 @@ final class MenuBarController: NSObject {
         upload.target = self
         menu.addItem(upload)
 
+        if let styleItem = makeStyleMenuItem() {
+            menu.addItem(styleItem)
+        }
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "Quit Shhhcribble",
@@ -72,6 +81,34 @@ final class MenuBarController: NSObject {
         menu.popUp(positioning: nil,
                    at: NSPoint(x: 0, y: button.bounds.height + 4),
                    in: button)
+    }
+
+    /// Build the "Style ▸" submenu (Off / Default clean-up / each stored style,
+    /// checkmark on the active one). Returns nil if the delegate is gone.
+    private func makeStyleMenuItem() -> NSMenuItem? {
+        guard let (activeID, styles) = delegate?.menuBarControllerStyleMenu(self) else { return nil }
+
+        let submenu = NSMenu()
+        func add(_ title: String, _ id: String) {
+            let item = NSMenuItem(title: title, action: #selector(styleSelected(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = id
+            item.state = (id == activeID) ? .on : .off
+            submenu.addItem(item)
+        }
+        add("Off — no cleanup", ActiveStyle.offID)
+        add("Default clean-up", ActiveStyle.defaultCleanupID)
+        if !styles.isEmpty { submenu.addItem(.separator()) }
+        for style in styles { add(style.name, style.id.uuidString) }
+
+        let item = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func styleSelected(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        delegate?.menuBarController(self, didSelectStyleID: id)
     }
 
     @objc private func uploadAudioClicked() {
