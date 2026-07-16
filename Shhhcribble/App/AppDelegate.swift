@@ -100,6 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         audioRecorder       = AudioRecorder()
         textInserter        = TextInserter()
 
+        // Map the retired cleanup toggle onto the new active-style selection
+        // (one-shot). Must run before anything reads ModelManager.activeStyleID.
+        ModelManager.migrateCleanupToStyleIfNeeded()
+
         // Storage + file-transcription coordinator. The store migrates the
         // legacy UserDefaults history on first launch. The coordinator shares
         // the loaded AsrManager with dictation *serially* — it only runs while
@@ -140,9 +144,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await transcriptionEngine.loadModel(variant: ModelManager.selectedModel)
         }
 
-        // Warm the on-device cleanup model so the first cleanup doesn't pay cold
-        // start. No-op when the feature is off or the model is unavailable.
-        if ModelManager.transcriptCleanupEnabled {
+        // Warm the on-device model so the first dictation doesn't pay cold start.
+        // Warm whenever the active style is anything but Off (Default clean-up or a
+        // transform both use TranscriptCleaner's session). No-op when the model is
+        // unavailable.
+        if ModelManager.activeStyleID != ActiveStyle.offID {
             TranscriptCleaner.prewarm()
         }
 
@@ -364,6 +370,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopEscapeMonitor()
         menuBarController.setRecordingIndicator(active: false)
 
+        // Resolve the active style NOW, from the app that was frontmost while the
+        // user spoke (per-app auto-selection); a mapped app overrides the default
+        // selection. Captured before the awaits below so it reflects the dictation
+        // context, not wherever focus drifts during transcription. (Edge case: if
+        // the user starts in one app and finishes/pastes in another, the record-
+        // time app decides the style — accepted for v1.)
+        let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let activeStyle = StyleResolver.resolve(
+            frontmostBundleID: frontmostBundleID,
+            activeStyleID: ModelManager.activeStyleID,
+            styles: transcriptStore.styles
+        )
+
         // Fire the scribble sound the instant the user releases / second-taps,
         // before transcription runs. Gives immediate audible confirmation
         // even when the recording transcribes to nothing (empty speech,
@@ -414,12 +433,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let text = try await transcriptionEngine.transcribe(audioSamples: samples)
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             rawTranscript = trimmed
-            // Shared pipeline: dictionary → AI cleanup (if enabled + available)
-            // or FillerWordFilter. See TranscriptPipeline; the file path uses
-            // the exact same call so the two can't drift. Snapshot the dictionary
-            // on the main actor here — the pipeline is nonisolated / runs off-main.
+            // Shared pipeline: dictionary → styled AI cleanup/transform (per the
+            // resolved active style) or the FillerWordFilter floor. See
+            // TranscriptPipeline. Snapshot the dictionary on the main actor here —
+            // the pipeline is nonisolated / runs off-main (style resolved above).
             let dictionary = transcriptStore.dictionaryEntries
-            let result = await TranscriptPipeline.process(trimmed, dictionary: dictionary)
+            let result = await TranscriptPipeline.process(trimmed, dictionary: dictionary, style: activeStyle)
             textToInsert = result.isEmpty ? nil : result
         } catch {
             print("[Shhhcribble] ❌ Transcription error: \(error.localizedDescription)")
@@ -673,6 +692,17 @@ extension AppDelegate: MenuBarControllerDelegate {
 
     func menuBarControllerDidRequestOpenTranscriptions(_ controller: MenuBarController) {
         showTranscriptionsWindow(activate: true)
+    }
+
+    func menuBarControllerStyleMenu(_ controller: MenuBarController) -> (activeID: String, styles: [Style]) {
+        (ModelManager.activeStyleID, transcriptStore.styles)
+    }
+
+    func menuBarController(_ controller: MenuBarController, didSelectStyleID id: String) {
+        // Setter posts activeStyleDidChangeNotification, keeping the window's
+        // Styles picker in sync. Prewarm the model unless the user chose Off.
+        ModelManager.activeStyleID = id
+        if id != ActiveStyle.offID { TranscriptCleaner.prewarm() }
     }
 
     func menuBarControllerDidRequestRepaste(_ controller: MenuBarController, text: String) {

@@ -124,12 +124,14 @@ final class FileTranscriber: ObservableObject {
             }
 
             let raw = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Identical pipeline to dictation (dictionary → cleanup|filler),
-            // respecting transcriptCleanupEnabled with no length cap. Snapshot the
-            // dictionary on the main actor (this method is @MainActor) before the
-            // await hops the nonisolated pipeline off-main.
+            // Same pipeline as dictation (dictionary → cleanup|filler), no length
+            // cap. File transcription always uses the faithful Default clean-up —
+            // per-app auto and transform styles are a dictation concern (a long
+            // recording shouldn't be reshaped into a Slack message, and there's no
+            // frontmost/paste context). Snapshot the dictionary on the main actor
+            // (this method is @MainActor) before the off-main pipeline await.
             let dictionary = store.dictionaryEntries
-            let final = await TranscriptPipeline.process(raw, dictionary: dictionary)
+            let final = await TranscriptPipeline.process(raw, dictionary: dictionary, style: .defaultCleanup)
 
             guard !final.isEmpty else {
                 status = .failed(fileName: name, message: "No speech detected")
