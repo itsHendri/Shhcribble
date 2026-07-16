@@ -21,17 +21,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Custom Styles.** A new **Styles** tab lets you pick how dictation comes out —
-  the on/off "clean up with AI" toggle is now a style selector: **Off** (basic
-  filler removal), **Default clean-up** (the faithful cleanup, unchanged and still
-  the default), or a **transform style** that reshapes your words for where
-  they're going. Ships editable presets — **Email**, **Slack / Chat message**,
-  **Code / vibe-coding**, **Bullet notes** — and you can add your own (a name + a
+  the on/off "clean up with AI" toggle is now a style selector: **Default** (the
+  faithful cleanup, always the baseline) or a **transform style** that reshapes
+  your words for where they're going. Ships editable presets — **Email**,
+  **Message**, **Coding**, **Bullets** — and you can add your own (a name + a
   plain-language instruction) or **import a `SKILL.md`** file as the instruction.
-  Set which apps a style should auto-activate in (dictate into Mail → Email, into
-  Slack → chat), and switch the active style from the menu-bar right-click menu.
-  Styles run entirely on-device (Apple Intelligence, macOS 26); without it,
-  dictation falls back to basic cleanup. File transcriptions always use Default
-  clean-up. Everything is on-device — nothing leaves your Mac.
+  Styles auto-activate by app **when you're typing in a text field** there
+  (dictate into Mail → Email, into a chat box → Message), with a master toggle to
+  turn that off; you can also switch the active style from the menu-bar right-click
+  menu. Each dictation is tagged in the library with the style that shaped it.
+  Styles and their picker are listed alphabetically. Everything runs on-device
+  (Apple Intelligence, macOS 26); without it, dictation falls back to basic
+  cleanup. File transcriptions always use Default. Nothing leaves your Mac.
+
+### Fixed
+- **Copy/paste keyboard shortcuts now work in the app's windows.** As a menu-bar-
+  only app Shhhcribble shipped without a menu bar, so ⌘C/⌘V/⌘X/⌘A/⌘Z had nothing
+  to route through — selecting transcript text and pressing ⌘C did nothing, and
+  the style editor wouldn't accept a paste. Added the standard Edit menu.
 - **Feedback tab.** A fourth rail tab in the Transcription Studio window for
   sending feedback. Answer three short questions, then either open a prefilled
   email — choosing **Gmail**, **Apple Mail**, or **Outlook** (Gmail/Outlook open a
