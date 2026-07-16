@@ -13,6 +13,9 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerStyleMenu(_ controller: MenuBarController) -> (activeID: String, styles: [Style])
     /// The user picked a style (or Off / Default clean-up) from the submenu.
     func menuBarController(_ controller: MenuBarController, didSelectStyleID id: String)
+    /// Whether the Sparkle updater is available — gates the "Check for Updates…"
+    /// item so it's hidden when Sparkle isn't attached to the build.
+    func menuBarControllerUpdaterAvailable(_ controller: MenuBarController) -> Bool
 }
 
 /// Owns the NSStatusItem (menu-bar icon). **Left-click** opens the main
@@ -71,6 +74,13 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
+        if delegate?.menuBarControllerUpdaterAvailable(self) == true {
+            let updates = NSMenuItem(title: "Check for Updates…",
+                                     action: #selector(checkForUpdatesClicked), keyEquivalent: "")
+            updates.target = self
+            menu.addItem(updates)
+        }
+
         let quit = NSMenuItem(title: "Quit Shhhcribble",
                               action: #selector(quitClicked), keyEquivalent: "")
         quit.target = self
@@ -108,6 +118,10 @@ final class MenuBarController: NSObject {
     @objc private func styleSelected(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         delegate?.menuBarController(self, didSelectStyleID: id)
+    }
+
+    @objc private func checkForUpdatesClicked() {
+        delegate?.menuBarControllerDidRequestCheckForUpdates(self)
     }
 
     @objc private func uploadAudioClicked() {

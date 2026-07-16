@@ -780,6 +780,10 @@ extension AppDelegate: MenuBarControllerDelegate {
         checkForUpdates()
     }
 
+    func menuBarControllerUpdaterAvailable(_ controller: MenuBarController) -> Bool {
+        updaterAvailable
+    }
+
     func menuBarControllerDidRequestQuit(_ controller: MenuBarController) {
         NSApp.terminate(nil)
     }

@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **"Check for Updates…" in the menu-bar right-click menu**, alongside Upload
+  Audio and Quit (shown when the Sparkle updater is available), so you can trigger
+  an update check without opening Settings.
+
 ## [1.9.0] - 2026-07-16
 
 ### Added
