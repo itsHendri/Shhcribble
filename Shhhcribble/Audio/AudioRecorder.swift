@@ -110,8 +110,38 @@ final class AudioRecorder {
     /// Stop recording and return the captured samples.
     func stop() -> [Float] {
         let captured = samples
+        logCaptureDiagnostics(captured)
         tearDown()
         return captured
+    }
+
+    /// Log-only diagnostic (no behavior change) for the cold-AirPods "No speech
+    /// detected" investigation. Records how much audio we captured and — crucially
+    /// — the signal level of the FIRST second vs the OVERALL take. The theory: on a
+    /// cold Bluetooth route the mic reports "ready" (1 ch) instantly but delivers
+    /// silence for the first ~0.5–1 s of the HFP switch, so a quick tap records a
+    /// dead front window. If a failing cold start logs `first-1s rms ≈ 0` while
+    /// `overall rms > 0` (or the whole take is ≈0 on a short tap), that's the proof.
+    private func logCaptureDiagnostics(_ s: [Float]) {
+        let total = s.count
+        let seconds = Double(total) / targetSampleRate
+        let (firstPeak, firstRMS) = Self.peakRMS(s.prefix(Int(targetSampleRate)))
+        let (allPeak, allRMS) = Self.peakRMS(s)
+        // Audio levels only (no content) — mark public so they aren't redacted to
+        // <private> in the unified log.
+        Self.log.notice("Capture: \(total) samples (\(seconds, format: .fixed(precision: 2), privacy: .public)s) — first-1s peak \(Double(firstPeak), format: .fixed(precision: 4), privacy: .public) rms \(Double(firstRMS), format: .fixed(precision: 4), privacy: .public); overall peak \(Double(allPeak), format: .fixed(precision: 4), privacy: .public) rms \(Double(allRMS), format: .fixed(precision: 4), privacy: .public)")
+    }
+
+    private static func peakRMS<C: Collection>(_ s: C) -> (peak: Float, rms: Float) where C.Element == Float {
+        guard !s.isEmpty else { return (0, 0) }
+        var peak: Float = 0
+        var sumSq: Float = 0
+        for x in s {
+            let a = abs(x)
+            if a > peak { peak = a }
+            sumSq += x * x
+        }
+        return (peak, (sumSq / Float(s.count)).squareRoot())
     }
 
     /// Non-destructive snapshot of samples captured so far (for live transcription).
