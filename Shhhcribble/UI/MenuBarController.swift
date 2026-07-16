@@ -96,8 +96,7 @@ final class MenuBarController: NSObject {
             item.state = (id == activeID) ? .on : .off
             submenu.addItem(item)
         }
-        add("Off — no cleanup", ActiveStyle.offID)
-        add("Default clean-up", ActiveStyle.defaultCleanupID)
+        add("Default", ActiveStyle.defaultCleanupID)
         if !styles.isEmpty { submenu.addItem(.separator()) }
         for style in styles { add(style.name, style.id.uuidString) }
 

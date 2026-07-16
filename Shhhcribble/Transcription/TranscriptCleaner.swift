@@ -174,10 +174,12 @@ enum TranscriptCleaner {
                     Self.log.notice("Style transform returned empty in \(ms) ms — falling back to FillerWordFilter")
                     return nil
                 }
-                // Coarse anti-fabrication net (empty / runaway expansion). The
-                // fence + preamble handle injection; this catches the rest.
-                guard StyleGuard.isPlausibleTransform(input: text, output: styled) else {
-                    Self.log.error("Style transform rejected by guard in \(ms) ms (runaway/empty) — falling back to FillerWordFilter")
+                // Coarse anti-fabrication net (empty / runaway expansion / total
+                // collapse). The fence + preamble handle injection; this catches
+                // the rest. Log the specific reason so we can calibrate the floor.
+                let verdict = StyleGuard.evaluate(input: text, output: styled)
+                guard verdict == .ok else {
+                    Self.log.error("Style transform rejected by guard in \(ms) ms (\(String(describing: verdict), privacy: .public)) — falling back to FillerWordFilter")
                     return nil
                 }
                 Self.log.notice("Style transform succeeded in \(ms) ms")

@@ -473,6 +473,9 @@ private struct TranscriptDetail: View {
                     Image(systemName: transcript.source == .file ? "waveform" : "mic")
                         .foregroundStyle(transcript.source == .file ? Color.accentColor : Color.secondary)
                     Text(transcript.menuTitle).font(.headline).lineLimit(1)
+                    if let style = currentStyleName, !style.isEmpty {
+                        styleTag(style)
+                    }
                 }
                 Text(metaLine).font(.caption).foregroundStyle(.secondary)
             }
@@ -492,6 +495,28 @@ private struct TranscriptDetail: View {
             .buttonStyle(.borderless)
         }
         .padding(12)
+    }
+
+    /// The style label to show on this transcript: the style's *current* name
+    /// (looked up live by id, so a rename propagates to old tags), falling back to
+    /// the snapshot name if the style was since deleted.
+    private var currentStyleName: String? {
+        if let id = transcript.styleID, let s = store.styles.first(where: { $0.id.uuidString == id }) {
+            return s.name
+        }
+        return transcript.styleName
+    }
+
+    /// Small capsule showing the transform style a dictation was shaped with.
+    /// Only rendered for real styles (Default clean-up / Off / file leave it nil).
+    private func styleTag(_ name: String) -> some View {
+        Text(name)
+            .font(.caption2).fontWeight(.semibold)
+            .lineLimit(1)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(0.08)))
+            .foregroundStyle(.secondary)
+            .fixedSize()
     }
 
     private var transcriptBody: some View {

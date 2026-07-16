@@ -37,6 +37,14 @@ struct Transcript: Identifiable, Equatable {
     /// Empty string = no notes. Independent of `summary` (AI) and `rawText`.
     var notes: String = ""
 
+    /// The transform style that shaped this dictation. `styleID` is the live link
+    /// (the UI shows the style's *current* name, so a rename propagates to old
+    /// tags); `styleName` is a snapshot fallback for when the style is later
+    /// deleted. Both `nil` for Default clean-up / Off / file transcripts — so a
+    /// tag shows only when a real style was applied.
+    var styleName: String? = nil
+    var styleID: String? = nil
+
     /// Menu / list title, truncated for one-line display.
     var menuTitle: String {
         let base = title.isEmpty ? text : title
@@ -67,11 +75,17 @@ final class TranscriptStore: ObservableObject {
     /// pass it into the off-main `TranscriptPipeline`; Settings binds to it live.
     @Published private(set) var dictionaryEntries: [DictionaryEntry] = []
 
-    /// User/seeded transform styles, in display order (position ascending). The
-    /// Styles UI binds to this live; the dictation path snapshots it to resolve
-    /// the active/per-app style. The synthetic Off + Default clean-up entries are
-    /// NOT in here (see `ActiveStyle`).
+    /// User/seeded transform styles. The Styles UI binds to this live; the
+    /// dictation path snapshots it to resolve the active/per-app style. The
+    /// synthetic Off + Default clean-up entries are NOT in here (see `ActiveStyle`).
     @Published private(set) var styles: [Style] = []
+
+    /// Styles in case-insensitive alphabetical order — the display order for the
+    /// picker, the Styles list, and the menu-bar quick-pick. (Ordering is purely a
+    /// display choice; the stored array is unordered as far as the UI is concerned.)
+    var stylesAlphabetical: [Style] {
+        styles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
 
     private var db: OpaquePointer?
     private let log = Logger(subsystem: "com.shhhcribble.app", category: "store")
@@ -99,6 +113,7 @@ final class TranscriptStore: ObservableObject {
         store.migrateLegacyDictionaryIfNeeded()
         store.seedExampleDictionaryIfNeeded()
         store.seedBuiltInStylesIfNeeded()
+        store.refreshBuiltInStylePromptsIfNeeded()
         return store
     }
 
@@ -125,12 +140,14 @@ final class TranscriptStore: ObservableObject {
     /// Convenience for the dictation path: build a `.dictation` transcript from
     /// cleaned + raw text and store it. Returns the stored record.
     @discardableResult
-    func addDictation(text: String, rawText: String, date: Date = Date()) -> Transcript {
-        let t = Transcript(
+    func addDictation(text: String, rawText: String, styleName: String? = nil, styleID: String? = nil, date: Date = Date()) -> Transcript {
+        var t = Transcript(
             id: UUID(), createdAt: date, source: .dictation,
             title: Self.title(from: text), text: text, rawText: rawText,
             fileName: nil, sourcePath: nil, durationSec: nil
         )
+        t.styleName = styleName
+        t.styleID = styleID
         add(t)
         return t
     }
@@ -374,6 +391,34 @@ final class TranscriptStore: ObservableObject {
         log.notice("Seeded \(Style.seededPresets.count) built-in styles.")
     }
 
+    private static let stylesPromptRefreshFlagKey = "didRefreshBuiltInStylePromptsV2"
+
+    /// One-shot: upgrade the *prompt text* of the built-in preset styles to the
+    /// current `Style.seededPresets` bodies (matched by name), in place. Lets an
+    /// existing install pick up improved preset prompts without re-seeding or
+    /// disturbing positions, activation apps, or the user's own custom styles
+    /// (only `isBuiltIn` rows are touched). Runs once (flag); a fresh seed already
+    /// has the latest text, so this is then a no-op.
+    func refreshBuiltInStylePromptsIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.stylesPromptRefreshFlagKey) else { return }
+        guard db != nil else { return }
+        defer { defaults.set(true, forKey: Self.stylesPromptRefreshFlagKey) }
+
+        let byName = Dictionary(uniqueKeysWithValues: Style.seededPresets.map { ($0.name, $0.prompt) })
+        var updated = 0
+        for (idx, style) in styles.enumerated() where style.isBuiltIn {
+            guard let prompt = byName[style.name], prompt != style.prompt else { continue }
+            exec("UPDATE styles SET prompt = ? WHERE id = ?;") { stmt in
+                sqlite3_bind_text(stmt, 1, prompt, -1, Self.SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 2, style.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            }
+            styles[idx].prompt = prompt
+            updated += 1
+        }
+        if updated > 0 { log.notice("Refreshed \(updated) built-in style prompts.") }
+    }
+
     /// Case-insensitive substring match over title + text, newest first.
     /// Empty query returns everything (already newest-first in `transcripts`).
     func matching(_ query: String) -> [Transcript] {
@@ -587,6 +632,26 @@ final class TranscriptStore: ObservableObject {
             log.notice("Migrated schema to v4 (styles table).")
             version = 4
         }
+
+        if version < 5 {
+            guard addColumns([("styleName", "TEXT")]) else {
+                log.error("Schema v5 migration incomplete; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            exec("PRAGMA user_version = 5;", bind: nil)
+            log.notice("Migrated schema to v5 (styleName column).")
+            version = 5
+        }
+
+        if version < 6 {
+            guard addColumns([("styleID", "TEXT")]) else {
+                log.error("Schema v6 migration incomplete; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            exec("PRAGMA user_version = 6;", bind: nil)
+            log.notice("Migrated schema to v6 (styleID column).")
+            version = 6
+        }
     }
 
     /// Add each column to `transcripts` only if it's missing (idempotent, so a
@@ -625,8 +690,8 @@ final class TranscriptStore: ObservableObject {
     private func insert(_ t: Transcript) -> Bool {
         exec("""
         INSERT OR REPLACE INTO transcripts
-        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """) { stmt in
             sqlite3_bind_text(stmt, 1, t.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, t.createdAt.timeIntervalSince1970)
@@ -641,13 +706,15 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalText(stmt, 11, Self.encodeActionItems(t.actionItems))
             if let g = t.summaryGeneratedAt { sqlite3_bind_double(stmt, 12, g.timeIntervalSince1970) } else { sqlite3_bind_null(stmt, 12) }
             self.bindOptionalText(stmt, 13, t.notes.isEmpty ? nil : t.notes)
+            self.bindOptionalText(stmt, 14, t.styleName)
+            self.bindOptionalText(stmt, 15, t.styleID)
         }
     }
 
     private func reload() {
         var rows: [Transcript] = []
         forEachRow("""
-        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes
+        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID
         FROM transcripts ORDER BY createdAt DESC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
@@ -668,7 +735,9 @@ final class TranscriptStore: ObservableObject {
                 summary: Self.columnText(stmt, 9),
                 actionItems: Self.decodeActionItems(Self.columnText(stmt, 10)),
                 summaryGeneratedAt: generatedAt,
-                notes: Self.columnText(stmt, 12) ?? ""
+                notes: Self.columnText(stmt, 12) ?? "",
+                styleName: Self.columnText(stmt, 13),
+                styleID: Self.columnText(stmt, 14)
             ))
         }
         transcripts = rows

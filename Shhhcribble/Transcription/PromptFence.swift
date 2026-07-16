@@ -149,21 +149,38 @@ enum StyleGuard {
     /// Below this many input content words, the coverage ratio is too noisy.
     private static let minWordsForCoverage = 4
 
+    /// Why a transform was rejected (or `.ok`). Carries the numbers so the caller
+    /// can log exactly which invariant tripped — invaluable for calibrating the
+    /// coverage floor against real dictations.
+    enum Result: Equatable {
+        case ok
+        case empty
+        case runaway(outWords: Int, ceiling: Int)
+        case lowCoverage(retained: Int, total: Int)
+    }
+
     static func isPlausibleTransform(input: String, output: String) -> Bool {
+        evaluate(input: input, output: output) == .ok
+    }
+
+    static func evaluate(input: String, output: String) -> Result {
         let out = words(output)
-        guard !out.isEmpty else { return false }
+        guard !out.isEmpty else { return .empty }
 
         // Runaway expansion → fabrication, not formatting.
         let ceiling = max(minCeilingWords, words(input).count * maxExpansionFactor)
-        guard out.count <= ceiling else { return false }
+        guard out.count <= ceiling else { return .runaway(outWords: out.count, ceiling: ceiling) }
 
         // Total-collapse defense: most of the speaker's material must still be
         // recognizable in the output. Skipped for very short inputs.
         let inWords = contentWords(input)
-        guard inWords.count >= minWordsForCoverage else { return true }
+        guard inWords.count >= minWordsForCoverage else { return .ok }
         let outWords = contentWords(output)
         let retained = inWords.filter { outWords.contains($0) }.count
-        return Double(retained) / Double(inWords.count) >= minCoverage
+        guard Double(retained) / Double(inWords.count) >= minCoverage else {
+            return .lowCoverage(retained: retained, total: inWords.count)
+        }
+        return .ok
     }
 
     private static func words(_ s: String) -> [String] {

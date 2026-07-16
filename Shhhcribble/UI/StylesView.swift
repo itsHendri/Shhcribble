@@ -11,6 +11,7 @@ struct StylesView: View {
     @ObservedObject var store: TranscriptStore
 
     @State private var activeStyleID: String = ModelManager.activeStyleID
+    @State private var appActivationEnabled: Bool = ModelManager.styleAppActivationEnabled
     @State private var showingAddSheet = false
     @State private var editingStyle: Style? = nil
     @State private var deletingStyle: Style? = nil
@@ -18,12 +19,24 @@ struct StylesView: View {
 
     var body: some View {
         Form {
-            // MARK: Active style
+            // MARK: Styles — the master auto-activate switch on its own line.
+            Section {
+                Toggle("Auto-activate styles by app", isOn: $appActivationEnabled)
+                    .onChange(of: appActivationEnabled) { _, newValue in
+                        ModelManager.styleAppActivationEnabled = newValue
+                    }
+            } header: {
+                Text("Styles").font(.sectionTitle)
+            } footer: {
+                Text("When on, a style with apps set below auto-activates while you're typing in one of those apps. Turn it off to always use the style you pick here.")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+
+            // MARK: Active-style picker (Default + your styles).
             Section {
                 Picker("Active style", selection: $activeStyleID) {
-                    Text("Off — no cleanup").tag(ActiveStyle.offID)
-                    Text("Default clean-up").tag(ActiveStyle.defaultCleanupID)
-                    ForEach(store.styles) { style in
+                    Text("Default").tag(ActiveStyle.defaultCleanupID)
+                    ForEach(store.stylesAlphabetical) { style in
                         Text(style.name).tag(style.id.uuidString)
                     }
                 }
@@ -32,16 +45,14 @@ struct StylesView: View {
                 .onChange(of: activeStyleID) { _, newValue in
                     guard newValue != ModelManager.activeStyleID else { return }
                     ModelManager.activeStyleID = newValue
-                    if newValue != ActiveStyle.offID { TranscriptCleaner.prewarm() }
+                    TranscriptCleaner.prewarm()
                 }
 
                 if case .unavailable(let reason) = TranscriptCleaner.availability {
                     InlineWarning(message: "\(reason) Until then, dictation uses basic filler-word removal.")
                 }
-            } header: {
-                Text("Active style").font(.sectionTitle)
             } footer: {
-                Text("The active style shapes new dictations. A style with apps set below auto-activates when one of those apps is frontmost. File transcriptions always use Default clean-up.")
+                Text("Shapes new dictations. File transcriptions always use Default clean-up.")
                     .font(.caption).foregroundColor(.secondary)
             }
 
@@ -51,8 +62,8 @@ struct StylesView: View {
                     Text("No styles yet — add one or import a SKILL.md.")
                         .font(.caption).foregroundColor(.secondary)
                 }
-                ForEach(Array(store.styles.enumerated()), id: \.element.id) { index, style in
-                    styleRow(style: style, index: index)
+                ForEach(store.stylesAlphabetical) { style in
+                    styleRow(style: style)
                 }
                 HStack(spacing: 12) {
                     Button("Add Style…") { showingAddSheet = true }
@@ -67,10 +78,12 @@ struct StylesView: View {
         }
         .formStyle(.grouped)
         // Re-sync when the window (re)appears and whenever the menu-bar quick-pick
-        // changes the active style, so picker + menu never disagree.
-        .onAppear { activeStyleID = ModelManager.activeStyleID }
+        // changes the active style, so picker + menu never disagree. Coerce a
+        // stale "off" selection (from before Off was removed) to Default clean-up
+        // so the picker always has a valid selection.
+        .onAppear { activeStyleID = coerced(ModelManager.activeStyleID) }
         .onReceive(NotificationCenter.default.publisher(for: ModelManager.activeStyleDidChangeNotification)) { _ in
-            activeStyleID = ModelManager.activeStyleID
+            activeStyleID = coerced(ModelManager.activeStyleID)
         }
         .alert("Delete this style?", isPresented: Binding(
             get: { deletingStyle != nil },
@@ -108,7 +121,7 @@ struct StylesView: View {
     }
 
     @ViewBuilder
-    private func styleRow(style: Style, index: Int) -> some View {
+    private func styleRow(style: Style) -> some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(style.name)
@@ -120,18 +133,6 @@ struct StylesView: View {
                 }
             }
             Spacer(minLength: 8)
-            Button { store.moveStyle(at: index, by: -1) } label: {
-                Image(systemName: "chevron.up")
-            }
-            .buttonStyle(.borderless)
-            .disabled(index == 0)
-            .help("Move up")
-            Button { store.moveStyle(at: index, by: 1) } label: {
-                Image(systemName: "chevron.down")
-            }
-            .buttonStyle(.borderless)
-            .disabled(index == store.styles.count - 1)
-            .help("Move down")
             Button { editingStyle = style } label: {
                 Image(systemName: "pencil")
             }
@@ -150,6 +151,18 @@ struct StylesView: View {
         let names = bundleIDs.prefix(3).map { StyleAppInfo.displayName($0) }
         let suffix = bundleIDs.count > 3 ? " +\(bundleIDs.count - 3)" : ""
         return "Activates in " + names.joined(separator: ", ") + suffix
+    }
+
+    /// Map a stored active-style id to a picker-valid one. Anything that isn't
+    /// Default or a currently-existing style (a lingering "off", or a deleted
+    /// style's id) resolves to Default, persisted so the picker never shows a
+    /// blank selection and dictation never silently runs unstyled.
+    private func coerced(_ id: String) -> String {
+        if id == ActiveStyle.defaultCleanupID || store.styles.contains(where: { $0.id.uuidString == id }) {
+            return id
+        }
+        ModelManager.activeStyleID = ActiveStyle.defaultCleanupID
+        return ActiveStyle.defaultCleanupID
     }
 
     /// Delete a style; if it was the active selection, fall back to Default

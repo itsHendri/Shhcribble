@@ -250,7 +250,7 @@ final class TranscriptStoreTests: XCTestCase {
 
     /// Latest schema version — bumped as migrations are added (v1 summary, v2
     /// notes, v3 dictionary_entries table).
-    private let latestSchemaVersion: Int32 = 4
+    private let latestSchemaVersion: Int32 = 6
 
     func testMigrationAddsColumnsToOldSchemaAndKeepsRows() throws {
         let path = tempDBPath()
@@ -452,6 +452,21 @@ final class TranscriptStoreTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: dictMigrationFlag)
         store.migrateLegacyDictionaryIfNeeded()
         XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["a", "b"])   // no dupes
+    }
+
+    func testStyleNamePersistsAcrossReload() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let store = TranscriptStore(path: path)
+            store.addDictation(text: "hi there", rawText: "hi there", styleName: "Bullet notes")
+            store.addDictation(text: "plain one", rawText: "plain one")   // no style
+            XCTAssertEqual(store.transcripts.first?.styleName, nil)        // newest first
+            XCTAssertEqual(store.transcripts.last?.styleName, "Bullet notes")
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.transcripts.first?.styleName, nil)
+        XCTAssertEqual(reopened.transcripts.last?.styleName, "Bullet notes")
     }
 
     // MARK: - Styles

@@ -93,6 +93,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("[Shhhcribble] App launched.")
 
+        // As an LSUIElement app we ship no menu bar, so macOS has no Edit menu to
+        // route Cut/Copy/Paste/Select-All/Undo through — which silently breaks
+        // ⌘C/⌘V/⌘A/⌘Z in every text field and the transcript reader. Install a
+        // minimal main menu with a standard Edit menu; the items target the first
+        // responder (nil target) so they reach whatever text view is focused.
+        installMainMenu()
+
         let axTrusted = requestAccessibilityPermission()
         print("[Shhhcribble] AXIsProcessTrusted = \(axTrusted)")
 
@@ -109,6 +116,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the loaded AsrManager with dictation *serially* — it only runs while
         // no recording is active (and dictation is blocked while it runs).
         transcriptStore = TranscriptStore.makeDefault()
+
+        // The user must always have a valid, selectable active style. If the
+        // stored id points at a deleted style (or the retired "off"), reset to
+        // Default so the picker never shows a blank selection and dictation never
+        // silently runs unstyled.
+        let validStyleIDs = Set(transcriptStore.styles.map { $0.id.uuidString } + [ActiveStyle.defaultCleanupID])
+        if !validStyleIDs.contains(ModelManager.activeStyleID) {
+            ModelManager.activeStyleID = ActiveStyle.defaultCleanupID
+        }
+
         fileTranscriber = FileTranscriber(
             engine: transcriptionEngine,
             store: transcriptStore,
@@ -375,8 +392,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // selection. Captured before the awaits below so it reflects the dictation
         // context, not wherever focus drifts during transcription. (Edge case: if
         // the user starts in one app and finishes/pastes in another, the record-
-        // time app decides the style — accepted for v1.)
-        let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        // time app decides the style — accepted for v1.) A nil bundle ID disables
+        // the per-app pass in the resolver — which is how the master switch works.
+        // Only auto-activate a per-app style when the user is actually typing into
+        // an editable field in the frontmost app — not merely because that app is
+        // frontmost (e.g. reading Mail without a compose window open should not
+        // force the Email style). Gated on the master switch too.
+        let frontmostBundleID = (ModelManager.styleAppActivationEnabled && frontmostFocusIsEditable())
+            ? NSWorkspace.shared.frontmostApplication?.bundleIdentifier : nil
         let activeStyle = StyleResolver.resolve(
             frontmostBundleID: frontmostBundleID,
             activeStyleID: ModelManager.activeStyleID,
@@ -446,9 +469,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let text = textToInsert {
-            // Persist to the store (raw kept alongside the cleaned text). The
-            // menu rebuilds automatically via the store subscription.
-            transcriptStore.addDictation(text: text, rawText: rawTranscript.isEmpty ? text : rawTranscript)
+            // Persist to the store (raw kept alongside the cleaned text). Record
+            // the transform style's name so the Studio can tag it — nil for Default
+            // clean-up / Off (only a real transform shows a tag). The menu rebuilds
+            // automatically via the store subscription.
+            var styleName: String? = nil
+            var styleID: String? = nil
+            if case .custom(let s) = activeStyle { styleName = s.name; styleID = s.id.uuidString }
+            transcriptStore.addDictation(
+                text: text,
+                rawText: rawTranscript.isEmpty ? text : rawTranscript,
+                styleName: styleName,
+                styleID: styleID
+            )
 
             print("[Shhhcribble] Inserting: \"\(text.prefix(80))\"")
 
@@ -619,6 +652,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         return AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
+
+    /// Whether the frontmost app currently has a focused **editable** text
+    /// element. Gates per-app style auto-activation so a style only kicks in when
+    /// the user is actually in a text field (composing), not just because the app
+    /// is frontmost. The system-wide AX focused element belongs to the active app,
+    /// so this covers "app in foreground AND a field is selected" in one check.
+    ///
+    /// Requires AX trust (the app already uses it for paste/Escape). When AX is
+    /// untrusted we can't inspect focus, so we permit activation — degrading to
+    /// plain app-frontmost matching rather than silently never activating.
+    private func frontmostFocusIsEditable() -> Bool {
+        guard AXIsProcessTrusted() else { return true }
+
+        let system = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+              let focusedRef else { return false }
+        let element = focusedRef as! AXUIElement
+
+        var roleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+        let editableRoles: Set<String> = [
+            kAXTextFieldRole as String,
+            kAXTextAreaRole as String,
+            kAXComboBoxRole as String,
+        ]
+        if let role = roleRef as? String, editableRoles.contains(role) { return true }
+
+        // Web / custom fields (contenteditable) may report a different role but
+        // expose a settable string value — treat that as editable too.
+        var settable: DarwinBoolean = false
+        if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
+           settable.boolValue {
+            return true
+        }
+        return false
+    }
+
+    /// Install a minimal main menu whose Edit submenu wires the standard
+    /// clipboard/undo actions to the first responder. Without this, an
+    /// LSUIElement app's text views get no ⌘X/⌘C/⌘V/⌘A/⌘Z because there is no
+    /// menu carrying those key equivalents. Titles never show (no menu bar); the
+    /// menu exists purely to route the shortcuts.
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+
+        // A first (app) menu is required for the menu bar to be well-formed.
+        let appItem = NSMenuItem()
+        appItem.submenu = NSMenu()
+        mainMenu.addItem(appItem)
+
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+
+        NSApp.mainMenu = mainMenu
+    }
 }
 
 #if canImport(Sparkle)
@@ -695,7 +793,7 @@ extension AppDelegate: MenuBarControllerDelegate {
     }
 
     func menuBarControllerStyleMenu(_ controller: MenuBarController) -> (activeID: String, styles: [Style]) {
-        (ModelManager.activeStyleID, transcriptStore.styles)
+        (ModelManager.activeStyleID, transcriptStore.stylesAlphabetical)
     }
 
     func menuBarController(_ controller: MenuBarController, didSelectStyleID id: String) {

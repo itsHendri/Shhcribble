@@ -98,6 +98,18 @@ enum ModelManager {
         }
     }
 
+    /// Master switch for per-app style auto-activation (default true). When off,
+    /// a style's `activationApps` are ignored and the manual `activeStyleID`
+    /// always decides — dictation never changes shape just because of the
+    /// frontmost app.
+    static var styleAppActivationEnabled: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: "styleAppActivationEnabled") != nil else { return true }
+            return UserDefaults.standard.bool(forKey: "styleAppActivationEnabled")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "styleAppActivationEnabled") }
+    }
+
     private static let cleanupToStyleMigrationFlagKey = "didMigrateCleanupToStyle"
 
     /// One-shot: map the retired `transcriptCleanupEnabled` bool onto `activeStyleID`
@@ -119,11 +131,13 @@ enum ModelManager {
     /// Pure decision for the cleanup→style migration (extracted for testing):
     /// - already-set new key → leave unchanged (`nil`).
     /// - legacy key never set → leave at the new default (`nil`).
-    /// - legacy on → Default clean-up; legacy off → Off.
+    /// - either way, upgrading users land on Default clean-up. (There is no "Off"
+    ///   selection any more — Default clean-up is the always-on baseline; without
+    ///   Apple Intelligence it degrades to basic filler removal regardless.)
     static func migratedActiveStyleID(legacyCleanupEnabled: Bool?, existingActiveID: String?) -> String? {
         guard existingActiveID == nil else { return nil }
-        guard let enabled = legacyCleanupEnabled else { return nil }
-        return enabled ? ActiveStyle.defaultCleanupID : ActiveStyle.offID
+        guard legacyCleanupEnabled != nil else { return nil }
+        return ActiveStyle.defaultCleanupID
     }
 
     // MARK: - Personal dictionary

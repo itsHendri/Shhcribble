@@ -102,10 +102,11 @@ final class StyleResolverTests: XCTestCase {
         )
     }
 
-    func testMigrationLegacyOffMapsToOff() {
+    func testMigrationLegacyOffAlsoMapsToDefault() {
+        // Off is no longer a selection — upgrading users land on Default clean-up.
         XCTAssertEqual(
             ModelManager.migratedActiveStyleID(legacyCleanupEnabled: false, existingActiveID: nil),
-            ActiveStyle.offID
+            ActiveStyle.defaultCleanupID
         )
     }
 }
