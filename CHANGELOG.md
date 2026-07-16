@@ -10,14 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- **Music pause/resume runs off the main thread.** Pausing Spotify/Apple Music at
-  the start of a recording used to run its AppleScript synchronously on the main
-  thread, adding an Apple Events round-trip (hundreds of ms per playing app) of
-  latency before recording actually began — and starving the "Waking mic…"
-  placeholder on a cold AirPods start. It now runs on a dedicated background
-  thread, so recording starts without waiting on the music apps. (A cold
-  Bluetooth mic route can still add its own unavoidable startup delay.)
+## [1.9.0] - 2026-07-16
 
 ### Added
 - **Custom Styles.** A new **Styles** tab lets you pick how dictation comes out —
@@ -33,12 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Styles and their picker are listed alphabetically. Everything runs on-device
   (Apple Intelligence, macOS 26); without it, dictation falls back to basic
   cleanup. File transcriptions always use Default. Nothing leaves your Mac.
-
-### Fixed
-- **Copy/paste keyboard shortcuts now work in the app's windows.** As a menu-bar-
-  only app Shhhcribble shipped without a menu bar, so ⌘C/⌘V/⌘X/⌘A/⌘Z had nothing
-  to route through — selecting transcript text and pressing ⌘C did nothing, and
-  the style editor wouldn't accept a paste. Added the standard Edit menu.
 - **Feedback tab.** A fourth rail tab in the Transcription Studio window for
   sending feedback. Answer three short questions, then either open a prefilled
   email — choosing **Gmail**, **Apple Mail**, or **Outlook** (Gmail/Outlook open a
@@ -50,6 +37,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shared section-title design tokens.** A `DesignSystem` file is now the single
   source of truth for section-title font and pane insets, applied across the
   Settings, Dictionary, and Feedback panes so their titles render identically.
+
+### Changed
+- **Music pause/resume runs off the main thread.** Pausing Spotify/Apple Music at
+  the start of a recording used to run its AppleScript synchronously on the main
+  thread, adding an Apple Events round-trip (hundreds of ms per playing app) of
+  latency before recording actually began — and starving the "Waking mic…"
+  placeholder on a cold AirPods start. It now runs on a dedicated background
+  thread, so recording starts without waiting on the music apps. (A cold
+  Bluetooth mic route can still add its own unavoidable startup delay.)
+
+### Fixed
+- **Copy/paste keyboard shortcuts now work in the app's windows.** As a menu-bar-
+  only app Shhhcribble shipped without a menu bar, so ⌘C/⌘V/⌘X/⌘A/⌘Z had nothing
+  to route through — selecting transcript text and pressing ⌘C did nothing, and
+  the style editor wouldn't accept a paste. Added the standard Edit menu.
 
 ## [1.8.2] - 2026-07-10
 
