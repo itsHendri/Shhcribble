@@ -250,7 +250,7 @@ final class TranscriptStoreTests: XCTestCase {
 
     /// Latest schema version — bumped as migrations are added (v1 summary, v2
     /// notes, v3 dictionary_entries table).
-    private let latestSchemaVersion: Int32 = 3
+    private let latestSchemaVersion: Int32 = 4
 
     func testMigrationAddsColumnsToOldSchemaAndKeepsRows() throws {
         let path = tempDBPath()
@@ -452,6 +452,108 @@ final class TranscriptStoreTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: dictMigrationFlag)
         store.migrateLegacyDictionaryIfNeeded()
         XCTAssertEqual(store.dictionaryEntries.map(\.phrase), ["a", "b"])   // no dupes
+    }
+
+    // MARK: - Styles
+
+    func testStylesDefaultEmpty() {
+        XCTAssertTrue(makeStore().styles.isEmpty)
+    }
+
+    func testAddStylePersistsWithActivationAppsAcrossReload() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let store = TranscriptStore(path: path)
+            store.addStyle(Style(name: "Email", prompt: "polite", activationApps: ["com.apple.mail", "com.microsoft.Outlook"]))
+            store.addStyle(Style(name: "Slack", prompt: "casual"))
+            XCTAssertEqual(store.styles.map(\.name), ["Email", "Slack"])
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.styles.map(\.name), ["Email", "Slack"])
+        XCTAssertEqual(reopened.styles.first?.activationApps, ["com.apple.mail", "com.microsoft.Outlook"])
+        XCTAssertEqual(reopened.styles.last?.activationApps, [])   // JSON "[]" round-trips to empty
+    }
+
+    func testUpdateStyleEditsFieldsInPlaceKeepingID() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let id: UUID
+        do {
+            let store = TranscriptStore(path: path)
+            let s = Style(name: "Old", prompt: "old")
+            id = s.id
+            store.addStyle(s)
+            store.updateStyle(id: id, name: "New", prompt: "new", activationApps: ["com.apple.dt.Xcode"])
+            XCTAssertEqual(store.styles.first?.name, "New")
+            XCTAssertEqual(store.styles.first?.prompt, "new")
+            XCTAssertEqual(store.styles.first?.activationApps, ["com.apple.dt.Xcode"])
+            XCTAssertEqual(store.styles.first?.id, id)
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.styles.first?.name, "New")
+        XCTAssertEqual(reopened.styles.first?.activationApps, ["com.apple.dt.Xcode"])
+    }
+
+    func testDeleteStyleRenumbersDensely() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let middle: UUID
+        do {
+            let store = TranscriptStore(path: path)
+            store.addStyle(Style(name: "a", prompt: "A"))
+            let b = Style(name: "b", prompt: "B"); middle = b.id
+            store.addStyle(b)
+            store.addStyle(Style(name: "c", prompt: "C"))
+            store.deleteStyle(id: middle)
+            XCTAssertEqual(store.styles.map(\.name), ["a", "c"])
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.styles.map(\.name), ["a", "c"])   // dense positions preserve order
+    }
+
+    func testMoveStyleReordersAndPersists() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let store = TranscriptStore(path: path)
+            store.addStyle(Style(name: "a", prompt: "A"))
+            store.addStyle(Style(name: "b", prompt: "B"))
+            store.addStyle(Style(name: "c", prompt: "C"))
+            store.moveStyle(at: 2, by: -1)          // c up → a, c, b
+            XCTAssertEqual(store.styles.map(\.name), ["a", "c", "b"])
+            store.moveStyle(at: 0, by: -1)          // out of range → no-op
+            XCTAssertEqual(store.styles.map(\.name), ["a", "c", "b"])
+        }
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.styles.map(\.name), ["a", "c", "b"])
+    }
+
+    func testStyleUpdateAndDeleteUnknownIDAreNoOps() {
+        let store = makeStore()
+        store.addStyle(Style(name: "keep", prompt: "K"))
+        store.updateStyle(id: UUID(), name: "x", prompt: "X", activationApps: [])
+        store.deleteStyle(id: UUID())
+        XCTAssertEqual(store.styles.map(\.name), ["keep"])
+    }
+
+    func testSchemaIsAtLeastV4() {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        _ = TranscriptStore(path: path)   // creates + migrates
+        XCTAssertGreaterThanOrEqual(userVersion(at: path), 4)
+    }
+
+    func testSeedBuiltInStylesRunsOnceAndOnlyWhileEmpty() {
+        let flag = "didSeedBuiltInStyles"
+        UserDefaults.standard.removeObject(forKey: flag)
+        let store = makeStore()
+        store.seedBuiltInStylesIfNeeded()
+        XCTAssertEqual(store.styles.count, Style.seededPresets.count)
+        XCTAssertTrue(store.styles.allSatisfy(\.isBuiltIn))
+        // Second call is a no-op (flag set) — no duplicate seeding.
+        store.seedBuiltInStylesIfNeeded()
+        XCTAssertEqual(store.styles.count, Style.seededPresets.count)
     }
 
     // MARK: - Helpers

@@ -67,6 +67,12 @@ final class TranscriptStore: ObservableObject {
     /// pass it into the off-main `TranscriptPipeline`; Settings binds to it live.
     @Published private(set) var dictionaryEntries: [DictionaryEntry] = []
 
+    /// User/seeded transform styles, in display order (position ascending). The
+    /// Styles UI binds to this live; the dictation path snapshots it to resolve
+    /// the active/per-app style. The synthetic Off + Default clean-up entries are
+    /// NOT in here (see `ActiveStyle`).
+    @Published private(set) var styles: [Style] = []
+
     private var db: OpaquePointer?
     private let log = Logger(subsystem: "com.shhhcribble.app", category: "store")
 
@@ -82,6 +88,7 @@ final class TranscriptStore: ObservableObject {
         migrateSchema()
         reload()
         reloadDictionary()
+        reloadStyles()
     }
 
     /// Production store at Application Support/Shhhcribble/transcripts.sqlite,
@@ -91,6 +98,7 @@ final class TranscriptStore: ObservableObject {
         store.migrateLegacyHistoryIfNeeded()
         store.migrateLegacyDictionaryIfNeeded()
         store.seedExampleDictionaryIfNeeded()
+        store.seedBuiltInStylesIfNeeded()
         return store
     }
 
@@ -277,6 +285,95 @@ final class TranscriptStore: ObservableObject {
         for i in start..<dictionaryEntries.count { persistDictionaryPosition(at: i) }
     }
 
+    // MARK: - Custom Styles
+    //
+    // Mirrors the Personal Dictionary CRUD template exactly: guard the SQL write,
+    // then mutate the `@Published styles` array; `position` == array index
+    // (0-based, dense); `reloadStyles`' `ORDER BY position ASC` reproduces the
+    // array. Only difference is `activationApps`, serialized as a JSON string.
+
+    /// Append a new style at the end of the list.
+    func addStyle(_ style: Style) {
+        let position = styles.count
+        guard exec("""
+        INSERT INTO styles (id, name, prompt, activationApps, isBuiltIn, position)
+        VALUES (?, ?, ?, ?, ?, ?);
+        """, bind: { stmt in
+            sqlite3_bind_text(stmt, 1, style.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, style.name, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, style.prompt, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 4, Self.encodeApps(style.activationApps), -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_int(stmt, 5, style.isBuiltIn ? 1 : 0)
+            sqlite3_bind_int(stmt, 6, Int32(position))
+        }) else { return }
+        styles.append(style)
+    }
+
+    /// Update an existing style's editable fields (id + position unchanged).
+    func updateStyle(id: UUID, name: String, prompt: String, activationApps: [String]) {
+        guard let idx = styles.firstIndex(where: { $0.id == id }) else { return }
+        exec("UPDATE styles SET name = ?, prompt = ?, activationApps = ? WHERE id = ?;") { stmt in
+            sqlite3_bind_text(stmt, 1, name, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, prompt, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, Self.encodeApps(activationApps), -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 4, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+        styles[idx].name = name
+        styles[idx].prompt = prompt
+        styles[idx].activationApps = activationApps
+    }
+
+    /// Delete a style, then renumber remaining rows so positions stay dense.
+    func deleteStyle(id: UUID) {
+        guard let idx = styles.firstIndex(where: { $0.id == id }) else { return }
+        exec("DELETE FROM styles WHERE id = ?;") { stmt in
+            sqlite3_bind_text(stmt, 1, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+        styles.remove(at: idx)
+        renumberStylePositions(from: idx)
+    }
+
+    /// Move a style up (`offset == -1`) or down (`offset == +1`).
+    func moveStyle(at index: Int, by offset: Int) {
+        let target = index + offset
+        guard styles.indices.contains(index), styles.indices.contains(target) else { return }
+        styles.swapAt(index, target)
+        persistStylePosition(at: index)
+        persistStylePosition(at: target)
+    }
+
+    private func persistStylePosition(at index: Int) {
+        guard styles.indices.contains(index) else { return }
+        let style = styles[index]
+        exec("UPDATE styles SET position = ? WHERE id = ?;") { stmt in
+            sqlite3_bind_int(stmt, 1, Int32(index))
+            sqlite3_bind_text(stmt, 2, style.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+    }
+
+    private func renumberStylePositions(from start: Int) {
+        guard start < styles.count else { return }
+        for i in start..<styles.count { persistStylePosition(at: i) }
+    }
+
+    private static let stylesSeedFlagKey = "didSeedBuiltInStyles"
+
+    /// One-shot on first launch: drop the editable preset styles into an *empty*
+    /// styles table. Runs once ever (flag) and only while empty, so a returning
+    /// user keeps their own styles and nothing is re-seeded after they delete a
+    /// preset. Presets are ordinary rows (`isBuiltIn = true`) — fully editable
+    /// and deletable. Prompts frame the transcript as content to reformat.
+    func seedBuiltInStylesIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.stylesSeedFlagKey) else { return }
+        guard db != nil else { return }   // DB not open — retry next launch
+        defer { defaults.set(true, forKey: Self.stylesSeedFlagKey) }
+        guard styles.isEmpty else { return }
+
+        for style in Style.seededPresets { addStyle(style) }
+        log.notice("Seeded \(Style.seededPresets.count) built-in styles.")
+    }
+
     /// Case-insensitive substring match over title + text, newest first.
     /// Empty query returns everything (already newest-first in `transcripts`).
     func matching(_ query: String) -> [Transcript] {
@@ -405,6 +502,22 @@ final class TranscriptStore: ObservableObject {
         );
         """, bind: nil)
         exec("CREATE INDEX IF NOT EXISTS idx_dictionary_position ON dictionary_entries(position ASC);", bind: nil)
+
+        // Custom Styles live in their own table (position-ordered), created
+        // idempotently here for the same reason as dictionary_entries; the v4
+        // `migrateSchema` step only records the version bump. `activationApps`
+        // is a JSON array of bundle IDs in one TEXT column.
+        exec("""
+        CREATE TABLE IF NOT EXISTS styles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            activationApps TEXT NOT NULL DEFAULT '[]',
+            isBuiltIn INTEGER NOT NULL DEFAULT 0,
+            position INTEGER NOT NULL
+        );
+        """, bind: nil)
+        exec("CREATE INDEX IF NOT EXISTS idx_styles_position ON styles(position ASC);", bind: nil)
     }
 
     /// Additive schema migrations, versioned via `PRAGMA user_version`. Runs on
@@ -425,6 +538,8 @@ final class TranscriptStore: ObservableObject {
     /// v3: dictionary_entries table (created in `createSchema`; this step only
     ///     records the version bump — the data import is a separate one-shot
     ///     UserDefaults flag, see `migrateLegacyDictionaryIfNeeded`).
+    /// v4: styles table (created in `createSchema`; bump-only, like v3; presets
+    ///     are seeded via a separate one-shot flag, see `seedBuiltInStylesIfNeeded`).
     ///
     /// Each version is an independent, self-committing step: it adds only its
     /// missing columns, then bumps `user_version` **only once they're all
@@ -463,6 +578,14 @@ final class TranscriptStore: ObservableObject {
             exec("PRAGMA user_version = 3;", bind: nil)
             log.notice("Migrated schema to v3 (dictionary_entries table).")
             version = 3
+        }
+
+        if version < 4 {
+            // No DDL: `styles` is created idempotently in `createSchema`. Like
+            // v3, this step only records the version bump.
+            exec("PRAGMA user_version = 4;", bind: nil)
+            log.notice("Migrated schema to v4 (styles table).")
+            version = 4
         }
     }
 
@@ -571,6 +694,25 @@ final class TranscriptStore: ObservableObject {
         dictionaryEntries = rows
     }
 
+    /// Hydrate `styles` from the `styles` table in display order.
+    private func reloadStyles() {
+        var rows: [Style] = []
+        forEachRow("""
+        SELECT id, name, prompt, activationApps, isBuiltIn
+        FROM styles ORDER BY position ASC;
+        """) { stmt in
+            guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
+            rows.append(Style(
+                id: id,
+                name: Self.columnText(stmt, 1) ?? "",
+                prompt: Self.columnText(stmt, 2) ?? "",
+                activationApps: Self.decodeApps(Self.columnText(stmt, 3)),
+                isBuiltIn: sqlite3_column_int(stmt, 4) != 0
+            ))
+        }
+        styles = rows
+    }
+
     // MARK: - Low-level helpers
 
     /// Prepare, bind, step-to-done, finalize. Returns true on SQLITE_DONE.
@@ -625,5 +767,20 @@ final class TranscriptStore: ObservableObject {
         guard let json, let data = json.data(using: .utf8),
               let items = try? JSONDecoder().decode([String].self, from: data) else { return [] }
         return items
+    }
+
+    /// A style's activation bundle IDs are stored as a JSON array in one TEXT
+    /// column. Empty encodes to `"[]"` (the column's NOT NULL default), so an
+    /// empty list and a missing value both decode to `[]`.
+    private static func encodeApps(_ apps: [String]) -> String {
+        guard let data = try? JSONEncoder().encode(apps),
+              let s = String(data: data, encoding: .utf8) else { return "[]" }
+        return s
+    }
+
+    private static func decodeApps(_ json: String?) -> [String] {
+        guard let json, let data = json.data(using: .utf8),
+              let apps = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return apps
     }
 }
