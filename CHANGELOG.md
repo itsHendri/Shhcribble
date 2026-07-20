@@ -31,7 +31,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   appears once the microphone is actually live, so on a slow Bluetooth wake it
   simply shows up a moment later.
 
+### Changed
+- **The microphone engine now starts off the main thread.** Starting the audio
+  engine on a cold Bluetooth route blocks for most of a second (it's the call
+  that wakes the AirPods microphone), and that wait used to happen on the main
+  thread — freezing the app, delaying the recording pill, and holding up the
+  hotkey-release handling. All engine lifecycle work now runs on a dedicated
+  serial audio queue, so pressing the hotkey responds instantly and the app
+  stays fluid while the microphone wakes up. (The wake-up itself is Bluetooth
+  physics and still takes the time it takes — the pill appears when the mic is
+  genuinely live.)
+
 ### Fixed
+- **In Automatic activation, a held hotkey can no longer end a recording that
+  started late.** The freeze above meant a normal hold on cold AirPods could be
+  processed only after the mic woke, instantly ending a recording that had
+  existed for milliseconds ("No speech detected"). With the start off the main
+  thread the release is processed on time. The Activation setting stays for
+  those who prefer explicit modes.
 - **Cold AirPods no longer swallow the start of a dictation.** On a Bluetooth
   input the route warm-up now waits for actual audio instead of trusting the
   reported channel count, which lies: a cold AirPods route reports "1 channel,

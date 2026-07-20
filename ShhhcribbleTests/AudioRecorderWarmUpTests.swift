@@ -56,4 +56,50 @@ final class AudioRecorderWarmUpTests: XCTestCase {
         let s: [Float] = [0, 0, 0.5, 0, 0, 0.4]
         XCTAssertEqual(AudioRecorder.leadingSilenceCount(s), 2)
     }
+
+    // MARK: - Transport-branched readiness rule
+
+    /// Wired/built-in: channel count alone decides — first-tick, regardless of
+    /// audio or dwell. This is the "zero added latency on the warm path" claim.
+    func testWiredReadyOnChannelsAlone() {
+        for sawAudio in [false, true] {
+            for dwelled in [false, true] {
+                XCTAssertTrue(AudioRecorder.warmUpIsReady(
+                    isBluetooth: false, channels: 1, sawAudio: sawAudio, dwellElapsed: dwelled))
+                XCTAssertFalse(AudioRecorder.warmUpIsReady(
+                    isBluetooth: false, channels: 0, sawAudio: sawAudio, dwellElapsed: dwelled))
+            }
+        }
+    }
+
+    /// Bluetooth: the channel count LIES on a cold route (reports 1 ch while
+    /// delivering digital zero — proven by capture diagnostics 2026-07-20), so
+    /// channels alone must never fire ready.
+    func testBluetoothChannelsAloneIsNotReady() {
+        XCTAssertFalse(AudioRecorder.warmUpIsReady(
+            isBluetooth: true, channels: 1, sawAudio: false, dwellElapsed: false))
+    }
+
+    /// Bluetooth goes ready the moment real audio arrives (route-live signal).
+    func testBluetoothReadyOnAudio() {
+        XCTAssertTrue(AudioRecorder.warmUpIsReady(
+            isBluetooth: true, channels: 1, sawAudio: true, dwellElapsed: false))
+    }
+
+    /// The dwell is a backstop for a live route emitting true digital zero.
+    func testBluetoothReadyOnDwellBackstop() {
+        XCTAssertTrue(AudioRecorder.warmUpIsReady(
+            isBluetooth: true, channels: 1, sawAudio: false, dwellElapsed: true))
+    }
+
+    /// Zero channels on Bluetooth is never ready — audio or dwell can't
+    /// override a route that hasn't even bound its input stream yet.
+    func testBluetoothZeroChannelsNeverReady() {
+        for sawAudio in [false, true] {
+            for dwelled in [false, true] {
+                XCTAssertFalse(AudioRecorder.warmUpIsReady(
+                    isBluetooth: true, channels: 0, sawAudio: sawAudio, dwellElapsed: dwelled))
+            }
+        }
+    }
 }
