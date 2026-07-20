@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-20
+
 ### Added
 - **Activation setting** (Settings → Activation): choose **Automatic** (today's
   behaviour — hold to talk, tap to toggle), **Hold to talk**, or **Tap to start
@@ -353,7 +355,11 @@ First public release (as Shhhcribble; formerly FieldWhisperer).
 - Replaced WhisperKit with Parakeet V3 (FluidAudio).
 - Renamed FieldWhisperer → Shhhcribble.
 
-[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.10.0
+[1.9.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.9.0
+[1.8.2]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.8.2
+[1.8.1]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.8.1
 [1.8.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.8.0
 [1.7.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.7.0
 [1.6.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.6.0
