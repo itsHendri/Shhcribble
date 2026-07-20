@@ -199,10 +199,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the recording start (AppleScript pause + cold engine.start) and
                 // misclassify a quick tap as push-to-talk — stopping the recording
                 // instantly with "No speech detected".
-                guard self.state == .recording,
-                      let startedAt = self.recordingStartedByKeyDownAt else { return }
-                let heldFor = eventTime - startedAt
-                if heldFor >= self.holdThreshold {
+                //
+                // Note that correct measurement is NOT sufficient: `.automatic`
+                // still classifies against a start that may have been stalled, so
+                // a genuine hold can be released before the mic is even live. That
+                // is why the explicit modes exist — see `ModelManager.ActivationMode`.
+                guard self.state == .recording else { return }
+                let heldFor = self.recordingStartedByKeyDownAt.map { eventTime - $0 }
+                // In .toggle this is always false — keyUp never ends a recording,
+                // the next keyDown does. That is what makes toggle immune to a
+                // stalled start.
+                if ModelManager.activationMode.keyUpShouldEndRecording(
+                    heldFor: heldFor, holdThreshold: self.holdThreshold) {
                     await self.endRecording()
                 }
             }
