@@ -4,7 +4,6 @@ import SwiftUI
 
 enum RecordingUIState: Equatable {
     case hidden
-    case warmingUp      // pressed, but the mic route isn't live yet (cold AirPods) — tells the user to wait
     case recording
     case transcribing   // post-release: transcribing + (optional) on-device AI cleanup in progress
     case copied
@@ -91,7 +90,7 @@ struct SoundwaveView: View {
                     // Leading indicator: a spinner while transcribing/cleaning,
                     // otherwise the mic / checkmark / warning glyph.
                     Group {
-                        if viewModel.state == .transcribing || viewModel.state == .warmingUp {
+                        if viewModel.state == .transcribing {
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(.white)
@@ -105,12 +104,6 @@ struct SoundwaveView: View {
                     .padding(.trailing, 10)
 
                     switch viewModel.state {
-                    case .warmingUp:
-                        Text("Waking mic… wait to speak")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white.opacity(0.7))
-                        Spacer()
-
                     case .recording:
                         // Bars always visible at fixed width
                         SoundwaveBars(audioLevel: viewModel.audioLevel)
@@ -202,7 +195,6 @@ struct SoundwaveView: View {
 
     private var dotColor: Color {
         switch viewModel.state {
-        case .warmingUp:    return Color(red: 0.95, green: 0.66, blue: 0.10)  // amber = waiting on the route
         case .recording:    return Color(red: 0.25, green: 0.55, blue: 1.0)
         case .transcribing: return Color(red: 0.65, green: 0.50, blue: 1.0)  // violet = on-device AI working
         case .copied:       return .green

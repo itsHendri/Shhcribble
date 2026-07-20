@@ -53,6 +53,84 @@ enum ModelManager {
         availableHotkeys.first(where: { $0.id == selectedHotkeyID }) ?? availableHotkeys[0]
     }
 
+    // MARK: - Activation mode
+
+    /// How the hotkey drives recording.
+    ///
+    /// **Why this exists again.** It was removed in favour of `.automatic`
+    /// (hold-duration auto-selects the mode), but `.automatic` has a failure
+    /// mode the explicit modes don't: it can only classify a press *after* the
+    /// recording has started, so anything that stalls the start — notably
+    /// `engine.start()` blocking the main actor on a cold Bluetooth route —
+    /// makes a normal hold arrive as an already-released key. The recording then
+    /// begins and ends within ~30 ms, capturing nothing (observed 2026-07-20:
+    /// a 793 ms start delay producing a 0.17 s all-silent capture).
+    /// `.toggle` is structurally immune — keyUp never ends a recording — which
+    /// is exactly why the pre-smart-activation builds felt reliable.
+    enum ActivationMode: String, CaseIterable, Identifiable {
+        /// Hold-duration decides: ≥ `holdThreshold` is push-to-talk, a quick tap toggles.
+        case automatic
+        /// Hold to record, release to transcribe. keyUp always ends the recording.
+        case pushToTalk
+        /// Tap to start, tap again to stop. keyUp is ignored entirely.
+        case toggle
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .automatic:  return "Automatic"
+            case .pushToTalk: return "Hold to talk"
+            case .toggle:     return "Tap to start and stop"
+            }
+        }
+
+        /// Should a hotkey *release* end the current recording?
+        ///
+        /// - Parameters:
+        ///   - heldFor: real key-hold duration, from Carbon event times.
+        ///   - holdThreshold: the `.automatic` push-to-talk cutoff.
+        ///
+        /// Pure so the branch can be unit-tested; `AppDelegate` owns the side effects.
+        func keyUpShouldEndRecording(heldFor: TimeInterval?, holdThreshold: TimeInterval) -> Bool {
+            switch self {
+            case .toggle:
+                return false
+            case .pushToTalk:
+                return true
+            case .automatic:
+                guard let heldFor else { return false }
+                return heldFor >= holdThreshold
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .automatic:
+                return "Holding records until you let go; a quick tap starts and the next tap stops. Convenient, but a slow microphone wake-up can cut a hold short."
+            case .pushToTalk:
+                return "Recording runs for exactly as long as you hold the hotkey."
+            case .toggle:
+                return "Press once to start, press again to stop. Most reliable on Bluetooth headphones."
+            }
+        }
+    }
+
+    /// Deliberately NOT the legacy `"activationMode"` key. That one can still hold
+    /// a `pushToTalk`/`toggle` value from the pre-smart-activation builds, and
+    /// reusing it would silently resurrect a years-old preference on upgrade —
+    /// and against different semantics, since `.automatic` didn't exist then.
+    /// The legacy key stays orphaned and harmless.
+    private static let activationModeKey = "activationModeV2"
+
+    static var activationMode: ActivationMode {
+        get {
+            ActivationMode(rawValue: UserDefaults.standard.string(forKey: activationModeKey) ?? "")
+                ?? .automatic
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: activationModeKey) }
+    }
+
     // MARK: - Feature flags
 
     // Note: the `fillerFilterEnabled` pref + its Settings toggle were removed once

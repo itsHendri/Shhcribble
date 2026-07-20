@@ -62,7 +62,7 @@ private final class ScriptThread: NSObject {
 /// never the main actor. The pause used to run synchronously inline in
 /// `AppDelegate.actuallyBeginRecording()`, blocking the main thread for hundreds
 /// of ms per playing app (an Apple Events round-trip each) *before* the engine
-/// started and before the "Waking mic…" placeholder's timer could fire. Now the
+/// started, delaying the moment the mic actually went live. Now the
 /// public methods just enqueue work and return instantly, so recording start is
 /// no longer gated on the music apps answering.
 ///

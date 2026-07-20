@@ -11,9 +11,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Activation setting** (Settings → Activation): choose **Automatic** (today's
+  behaviour — hold to talk, tap to toggle), **Hold to talk**, or **Tap to start
+  and stop**. Automatic decides the mode from how long you hold the hotkey,
+  which means it can only classify a press *after* recording has started — so
+  when the microphone is slow to wake (cold Bluetooth headphones), a normal hold
+  can arrive as an already-released key and cut the recording short. The explicit
+  modes remove that guesswork; **Tap to start and stop** is immune to it entirely,
+  because releasing the key never ends a recording.
+
 - **"Check for Updates…" in the menu-bar right-click menu**, alongside Upload
   Audio and Quit (shown when the Sparkle updater is available), so you can trigger
   an update check without opening Settings.
+
+### Removed
+- **The "Waking mic… wait to speak" placeholder.** On real routes it appeared for
+  only a few hundred milliseconds — too briefly to read — so it added flicker
+  rather than information. The recording pill is now the single "go" signal: it
+  appears once the microphone is actually live, so on a slow Bluetooth wake it
+  simply shows up a moment later.
+
+### Changed
+- **The microphone engine now starts off the main thread.** Starting the audio
+  engine on a cold Bluetooth route blocks for most of a second (it's the call
+  that wakes the AirPods microphone), and that wait used to happen on the main
+  thread — freezing the app, delaying the recording pill, and holding up the
+  hotkey-release handling. All engine lifecycle work now runs on a dedicated
+  serial audio queue, so pressing the hotkey responds instantly and the app
+  stays fluid while the microphone wakes up. (The wake-up itself is Bluetooth
+  physics and still takes the time it takes — the pill appears when the mic is
+  genuinely live.)
+
+### Fixed
+- **In Automatic activation, a held hotkey can no longer end a recording that
+  started late.** The freeze above meant a normal hold on cold AirPods could be
+  processed only after the mic woke, instantly ending a recording that had
+  existed for milliseconds ("No speech detected"). With the start off the main
+  thread the release is processed on time. The Activation setting stays for
+  those who prefer explicit modes.
+- **Cold AirPods no longer swallow the start of a dictation.** On a Bluetooth
+  input the route warm-up now waits for actual audio instead of trusting the
+  reported channel count, which lies: a cold AirPods route reports "1 channel,
+  ready" instantly while the microphone is still delivering digital silence
+  through the A2DP→HFP switch. Captured proof from the shipped diagnostic — a
+  cold take logged a first-second peak of `0.0000` against an overall peak of
+  `0.9462`. The recording pill now appears when the microphone is genuinely
+  live rather than instantly against a dead one, and any words spoken during the
+  wake-up are preserved rather than discarded, because only the leading silence
+  is trimmed. The built-in-mic path keeps its existing
+  first-tick readiness check and pays no extra latency.
+- **No longer crashes on a Mac with no microphone at all** (e.g. a Mac mini with
+  nothing plugged in). Recording now checks for an input device via Core Audio
+  before touching `AVAudioEngine.inputNode` — accessing that property with zero
+  input devices raises an Objective-C exception that Swift cannot catch, taking
+  the whole app down. You now get a "No microphone found" message instead.
 
 ## [1.9.0] - 2026-07-16
 

@@ -82,14 +82,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingStartedByKeyDownAt: Double?
     private let holdThreshold: TimeInterval = 0.5
 
-    /// Cancellable "Waking mic…" placeholder. Only shown if the input route
-    /// hasn't gone live within `warmingUpPillDelay` — so the warm path (built-in
-    /// mic / warm AirPods, onReady in ~100–200 ms) shows the recording pill
-    /// directly with no flash, while a cold AirPods wake (onReady up to ~1.2 s)
-    /// gets the "wait to speak" placeholder. Cancelled by onReady.
-    private var warmingUpPillWorkItem: DispatchWorkItem?
-    private let warmingUpPillDelay: TimeInterval = 0.25
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("[Shhhcribble] App launched.")
 
@@ -199,10 +191,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the recording start (AppleScript pause + cold engine.start) and
                 // misclassify a quick tap as push-to-talk — stopping the recording
                 // instantly with "No speech detected".
-                guard self.state == .recording,
-                      let startedAt = self.recordingStartedByKeyDownAt else { return }
-                let heldFor = eventTime - startedAt
-                if heldFor >= self.holdThreshold {
+                //
+                // Note that correct measurement is NOT sufficient: `.automatic`
+                // still classifies against a start that may have been stalled, so
+                // a genuine hold can be released before the mic is even live. That
+                // is why the explicit modes exist — see `ModelManager.ActivationMode`.
+                guard self.state == .recording else { return }
+                let heldFor = self.recordingStartedByKeyDownAt.map { eventTime - $0 }
+                // In .toggle this is always false — keyUp never ends a recording,
+                // the next keyDown does. That is what makes toggle immune to a
+                // stalled start.
+                if ModelManager.activationMode.keyUpShouldEndRecording(
+                    heldFor: heldFor, holdThreshold: self.holdThreshold) {
                     await self.endRecording()
                 }
             }
@@ -290,31 +290,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Escape-to-cancel is armed immediately so the user can bail even during
         // a cold-AirPods warm-up.
         startEscapeMonitor()
-        // Show a "Waking mic…" placeholder ONLY if the route is still cold after a
-        // short grace period — this signals cold-AirPods users to *wait* instead of
-        // speaking into the dead route. The warm path (onReady in ~100–200 ms)
-        // cancels this before it fires, so it shows the recording pill directly with
-        // no flash. The real "go" signal (recording pill) always waits for onReady.
-        let warmItem = DispatchWorkItem { [weak self] in
-            guard let self, self.state == .recording else { return }
-            self.soundwavePanel.showWarmingUp()
-        }
-        warmingUpPillWorkItem = warmItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + warmingUpPillDelay, execute: warmItem)
         audioRecorder.start(
             levelCallback: { [weak self] level in
                 self?.soundwavePanel.updateLevel(level)
             },
-            // Show/flip to the recording "go" state once the input route is
-            // physically live. On AirPods sitting in A2DP the mic has 0 channels
-            // until IO drives the A2DP→HFP switch; speaking before then is
-            // captured as unrecoverable silence ("first record is silent" glitch).
-            // showRecording() presents the pill if the placeholder never showed
-            // (warm path) or transitions it from .warmingUp (cold path).
+            // The pill appearing IS the "go" signal, and it waits for the input
+            // route to be physically live. On AirPods sitting in A2DP the mic has
+            // 0 channels until IO drives the A2DP→HFP switch; speaking before then
+            // is captured as unrecoverable silence. So on a cold route there is
+            // simply no pill yet — its absence is the "not ready" state. (A
+            // separate amber "Waking mic… wait to speak" placeholder used to fill
+            // that gap; it was removed because on real routes it flashed too
+            // briefly to read, so it added noise rather than information.)
             onReady: { [weak self] in
                 guard let self, self.state == .recording else { return }
-                self.warmingUpPillWorkItem?.cancel()
-                self.warmingUpPillWorkItem = nil
                 self.soundwavePanel.showRecording()
                 self.startLiveTranscription()
             },

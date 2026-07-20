@@ -11,6 +11,7 @@ struct SettingsView: View {
 
     @State private var selectedModel:        String = ModelManager.selectedModel
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
+    @State private var activationMode: ModelManager.ActivationMode = ModelManager.activationMode
 
     @State private var axGranted        = false
     @State private var micGranted       = false
@@ -80,10 +81,24 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("Recording Shortcut").font(.sectionTitle)
+            }
+
+            // MARK: Activation mode
+            Section {
+                Picker("Activation", selection: $activationMode) {
+                    ForEach(ModelManager.ActivationMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                .onChange(of: activationMode) { _, newValue in
+                    ModelManager.activationMode = newValue
+                }
+            } header: {
+                Text("Activation").font(.sectionTitle)
             } footer: {
-                Text("Tap the shortcut to start recording and tap again to stop, " +
-                     "or hold it and release to transcribe — Shhhcribble picks the " +
-                     "mode based on how long you hold.")
+                Text(activationMode.detail)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
