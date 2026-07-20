@@ -47,6 +47,7 @@
 		CFE00015000000000000001A /* TranscriptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00005000000000000001A /* TranscriptStoreTests.swift */; };
 		CFE00033000000000000001A /* SkillFileParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00032000000000000001A /* SkillFileParserTests.swift */; };
 		CFE00031000000000000001A /* StyleResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00030000000000000001A /* StyleResolverTests.swift */; };
+		CFE00051000000000000001A /* AudioRecorderWarmUpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */; };
 		CF0000E1000000000000001A /* TranscriptSummarizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */; };
 		CFE00016000000000000001A /* TranscriptPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00006000000000000001A /* TranscriptPipeline.swift */; };
 /* End PBXBuildFile section */
@@ -104,6 +105,7 @@
 		CFE00005000000000000001A /* TranscriptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptStoreTests.swift; sourceTree = "<group>"; };
 		CFE00032000000000000001A /* SkillFileParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillFileParserTests.swift; sourceTree = "<group>"; };
 		CFE00030000000000000001A /* StyleResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleResolverTests.swift; sourceTree = "<group>"; };
+		CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorderWarmUpTests.swift; sourceTree = "<group>"; };
 		CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSummarizerTests.swift; sourceTree = "<group>"; };
 		CFE00006000000000000001A /* TranscriptPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPipeline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -168,6 +170,7 @@
 				CFE00005000000000000001A /* TranscriptStoreTests.swift */,
 				CFE00032000000000000001A /* SkillFileParserTests.swift */,
 				CFE00030000000000000001A /* StyleResolverTests.swift */,
+				CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */,
 				CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */,
 				CF0000E6000000000000001A /* PromptFenceTests.swift */,
 				CF0000EA000000000000001A /* FeedbackReportTests.swift */,
@@ -416,6 +419,7 @@
 				CFE00015000000000000001A /* TranscriptStoreTests.swift in Sources */,
 				CFE00033000000000000001A /* SkillFileParserTests.swift in Sources */,
 				CFE00031000000000000001A /* StyleResolverTests.swift in Sources */,
+				CFE00051000000000000001A /* AudioRecorderWarmUpTests.swift in Sources */,
 				CF0000E1000000000000001A /* TranscriptSummarizerTests.swift in Sources */,
 				CF0000E7000000000000001A /* PromptFenceTests.swift in Sources */,
 				CF0000EB000000000000001A /* FeedbackReportTests.swift in Sources */,

@@ -313,8 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // (warm path) or transitions it from .warmingUp (cold path).
             onReady: { [weak self] in
                 guard let self, self.state == .recording else { return }
-                self.warmingUpPillWorkItem?.cancel()
-                self.warmingUpPillWorkItem = nil
+                self.cancelWarmingUpPill()
                 self.soundwavePanel.showRecording()
                 self.startLiveTranscription()
             },
@@ -324,11 +323,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// Drop the pending "Waking mic…" placeholder. Every path that leaves
+    /// `.recording` calls this: the work item's own `state == .recording` guard
+    /// would also cover it, but only because those paths happen to mutate
+    /// `state` first — don't leave correctness resting on that ordering.
+    private func cancelWarmingUpPill() {
+        warmingUpPillWorkItem?.cancel()
+        warmingUpPillWorkItem = nil
+    }
+
     /// Cancels the current recording: stops audio, discards samples, hides the
     /// panel, and returns to idle without pasting anything.
     private func cancelRecording() {
         guard state == .recording else { return }
         print("[Shhhcribble] Recording cancelled (Escape)")
+        cancelWarmingUpPill()
         stopLiveTranscription()
         stopEscapeMonitor()
         _ = audioRecorder.stop()
@@ -362,6 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Abort the current recording attempt cleanly and surface the error in the pill.
     private func handleAudioError(_ message: String) {
         print("[Shhhcribble] Audio error: \(message)")
+        cancelWarmingUpPill()
         stopLiveTranscription()
         stopEscapeMonitor()
         _ = audioRecorder.stop()
@@ -383,6 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `await liveTask?.value` and could double-transcribe/paste or slip an
         // Escape-cancel through against the already-ending recording.
         state = .transcribing
+        cancelWarmingUpPill()
         recordingStartedByKeyDownAt = nil
         stopEscapeMonitor()
         menuBarController.setRecordingIndicator(active: false)
