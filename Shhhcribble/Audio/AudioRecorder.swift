@@ -63,8 +63,8 @@ final class AudioRecorder {
     /// It does NOT need to cover "the user hasn't spoken yet" — a *live* mic
     /// always emits room tone (0.0133+ peak in field captures), orders of
     /// magnitude above `silenceEpsilon`, so `sawNonSilentAudio` trips when the
-    /// **route goes live**, not when the user speaks. Someone who obeys "wait to
-    /// speak" is served by room tone within a buffer of the HFP switch landing.
+    /// **route goes live**, not when the user speaks. A user sitting silent is
+    /// served by room tone within a buffer of the HFP switch landing.
     ///
     /// This only covers the pathological case of a live route emitting true
     /// digital zero. It must therefore sit **above** the measured dead window —
@@ -75,8 +75,8 @@ final class AudioRecorder {
     private var warmUpStartedAt: DispatchTime?
     /// When the warm-up *first* began, never re-armed. `refreshWarmUpRoute()`
     /// pushes `warmUpDeadline` out on every route change, so a flapping route
-    /// could otherwise extend the warm-up — and the "Waking mic…" pill — forever.
-    /// This is the absolute backstop.
+    /// could otherwise delay `onReady` — and therefore the recording pill —
+    /// forever. This is the absolute backstop.
     private var warmUpHardDeadline: DispatchTime?
     private let warmUpHardCeiling: TimeInterval = 3.0
     private let warmUpPollInterval: TimeInterval = 0.025

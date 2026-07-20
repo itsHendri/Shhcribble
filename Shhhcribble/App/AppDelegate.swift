@@ -82,14 +82,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingStartedByKeyDownAt: Double?
     private let holdThreshold: TimeInterval = 0.5
 
-    /// Cancellable "Waking mic…" placeholder. Only shown if the input route
-    /// hasn't gone live within `warmingUpPillDelay` — so the warm path (built-in
-    /// mic / warm AirPods, onReady in ~100–200 ms) shows the recording pill
-    /// directly with no flash, while a cold AirPods wake (onReady up to ~1.2 s)
-    /// gets the "wait to speak" placeholder. Cancelled by onReady.
-    private var warmingUpPillWorkItem: DispatchWorkItem?
-    private let warmingUpPillDelay: TimeInterval = 0.25
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("[Shhhcribble] App launched.")
 
@@ -298,30 +290,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Escape-to-cancel is armed immediately so the user can bail even during
         // a cold-AirPods warm-up.
         startEscapeMonitor()
-        // Show a "Waking mic…" placeholder ONLY if the route is still cold after a
-        // short grace period — this signals cold-AirPods users to *wait* instead of
-        // speaking into the dead route. The warm path (onReady in ~100–200 ms)
-        // cancels this before it fires, so it shows the recording pill directly with
-        // no flash. The real "go" signal (recording pill) always waits for onReady.
-        let warmItem = DispatchWorkItem { [weak self] in
-            guard let self, self.state == .recording else { return }
-            self.soundwavePanel.showWarmingUp()
-        }
-        warmingUpPillWorkItem = warmItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + warmingUpPillDelay, execute: warmItem)
         audioRecorder.start(
             levelCallback: { [weak self] level in
                 self?.soundwavePanel.updateLevel(level)
             },
-            // Show/flip to the recording "go" state once the input route is
-            // physically live. On AirPods sitting in A2DP the mic has 0 channels
-            // until IO drives the A2DP→HFP switch; speaking before then is
-            // captured as unrecoverable silence ("first record is silent" glitch).
-            // showRecording() presents the pill if the placeholder never showed
-            // (warm path) or transitions it from .warmingUp (cold path).
+            // The pill appearing IS the "go" signal, and it waits for the input
+            // route to be physically live. On AirPods sitting in A2DP the mic has
+            // 0 channels until IO drives the A2DP→HFP switch; speaking before then
+            // is captured as unrecoverable silence. So on a cold route there is
+            // simply no pill yet — its absence is the "not ready" state. (A
+            // separate amber "Waking mic… wait to speak" placeholder used to fill
+            // that gap; it was removed because on real routes it flashed too
+            // briefly to read, so it added noise rather than information.)
             onReady: { [weak self] in
                 guard let self, self.state == .recording else { return }
-                self.cancelWarmingUpPill()
                 self.soundwavePanel.showRecording()
                 self.startLiveTranscription()
             },
@@ -331,21 +313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    /// Drop the pending "Waking mic…" placeholder. Every path that leaves
-    /// `.recording` calls this: the work item's own `state == .recording` guard
-    /// would also cover it, but only because those paths happen to mutate
-    /// `state` first — don't leave correctness resting on that ordering.
-    private func cancelWarmingUpPill() {
-        warmingUpPillWorkItem?.cancel()
-        warmingUpPillWorkItem = nil
-    }
-
     /// Cancels the current recording: stops audio, discards samples, hides the
     /// panel, and returns to idle without pasting anything.
     private func cancelRecording() {
         guard state == .recording else { return }
         print("[Shhhcribble] Recording cancelled (Escape)")
-        cancelWarmingUpPill()
         stopLiveTranscription()
         stopEscapeMonitor()
         _ = audioRecorder.stop()
@@ -379,7 +351,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Abort the current recording attempt cleanly and surface the error in the pill.
     private func handleAudioError(_ message: String) {
         print("[Shhhcribble] Audio error: \(message)")
-        cancelWarmingUpPill()
         stopLiveTranscription()
         stopEscapeMonitor()
         _ = audioRecorder.stop()
@@ -401,7 +372,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `await liveTask?.value` and could double-transcribe/paste or slip an
         // Escape-cancel through against the already-ending recording.
         state = .transcribing
-        cancelWarmingUpPill()
         recordingStartedByKeyDownAt = nil
         stopEscapeMonitor()
         menuBarController.setRecordingIndicator(active: false)

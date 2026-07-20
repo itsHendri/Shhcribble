@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Audio and Quit (shown when the Sparkle updater is available), so you can trigger
   an update check without opening Settings.
 
+### Removed
+- **The "Waking mic… wait to speak" placeholder.** On real routes it appeared for
+  only a few hundred milliseconds — too briefly to read — so it added flicker
+  rather than information. The recording pill is now the single "go" signal: it
+  appears once the microphone is actually live, so on a slow Bluetooth wake it
+  simply shows up a moment later.
+
 ### Fixed
 - **Cold AirPods no longer swallow the start of a dictation.** On a Bluetooth
   input the route warm-up now waits for actual audio instead of trusting the
@@ -31,10 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ready" instantly while the microphone is still delivering digital silence
   through the A2DP→HFP switch. Captured proof from the shipped diagnostic — a
   cold take logged a first-second peak of `0.0000` against an overall peak of
-  `0.9462`. The "Waking mic… wait to speak" pill now actually appears on cold
-  Bluetooth routes (it was previously unreachable there), and any words spoken
-  during the wake-up are preserved rather than discarded, because only the
-  leading silence is trimmed. The built-in-mic path keeps its existing
+  `0.9462`. The recording pill now appears when the microphone is genuinely
+  live rather than instantly against a dead one, and any words spoken during the
+  wake-up are preserved rather than discarded, because only the leading silence
+  is trimmed. The built-in-mic path keeps its existing
   first-tick readiness check and pays no extra latency.
 - **No longer crashes on a Mac with no microphone at all** (e.g. a Mac mini with
   nothing plugged in). Recording now checks for an input device via Core Audio
