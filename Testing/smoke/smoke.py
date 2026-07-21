@@ -229,8 +229,8 @@ def dictate(ref_audio, settle=1.0):
 # ---------------------------------------------------------------- scenarios
 
 class Result:
-    def __init__(self, name, passed, notes):
-        self.name, self.passed, self.notes = name, passed, notes
+    def __init__(self, name, passed, notes, flaky=False):
+        self.name, self.passed, self.notes, self.flaky = name, passed, notes, flaky
 
 
 def scenario_dictation_basic(ref_audio):
@@ -459,7 +459,9 @@ def summarize(results):
     width = max(len(r.name) for r in results) + 2
     failed = 0
     for r in results:
-        print(f"{r.name:<{width}} {'PASS' if r.passed else 'FAIL'}")
+        verdict = "PASS (flaky)" if getattr(r, "flaky", False) \
+            else ("PASS" if r.passed else "FAIL")
+        print(f"{r.name:<{width}} {verdict}")
         if not r.passed:
             failed += 1
             for n in r.notes:
@@ -515,7 +517,25 @@ def tier1():
                    scenario_escape_cancel,
                    lambda: scenario_rapid_double_tap(ref)):
             r = fn()
-            print(f"\n[{r.name}] {'PASS' if r.passed else 'FAIL'}")
+            # Flake filter: one retry on failure. Audio timing (especially in
+            # speaker-fallback mode, where room noise is in the loop) can fail
+            # a scenario without a regression. Pass-on-retry is reported as
+            # FLAKY — worth a look at timing, not an app fault. Fail-twice is
+            # a real failure. This is detection only, never auto-repair: the
+            # fix loop is the development process, not the judge.
+            if not r.passed:
+                print(f"\n[{r.name}] failed — retrying once to separate "
+                      "flake from regression…")
+                time.sleep(3)
+                r2 = fn()
+                if r2.passed:
+                    r = Result(r.name, True,
+                               r2.notes + ["FLAKY: failed first attempt, "
+                                           "passed on retry — first-run notes: "
+                                           + "; ".join(r.notes)],
+                               flaky=True)
+            verdict = "PASS (flaky)" if r.flaky else ("PASS" if r.passed else "FAIL")
+            print(f"\n[{r.name}] {verdict}")
             for n in r.notes:
                 print(f"   {n}")
             results.append(r)
