@@ -486,12 +486,15 @@ def doctor():
               check=False) or "automatic"
     checks.append((f"activation mode {mode!r} tap-compatible",
                    mode in ("automatic", "toggle")))
-    # Synthetic-keystroke permission probe (harmless key: fn/none — we just
-    # ask System Events to exist; the real test is the first tap_hotkey()).
+    # Real synthetic-keystroke probe: key code 63 is bare Fn, a no-op on its
+    # own, but sending it exercises the exact Accessibility right tap_hotkey()
+    # needs. Error 1002 = the app hosting this script isn't granted
+    # Accessibility (System Settings → Privacy & Security → Accessibility →
+    # add your terminal / Claude, one-time).
     ax = subprocess.run(["osascript", "-e",
-                         'tell application "System Events" to count processes'],
+                         'tell application "System Events" to key code 63'],
                         capture_output=True, text=True)
-    checks.append(("terminal can drive System Events (Accessibility)",
+    checks.append(("host app may send keystrokes (Accessibility)",
                    ax.returncode == 0))
     for label, ok in checks:
         print(f"  [{'ok' if ok else '!!'}] {label}")
