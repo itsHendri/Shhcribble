@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import UserNotifications
 import Combine
 import UniformTypeIdentifiers
 import os
@@ -70,6 +71,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// can cancel without pasting. Only active during .recording state.
     private var escapeMonitor: Any?
 
+    // MARK: Call detection & capture (see the Call detection decision in CLAUDE.md)
+
+    /// Watches for known call apps using the mic; fires a notification prompt.
+    private let callDetector = CallDetector()
+    /// Call-capture lifecycle. `.recording` = mic held; `.finishing` = mic
+    /// released but the final transcribe+cleanup still owns the shared
+    /// AsrManager. Dictation and file jobs must stay out until `.idle` —
+    /// releasing them at mic-stop would let a new transcribe interleave with
+    /// the capture's own on the shared engine.
+    private enum CallCapturePhase { case idle, recording, finishing }
+    private var callCapturePhase: CallCapturePhase = .idle
+    /// True whenever call capture owns any shared resource (mic or engine).
+    var isCallCapturing: Bool { callCapturePhase != .idle }
+    private var callCaptureAppName: String?
+    private var callCaptureStartedAt: Date?
+    /// Polls whether the triggering call app still runs mic input — the
+    /// device-level "running" signal is useless during capture because WE keep
+    /// the device busy. Two consecutive idle polls end the capture.
+    private var callEndPollTimer: Timer?
+    private var callEndIdlePolls = 0
+    /// Hard cap so a missed call-end can't record forever (~230 MB/hour).
+    private let callCaptureMaxDuration: TimeInterval = 60 * 60
+    private static let callNotificationCategory = "CALL_DETECTED"
+    private static let callNotificationAction = "TRANSCRIBE_CALL"
+
     /// Timestamp of the hotkey keyDown that started the current recording.
     /// On keyUp we measure the elapsed hold: a long hold (≥ holdThreshold) is
     /// read as push-to-talk and releases stop the recording; a quick tap is
@@ -123,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store: transcriptStore,
             isDictationActive: { [weak self] in
                 guard let self else { return false }
-                return self.state != .idle || self.dictationStarting
+                return self.state != .idle || self.dictationStarting || self.isCallCapturing
             }
         )
         fileTranscriber.$status
@@ -135,6 +161,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         soundwavePanel = SoundwavePanel(viewModel: soundwaveViewModel)
 
         menuBarController = MenuBarController(delegate: self)
+
+        // Call detection: notification category (action button) + delegate.
+        // Authorization is requested LAZILY at the first actual detection, so
+        // updating the app never greets the user with a permission prompt.
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        let transcribe = UNNotificationAction(identifier: Self.callNotificationAction,
+                                              title: "Transcribe",
+                                              options: [])
+        center.setNotificationCategories([
+            UNNotificationCategory(identifier: Self.callNotificationCategory,
+                                   actions: [transcribe],
+                                   intentIdentifiers: [],
+                                   options: [])
+        ])
+        callDetector.onCallDetected = { [weak self] appName in
+            self?.promptCallTranscription(appName: appName)
+        }
+        if ModelManager.callDetectionEnabled {
+            callDetector.start()
+        }
 
         #if canImport(Sparkle)
         // Start Sparkle. Reads SUFeedURL + SUPublicEDKey from Info.plist; runs
@@ -227,6 +274,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the file job is short-lived and the user can try again after.
         guard !fileTranscriber.isRunning else {
             soundwavePanel.showInfo("Finishing file transcription — try again in a moment")
+            return
+        }
+        // A call capture holds the one AudioRecorder (and the shared engine's
+        // serial use). Dictation must wait until it's stopped.
+        guard !isCallCapturing else {
+            soundwavePanel.showInfo("Call transcript in progress — stop it from the menu-bar icon")
             return
         }
         guard transcriptionEngine.isReady else {
@@ -684,6 +737,217 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// LSUIElement app's text views get no ⌘X/⌘C/⌘V/⌘A/⌘Z because there is no
     /// menu carrying those key equivalents. Titles never show (no menu bar); the
     /// menu exists purely to route the shortcuts.
+    // MARK: - Call detection & capture
+
+    /// A known call app started using the mic. Offer to transcribe — via a
+    /// macOS notification (design choice: conventional, visible from any
+    /// Space). Never fires while we're busy: a prompt that couldn't be
+    /// honoured would be noise.
+    private func promptCallTranscription(appName: String, isRetry: Bool = false) {
+        guard state == .idle, !isCallCapturing, !fileTranscriber.isRunning,
+              !dictationStarting else {
+            // Busy is usually seconds (a dictation finishing its transcribe);
+            // a call is minutes. One delayed retry instead of eating the
+            // prompt for the whole call. (The detector's per-episode flag is
+            // already set, so nothing else will fire for this call.)
+            if !isRetry {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                    guard CallDetector.anyKnownCallAppRunningInput() else { return }
+                    self?.promptCallTranscription(appName: appName, isRetry: true)
+                }
+            }
+            return
+        }
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert]) { granted, _ in
+            guard granted else {
+                Self.log.notice("Call detected but notifications not authorized — prompt dropped")
+                return
+            }
+            let content = UNMutableNotificationContent()
+            content.title = "Call detected — \(appName)"
+            content.body = "Transcribe your side of this call? It stays on your Mac."
+            content.categoryIdentifier = Self.callNotificationCategory
+            content.userInfo = ["appName": appName]
+            center.add(UNNotificationRequest(identifier: UUID().uuidString,
+                                             content: content, trigger: nil))
+        }
+    }
+
+    /// Start a mic-only call capture. Same AudioRecorder as dictation, but:
+    /// result goes to the Studio (never auto-pasted — a long call transcript
+    /// into whatever's focused would be wrong), no live preview (CPU on long
+    /// captures), no music pause (fiddling with Spotify mid-call is a surprise,
+    /// and resuming it after a 30-minute call would be a worse one), and no
+    /// Escape monitor (Escape belongs to dictation).
+    private func beginCallCapture(appName: String) {
+        guard state == .idle, !isCallCapturing, !fileTranscriber.isRunning,
+              !dictationStarting else {
+            // The user explicitly accepted — silence here would read as a bug.
+            notifyCall(title: "Can't start the call transcript",
+                       body: "Shhhcribble is busy with another transcription. Try again in a moment.")
+            return
+        }
+        guard transcriptionEngine.isReady else {
+            notifyCall(title: "Can't start the call transcript",
+                       body: "The transcription model isn't ready yet.")
+            return
+        }
+        // First-run path: the user's very first act may be accepting a call
+        // prompt, before any dictation ever asked for mic permission.
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            Task { @MainActor in
+                let granted = await AVCaptureDevice.requestAccess(for: .audio)
+                guard granted else { return }
+                self.beginCallCapture(appName: appName)   // re-run all guards
+            }
+            return
+        }
+        // Notifications outlive calls: a click on a banner from hours ago must
+        // not start recording room noise. Only capture while the call app is
+        // actually still using the mic.
+        guard CallDetector.anyKnownCallAppRunningInput() else {
+            notifyCall(title: "That call has ended",
+                       body: "There's nothing to transcribe any more.")
+            return
+        }
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            notifyCall(title: "Can't transcribe call",
+                       body: "Microphone permission is missing.")
+            return
+        }
+        print("[Shhhcribble] Call capture started (\(appName))")
+        callCapturePhase = .recording
+        callCaptureAppName = appName
+        callCaptureStartedAt = Date()
+        callEndIdlePolls = 0
+        transcriptionEngine.isBusy = true
+        menuBarController.setRecordingIndicator(active: true)
+        audioRecorder.start(
+            levelCallback: { _ in },   // no pill during call capture
+            onReady: nil,
+            onError: { [weak self] message in
+                guard let self, self.callCapturePhase == .recording else { return }
+                _ = self.audioRecorder.stop()
+                self.resetCallCaptureState()
+                self.notifyCall(title: "Call transcript failed", body: message)
+            }
+        )
+        // Auto-stop: poll whether any known call app still runs mic input.
+        // (The device-level idle signal can't work here — we hold the mic.)
+        let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pollCallEnd() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        callEndPollTimer = timer
+    }
+
+    private func pollCallEnd() {
+        guard callCapturePhase == .recording else { return }
+        if let started = callCaptureStartedAt,
+           Date().timeIntervalSince(started) > callCaptureMaxDuration {
+            print("[Shhhcribble] Call capture hit the duration cap — stopping")
+            endCallCapture()
+            return
+        }
+        if CallDetector.anyKnownCallAppRunningInput() {
+            callEndIdlePolls = 0
+        } else {
+            callEndIdlePolls += 1
+            // Two consecutive idle polls (~6 s): the call has really ended,
+            // not just blipped during a reconnect.
+            if callEndIdlePolls >= 2 { endCallCapture() }
+        }
+    }
+
+    /// Stop the capture and run transcription → pipeline → Studio.
+    func endCallCapture() {
+        guard callCapturePhase == .recording else { return }
+        let appName = callCaptureAppName ?? "Call"
+        let samples = audioRecorder.stop()
+        // Hold `.finishing` (and transcriptionEngine.isBusy) until the final
+        // transcribe completes — the shared AsrManager isn't re-entrant, so a
+        // dictation or file job starting now would corrupt its decoder state.
+        callCapturePhase = .finishing
+        callEndPollTimer?.invalidate()
+        callEndPollTimer = nil
+        menuBarController.setRecordingIndicator(active: false)
+        print("[Shhhcribble] Call capture ended: \(samples.count) samples")
+        guard samples.count > 16_000 else {   // under a second — nothing real
+            resetCallCaptureState()
+            notifyCall(title: "No call audio captured",
+                       body: "The recording was too short to transcribe.")
+            return
+        }
+        let duration = Double(samples.count) / 16_000
+        Task { @MainActor in
+            defer { self.resetCallCaptureState() }
+            do {
+                let text = try await transcriptionEngine.transcribe(audioSamples: samples)
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    notifyCall(title: "No speech detected",
+                               body: "The call capture contained no usable speech.")
+                    return
+                }
+                // Same pipeline as file transcription: dictionary + faithful
+                // Default cleanup (a call should never become a Slack message).
+                let dictionary = transcriptStore.dictionaryEntries
+                let cleaned = await TranscriptPipeline.process(
+                    trimmed, dictionary: dictionary, style: .defaultCleanup)
+                let df = DateFormatter()
+                df.dateStyle = .none; df.timeStyle = .short
+                transcriptStore.add(Transcript(
+                    id: UUID(),
+                    createdAt: Date(),
+                    source: .dictation,
+                    title: "Call — \(appName), \(df.string(from: Date()))",
+                    text: cleaned.isEmpty ? trimmed : cleaned,
+                    rawText: trimmed,
+                    fileName: nil,
+                    sourcePath: nil,
+                    durationSec: duration))
+                notifyCall(title: "Call transcript saved",
+                           body: "Open Shhhcribble to read it.")
+            } catch {
+                notifyCall(title: "Call transcript failed",
+                           body: error.localizedDescription)
+            }
+        }
+    }
+
+    private func resetCallCaptureState() {
+        callCapturePhase = .idle
+        // Files dropped on the app during the capture queued behind the
+        // isDictationActive gate — kick the queue now that the engine is free.
+        fileTranscriber?.drainIfIdle()
+        callCaptureAppName = nil
+        callCaptureStartedAt = nil
+        callEndPollTimer?.invalidate()
+        callEndPollTimer = nil
+        callEndIdlePolls = 0
+        transcriptionEngine.isBusy = false
+        menuBarController.setRecordingIndicator(active: false)
+    }
+
+    /// Settings toggle changed — start/stop the detector live.
+    func callDetectionSettingChanged() {
+        if ModelManager.callDetectionEnabled {
+            callDetector.start()
+        } else {
+            callDetector.stop()
+        }
+    }
+
+    private func notifyCall(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: UUID().uuidString,
+                                  content: content, trigger: nil))
+    }
+
     private func installMainMenu() {
         let mainMenu = NSMenu()
 
@@ -769,6 +1033,16 @@ extension AppDelegate: MenuBarControllerDelegate {
         checkForUpdates()
     }
 
+    func menuBarControllerIsCallCapturing(_ controller: MenuBarController) -> Bool {
+        // Only while the mic is held — during the brief `.finishing` phase the
+        // stop item would be a dead control.
+        callCapturePhase == .recording
+    }
+
+    func menuBarControllerDidRequestStopCallCapture(_ controller: MenuBarController) {
+        endCallCapture()
+    }
+
     func menuBarControllerUpdaterAvailable(_ controller: MenuBarController) -> Bool {
         updaterAvailable
     }
@@ -816,6 +1090,41 @@ extension AppDelegate: NSWindowDelegate {
             settingsWindowController = nil
         } else if closing == transcriptionsWindowController?.window {
             transcriptionsWindowController = nil
+        }
+    }
+}
+
+
+// MARK: - UNUserNotificationCenterDelegate (call-detection prompts)
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    // Both delegate methods are `nonisolated`: UNUserNotificationCenter calls
+    // them on its own internal queue, not the main actor — the @objc thunk
+    // does not hop. The bodies only touch Sendable notification content and
+    // hop to the main actor explicitly for any real work.
+
+    /// Show the banner even though an LSUIElement app counts as "active".
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler:
+                                @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner])
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let content = response.notification.request.content
+        defer { completionHandler() }
+        guard content.categoryIdentifier == Self.callNotificationCategory else { return }
+        // Both the "Transcribe" action button and a plain click on the banner
+        // start the capture — the banner IS the offer, clicking it is consent.
+        switch response.actionIdentifier {
+        case Self.callNotificationAction, UNNotificationDefaultActionIdentifier:
+            let appName = content.userInfo["appName"] as? String ?? "Call"
+            Task { @MainActor in self.beginCallCapture(appName: appName) }
+        default:
+            break   // dismissed
         }
     }
 }

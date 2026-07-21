@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Call detection.** When a known call app (WhatsApp, Zoom, FaceTime, Teams,
+  Slack, Discord, Telegram, Signal, Webex, Skype) starts using the microphone,
+  a notification offers to transcribe your side of the call. Accepting records
+  the mic and saves the transcript to the library — it is never pasted
+  anywhere, and nothing is recorded unless you accept. The capture stops by
+  itself when the call ends (or via "Stop Call Transcript" in the menu-bar
+  right-click menu). On by default; toggle under Settings → Options. Detection
+  needs macOS 14.4+; everything runs on-device as always. This transcribes
+  *your* side only — capturing the other party is a separate, future project.
 - **Local smoke-test harness** (`Testing/smoke/`) for the behaviours unit tests
   can't reach: scripted end-to-end dictation with transcript, auto-paste and
   pill-latency assertions, Spotify pause/resume, Escape-to-cancel, rapid
