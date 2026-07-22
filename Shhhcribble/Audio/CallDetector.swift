@@ -72,7 +72,11 @@ final class CallDetector {
     /// Attribution can lag the running signal by a beat (the call app's IO
     /// registers just after the device spins up), so a miss re-checks once.
     private let recheckDelay: TimeInterval = 1.5
-    private let idleResetSeconds: TimeInterval = 5
+    /// After the mic goes idle for this long, a new mic session counts as a new
+    /// episode and re-offers (so a dismissed offer comes back the next time you
+    /// record). Kept short enough that discrete recordings each re-offer, long
+    /// enough to coalesce the brief release/reacquire blips within one real call.
+    private let idleResetSeconds: TimeInterval = 2
     private var idleResetWorkItem: DispatchWorkItem?
 
     // MARK: - Lifecycle (main thread)

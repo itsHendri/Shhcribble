@@ -15,6 +15,7 @@
 		CF000040000000000000001A /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000025000000000000001A /* ModelManager.swift */; };
 		CF000041000000000000001A /* TextInserter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000026000000000000001A /* TextInserter.swift */; };
 		CF000042000000000000001A /* SoundwavePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000027000000000000001A /* SoundwavePanel.swift */; };
+		CF0000FC000000000000001A /* CallOfferPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000FB000000000000001A /* CallOfferPanel.swift */; };
 		CF000043000000000000001A /* SoundwaveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000028000000000000001A /* SoundwaveView.swift */; };
 		CF000044000000000000001A /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000029000000000000001A /* MenuBarController.swift */; };
 		CF000045000000000000001A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000030000000000000001A /* SettingsView.swift */; };
@@ -75,6 +76,7 @@
 		CF000025000000000000001A /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
 		CF000026000000000000001A /* TextInserter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextInserter.swift; sourceTree = "<group>"; };
 		CF000027000000000000001A /* SoundwavePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundwavePanel.swift; sourceTree = "<group>"; };
+		CF0000FB000000000000001A /* CallOfferPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallOfferPanel.swift; sourceTree = "<group>"; };
 		CF000028000000000000001A /* SoundwaveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundwaveView.swift; sourceTree = "<group>"; };
 		CF000029000000000000001A /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		CF000030000000000000001A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -244,6 +246,7 @@
 			isa = PBXGroup;
 			children = (
 				CF000027000000000000001A /* SoundwavePanel.swift */,
+				CF0000FB000000000000001A /* CallOfferPanel.swift */,
 				CF000028000000000000001A /* SoundwaveView.swift */,
 				CF000029000000000000001A /* MenuBarController.swift */,
 				CF000030000000000000001A /* SettingsView.swift */,
@@ -397,6 +400,7 @@
 				CF000040000000000000001A /* ModelManager.swift in Sources */,
 				CF000041000000000000001A /* TextInserter.swift in Sources */,
 				CF000042000000000000001A /* SoundwavePanel.swift in Sources */,
+				CF0000FC000000000000001A /* CallOfferPanel.swift in Sources */,
 				CF000043000000000000001A /* SoundwaveView.swift in Sources */,
 				CF000044000000000000001A /* MenuBarController.swift in Sources */,
 				CF000045000000000000001A /* SettingsView.swift in Sources */,

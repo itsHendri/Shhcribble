@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Call detection now offers via an in-app banner, not a macOS notification.**
+  When a call is detected, a small "Transcribe this call?" banner appears in the
+  top-right corner (with Transcribe / Dismiss), plus a "Transcribe <App> Call"
+  item in the menu-bar right-click menu. This replaces the system notification,
+  which required a permission prompt and silently failed to appear on machines
+  whose Notification Center database is in a bad state. The new banner needs no
+  permission and works regardless of notification health. Call-capture status
+  ("transcript saved", errors) now shows in the same pill used for dictation.
+
 ## [1.11.0] - 2026-07-22
 
 ### Added
