@@ -16,6 +16,10 @@ protocol MenuBarControllerDelegate: AnyObject {
     /// Whether the Sparkle updater is available — gates the "Check for Updates…"
     /// item so it's hidden when Sparkle isn't attached to the build.
     func menuBarControllerUpdaterAvailable(_ controller: MenuBarController) -> Bool
+    /// Whether a call capture is running — gates the "Stop Call Transcript" item.
+    func menuBarControllerIsCallCapturing(_ controller: MenuBarController) -> Bool
+    /// The user chose "Stop Call Transcript" from the right-click menu.
+    func menuBarControllerDidRequestStopCallCapture(_ controller: MenuBarController)
 }
 
 /// Owns the NSStatusItem (menu-bar icon). **Left-click** opens the main
@@ -62,6 +66,16 @@ final class MenuBarController: NSObject {
     private func showRightClickMenu() {
         guard let button = statusItem.button else { return }
         let menu = NSMenu()
+
+        // A running call capture needs a stop affordance reachable without the
+        // window — this is it (the capture shows no pill by design).
+        if delegate?.menuBarControllerIsCallCapturing(self) == true {
+            let stopCall = NSMenuItem(title: "Stop Call Transcript",
+                                      action: #selector(stopCallCaptureClicked), keyEquivalent: "")
+            stopCall.target = self
+            menu.addItem(stopCall)
+            menu.addItem(.separator())
+        }
 
         let upload = NSMenuItem(title: "Upload Audio…",
                                 action: #selector(uploadAudioClicked), keyEquivalent: "")
@@ -122,6 +136,10 @@ final class MenuBarController: NSObject {
 
     @objc private func checkForUpdatesClicked() {
         delegate?.menuBarControllerDidRequestCheckForUpdates(self)
+    }
+
+    @objc private func stopCallCaptureClicked() {
+        delegate?.menuBarControllerDidRequestStopCallCapture(self)
     }
 
     @objc private func uploadAudioClicked() {

@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var selectedModel:        String = ModelManager.selectedModel
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
     @State private var activationMode: ModelManager.ActivationMode = ModelManager.activationMode
+    @State private var callDetectionEnabled: Bool = ModelManager.callDetectionEnabled
 
     @State private var axGranted        = false
     @State private var micGranted       = false
@@ -105,6 +106,15 @@ struct SettingsView: View {
 
             // MARK: Transcription options
             Section {
+                Toggle("Detect calls and offer to transcribe", isOn: $callDetectionEnabled)
+                    .onChange(of: callDetectionEnabled) { _, newValue in
+                        ModelManager.callDetectionEnabled = newValue
+                        appDelegate.callDetectionSettingChanged()
+                    }
+                Text("When WhatsApp, Zoom, FaceTime or another call app starts using the microphone, a notification offers to transcribe your side of the call into the library. Nothing is recorded unless you accept.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Transcript cleanup and writing styles now live in the **Styles** tab — pick a default, add your own, or import a SKILL.md.")
                     .font(.callout)
                     .foregroundColor(.secondary)

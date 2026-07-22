@@ -36,6 +36,7 @@
 		CF000056000000000000001A /* shhhcribble-scribble-sound.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */; };
 		CF000059000000000000001A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CF000058000000000000001A /* PrivacyInfo.xcprivacy */; };
 		CF000061000000000000001A /* MusicPauser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000060000000000000001A /* MusicPauser.swift */; };
+		CFE00071000000000000001A /* CallDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00070000000000000001A /* CallDetector.swift */; };
 		CF0000F0000000000000001A /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CF0000F1000000000000001A /* Sparkle */; };
 		CF0000C0000000000000001A /* FillerWordFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000C1000000000000001A /* FillerWordFilterTests.swift */; };
 		CF0000D0000000000000001A /* PersonalDictionary.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000D1000000000000001A /* PersonalDictionary.swift */; };
@@ -49,6 +50,7 @@
 		CFE00031000000000000001A /* StyleResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00030000000000000001A /* StyleResolverTests.swift */; };
 		CFE00051000000000000001A /* AudioRecorderWarmUpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */; };
 		CFE00061000000000000001A /* ActivationModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00060000000000000001A /* ActivationModeTests.swift */; };
+		CFE00081000000000000001A /* CallDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00080000000000000001A /* CallDetectorTests.swift */; };
 		CF0000E1000000000000001A /* TranscriptSummarizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */; };
 		CFE00016000000000000001A /* TranscriptPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00006000000000000001A /* TranscriptPipeline.swift */; };
 /* End PBXBuildFile section */
@@ -95,6 +97,7 @@
 		CF000057000000000000001A /* shhhcribble-scribble-sound.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "shhhcribble-scribble-sound.mp3"; sourceTree = "<group>"; };
 		CF000058000000000000001A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		CF000060000000000000001A /* MusicPauser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicPauser.swift; sourceTree = "<group>"; };
+		CFE00070000000000000001A /* CallDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallDetector.swift; sourceTree = "<group>"; };
 		CF0000C1000000000000001A /* FillerWordFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FillerWordFilterTests.swift; sourceTree = "<group>"; };
 		CF0000C2000000000000001A /* ShhhcribbleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShhhcribbleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF0000D1000000000000001A /* PersonalDictionary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionary.swift; sourceTree = "<group>"; };
@@ -108,6 +111,7 @@
 		CFE00030000000000000001A /* StyleResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleResolverTests.swift; sourceTree = "<group>"; };
 		CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorderWarmUpTests.swift; sourceTree = "<group>"; };
 		CFE00060000000000000001A /* ActivationModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationModeTests.swift; sourceTree = "<group>"; };
+		CFE00080000000000000001A /* CallDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallDetectorTests.swift; sourceTree = "<group>"; };
 		CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSummarizerTests.swift; sourceTree = "<group>"; };
 		CFE00006000000000000001A /* TranscriptPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPipeline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -174,6 +178,7 @@
 				CFE00030000000000000001A /* StyleResolverTests.swift */,
 				CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */,
 				CFE00060000000000000001A /* ActivationModeTests.swift */,
+				CFE00080000000000000001A /* CallDetectorTests.swift */,
 				CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */,
 				CF0000E6000000000000001A /* PromptFenceTests.swift */,
 				CF0000EA000000000000001A /* FeedbackReportTests.swift */,
@@ -203,6 +208,7 @@
 			children = (
 				CF000023000000000000001A /* AudioRecorder.swift */,
 				CF000060000000000000001A /* MusicPauser.swift */,
+				CFE00070000000000000001A /* CallDetector.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -386,6 +392,7 @@
 				CF000037000000000000001A /* HotKeyMonitor.swift in Sources */,
 				CF000038000000000000001A /* AudioRecorder.swift in Sources */,
 				CF000061000000000000001A /* MusicPauser.swift in Sources */,
+				CFE00071000000000000001A /* CallDetector.swift in Sources */,
 				CF000039000000000000001A /* TranscriptionEngine.swift in Sources */,
 				CF000040000000000000001A /* ModelManager.swift in Sources */,
 				CF000041000000000000001A /* TextInserter.swift in Sources */,
@@ -424,6 +431,7 @@
 				CFE00031000000000000001A /* StyleResolverTests.swift in Sources */,
 				CFE00051000000000000001A /* AudioRecorderWarmUpTests.swift in Sources */,
 				CFE00061000000000000001A /* ActivationModeTests.swift in Sources */,
+				CFE00081000000000000001A /* CallDetectorTests.swift in Sources */,
 				CF0000E1000000000000001A /* TranscriptSummarizerTests.swift in Sources */,
 				CF0000E7000000000000001A /* PromptFenceTests.swift in Sources */,
 				CF0000EB000000000000001A /* FeedbackReportTests.swift in Sources */,

@@ -53,6 +53,19 @@ enum ModelManager {
         availableHotkeys.first(where: { $0.id == selectedHotkeyID }) ?? availableHotkeys[0]
     }
 
+    // MARK: - Call detection
+
+    /// When on, watch for known call apps (WhatsApp, Zoom, FaceTime…) using
+    /// the microphone and offer — via a notification — to transcribe the
+    /// user's side of the call into the Studio. Detection only reads HAL
+    /// mic-activity state; no audio is touched until the user accepts.
+    private static let callDetectionKey = "callDetectionEnabled"
+
+    static var callDetectionEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: callDetectionKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: callDetectionKey) }
+    }
+
     // MARK: - Activation mode
 
     /// How the hotkey drives recording.
