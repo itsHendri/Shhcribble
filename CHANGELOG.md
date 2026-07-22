@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-22
+
 ### Changed
 - **Call detection now offers via an in-app banner, not a macOS notification.**
   When a call is detected, a small "Transcribe this call?" banner appears in the
@@ -19,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whose Notification Center database is in a bad state. The new banner needs no
   permission and works regardless of notification health. Call-capture status
   ("transcript saved", errors) now shows in the same pill used for dictation.
+- A dismissed call offer now returns on your next distinct recording (the
+  re-offer window after the mic goes idle was shortened from 5s to 2s), while
+  still not re-prompting during one continuous call.
 
 ## [1.11.0] - 2026-07-22
 
