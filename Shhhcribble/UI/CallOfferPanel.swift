@@ -44,7 +44,10 @@ final class CallOfferPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 132),
+            // Oversized vs. the visible ~356-wide card so the card's drop shadow
+            // and the spring-entry overshoot have transparent room on every side
+            // (otherwise the shadow clips against the panel edge).
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 190),
             styleMask:   [.borderless, .nonactivatingPanel],
             backing:     .buffered,
             defer:       false
@@ -67,7 +70,7 @@ final class CallOfferPanel: NSPanel {
             onAccept:  { [weak self] in self?.accept() },
             onDismiss: { [weak self] in self?.userDismiss() }
         ))
-        content.frame = NSRect(x: 0, y: 0, width: 380, height: 132)
+        content.frame = NSRect(x: 0, y: 0, width: 420, height: 190)
         contentView = content
     }
 
@@ -166,13 +169,14 @@ final class CallOfferPanel: NSPanel {
                 ?? NSScreen.main
                 ?? NSScreen.screens.first else { return }
         let frame = screen.visibleFrame
-        let panelWidth:  CGFloat = 380
-        let panelHeight: CGFloat = 132
-        let inset:       CGFloat = 12
-        // The visible content sits ~12pt inside the panel on the top/right, so
-        // the apparent banner is inset ~inset+ from the screen edges.
-        let x = frame.maxX - panelWidth - inset
-        let y = frame.maxY - panelHeight + 8
+        let panelWidth:  CGFloat = 420
+        let panelHeight: CGFloat = 190
+        // The visible card is centered in the wider panel (32pt transparent
+        // margin each side) and sits 30pt below the panel top; the +20 offsets
+        // land the apparent banner ~12pt from the right edge and ~10pt below the
+        // top of the visible area.
+        let x = frame.maxX - panelWidth + 20
+        let y = frame.maxY - panelHeight + 20
         setFrameOrigin(NSPoint(x: x, y: y))
         setContentSize(NSSize(width: panelWidth, height: panelHeight))
     }
@@ -254,11 +258,13 @@ private struct CallOfferView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.28), radius: 18, x: 0, y: 8)
+        .shadow(color: .black.opacity(0.28), radius: 16, x: 0, y: 8)
         .scaleEffect(model.isVisible ? 1 : 0.92)
-        .offset(y: model.isVisible ? 0 : -22)
+        .offset(y: model.isVisible ? 0 : -18)
         .opacity(model.isVisible ? 1 : 0)
-        .padding(.top, 12)
-        .frame(width: 380, height: 132, alignment: .top)
+        // Transparent room on every side (30pt top for the entry overshoot +
+        // shadow; the 420-wide frame centers the 356 card with 32pt margins).
+        .padding(.top, 30)
+        .frame(width: 420, height: 190, alignment: .top)
     }
 }
