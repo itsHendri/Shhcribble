@@ -45,9 +45,17 @@ final class CallDetector {
 
     /// First known call app among the given bundle ids, or nil.
     /// Pure and `internal` so it can be unit-tested.
+    ///
+    /// Electron-based call apps run their audio in a helper process whose
+    /// bundle id is the parent's plus a ".helper" suffix — observed live:
+    /// Slack's mic shows up as `com.tinyspeck.slackmacgap.helper`. Strip that
+    /// suffix before the lookup so the whole Electron family matches.
     static func firstKnownCallApp(in bundleIDs: [String]) -> (id: String, name: String)? {
         for id in bundleIDs {
-            if let name = knownCallApps[id] { return (id, name) }
+            let canonical = id.lowercased().hasSuffix(".helper")
+                ? String(id.dropLast(".helper".count))
+                : id
+            if let name = knownCallApps[canonical] { return (canonical, name) }
         }
         return nil
     }
@@ -166,7 +174,9 @@ final class CallDetector {
         idleResetWorkItem = nil
         guard !promptedThisEpisode else { return }
 
-        if let match = Self.firstKnownCallApp(in: Self.bundleIDsRunningInput()) {
+        let runningIDs = Self.bundleIDsRunningInput()
+        Self.log.notice("Mic busy — apps running input: [\(runningIDs.joined(separator: ", "), privacy: .public)]")
+        if let match = Self.firstKnownCallApp(in: runningIDs) {
             promptedThisEpisode = true
             Self.log.notice("Call detected: \(match.name, privacy: .public) is using the microphone")
             onCallDetected?(match.name)

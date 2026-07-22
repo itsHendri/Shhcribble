@@ -31,10 +31,20 @@ final class CallDetectorTests: XCTestCase {
         XCTAssertEqual(match?.name, "Zoom")
     }
 
-    /// Bundle ids are exact — a lookalike prefix must not trigger.
-    func testPrefixLookalikeDoesNotMatch() {
-        XCTAssertNil(CallDetector.firstKnownCallApp(in: ["us.zoom.xos.helper"]))
+    /// Electron call apps run audio in a ".helper" child process — observed
+    /// live: Slack's mic input attributes to com.tinyspeck.slackmacgap.helper.
+    /// The helper must match its parent.
+    func testElectronHelperMatchesParentApp() {
+        let slack = CallDetector.firstKnownCallApp(in: ["com.tinyspeck.slackmacgap.helper"])
+        XCTAssertEqual(slack?.name, "Slack")
+        let zoom = CallDetector.firstKnownCallApp(in: ["us.zoom.xos.Helper"])
+        XCTAssertEqual(zoom?.name, "Zoom", "suffix match is case-insensitive")
+    }
+
+    /// Non-helper lookalike suffixes still must not trigger.
+    func testLookalikeSuffixDoesNotMatch() {
         XCTAssertNil(CallDetector.firstKnownCallApp(in: ["net.whatsapp.WhatsApp.ServiceExtension"]))
+        XCTAssertNil(CallDetector.firstKnownCallApp(in: ["us.zoom.xos.renderer"]))
     }
 
     /// Every entry in the curated list carries a non-empty display name —

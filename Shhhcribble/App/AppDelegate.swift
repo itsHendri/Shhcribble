@@ -179,6 +179,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         callDetector.onCallDetected = { [weak self] appName in
             self?.promptCallTranscription(appName: appName)
         }
+        // Hidden diagnostic: `defaults write com.shhhcribble.app debugNotificationProbe -bool true`
+        // exercises the notification authorization + delivery path at launch,
+        // so the plumbing can be verified without placing a real call.
+        if UserDefaults.standard.bool(forKey: "debugNotificationProbe") {
+            center.requestAuthorization(options: [.alert]) { granted, error in
+                Self.log.notice("[probe] notification auth granted: \(granted, privacy: .public), error: \(error.map { String(describing: $0) } ?? "none", privacy: .public)")
+                guard granted else { return }
+                let c = UNMutableNotificationContent()
+                c.title = "Notification probe"
+                c.body = "Shhhcribble can deliver notifications."
+                center.add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil)) { err in
+                    Self.log.notice("[probe] delivery: \(err.map { String(describing: $0) } ?? "posted OK", privacy: .public)")
+                }
+            }
+        }
         if ModelManager.callDetectionEnabled {
             callDetector.start()
         }
@@ -759,7 +774,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert]) { granted, _ in
+        center.getNotificationSettings { settings in
+            Self.log.notice("Notification auth status before request: \(settings.authorizationStatus.rawValue, privacy: .public)")
+        }
+        center.requestAuthorization(options: [.alert]) { granted, error in
+            if let error {
+                Self.log.error("Notification authorization error: \(error.localizedDescription, privacy: .public)")
+            }
             guard granted else {
                 Self.log.notice("Call detected but notifications not authorized — prompt dropped")
                 return
