@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-22
+
 ### Added
 - **Call detection.** When a known call app (WhatsApp, Zoom, FaceTime, Teams,
   Slack, Discord, Telegram, Signal, Webex, Skype) starts using the microphone,
@@ -371,7 +373,8 @@ First public release (as Shhhcribble; formerly FieldWhisperer).
 - Replaced WhisperKit with Parakeet V3 (FluidAudio).
 - Renamed FieldWhisperer → Shhhcribble.
 
-[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.11.0
 [1.10.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.10.0
 [1.9.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.9.0
 [1.8.2]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.8.2
