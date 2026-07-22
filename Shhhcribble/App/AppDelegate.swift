@@ -1,6 +1,5 @@
 import AppKit
 import AVFoundation
-import UserNotifications
 import Combine
 import UniformTypeIdentifiers
 import os
@@ -23,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var transcriptionEngine: TranscriptionEngine!
     private var textInserter: TextInserter!
     private var soundwavePanel: SoundwavePanel!
+    /// Our own in-app "transcribe this call?" banner (top-right), used instead of
+    /// a macOS notification — see CallOfferPanel for why.
+    private var callOfferPanel: CallOfferPanel!
     private var menuBarController: MenuBarController!
     private var settingsWindowController: SettingsWindowController?
     private var transcriptionsWindowController: TranscriptionsWindowController?
@@ -93,8 +95,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var callEndIdlePolls = 0
     /// Hard cap so a missed call-end can't record forever (~230 MB/hour).
     private let callCaptureMaxDuration: TimeInterval = 60 * 60
-    private static let callNotificationCategory = "CALL_DETECTED"
-    private static let callNotificationAction = "TRANSCRIBE_CALL"
 
     /// Timestamp of the hotkey keyDown that started the current recording.
     /// On keyUp we measure the elapsed hold: a long hold (≥ holdThreshold) is
@@ -159,43 +159,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let soundwaveViewModel = SoundwaveViewModel()
         soundwavePanel = SoundwavePanel(viewModel: soundwaveViewModel)
+        callOfferPanel = CallOfferPanel()
 
         menuBarController = MenuBarController(delegate: self)
 
-        // Call detection: notification category (action button) + delegate.
-        // Authorization is requested LAZILY at the first actual detection, so
-        // updating the app never greets the user with a permission prompt.
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        let transcribe = UNNotificationAction(identifier: Self.callNotificationAction,
-                                              title: "Transcribe",
-                                              options: [])
-        center.setNotificationCategories([
-            UNNotificationCategory(identifier: Self.callNotificationCategory,
-                                   actions: [transcribe],
-                                   intentIdentifiers: [],
-                                   options: [])
-        ])
+        // Call detection: when a known call app starts using the mic, offer to
+        // transcribe via our own in-app banner (CallOfferPanel), NOT a macOS
+        // notification — the OS notification path is undeliverable on some
+        // machines and adds a permission prompt. No authorization needed.
         callDetector.onCallDetected = { [weak self] appName in
             self?.promptCallTranscription(appName: appName)
         }
-        // Hidden diagnostic: `defaults write com.shhhcribble.app debugNotificationProbe -bool true`
-        // exercises the notification authorization + delivery path at launch,
-        // so the plumbing can be verified without placing a real call.
-        if UserDefaults.standard.bool(forKey: "debugNotificationProbe") {
-            center.requestAuthorization(options: [.alert]) { granted, error in
-                Self.log.notice("[probe] notification auth granted: \(granted, privacy: .public), error: \(error.map { String(describing: $0) } ?? "none", privacy: .public)")
-                guard granted else { return }
-                let c = UNMutableNotificationContent()
-                c.title = "Notification probe"
-                c.body = "Shhhcribble can deliver notifications."
-                center.add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil)) { err in
-                    Self.log.notice("[probe] delivery: \(err.map { String(describing: $0) } ?? "posted OK", privacy: .public)")
-                }
-            }
-        }
         if ModelManager.callDetectionEnabled {
             callDetector.start()
+        }
+        // Hidden diagnostic: `defaults write com.shhhcribble.app debugCallOfferProbe -bool true`
+        // shows the call-offer banner shortly after launch so the offer UI can be
+        // verified without an actual call. Purely visual — both buttons are
+        // no-ops and the menu-bar mirror is deliberately NOT enabled, so nothing
+        // can start a real capture during the probe.
+        if UserDefaults.standard.bool(forKey: "debugCallOfferProbe") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.callOfferPanel.present(
+                    appName: "WhatsApp",
+                    onAccept: { },
+                    onDismiss: { })
+            }
         }
 
         #if canImport(Sparkle)
@@ -754,10 +743,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// menu exists purely to route the shortcuts.
     // MARK: - Call detection & capture
 
-    /// A known call app started using the mic. Offer to transcribe — via a
-    /// macOS notification (design choice: conventional, visible from any
-    /// Space). Never fires while we're busy: a prompt that couldn't be
-    /// honoured would be noise.
+    /// A known call app started using the mic. Offer to transcribe — via our own
+    /// in-app banner (top-right) plus a menu-bar item, NOT a macOS notification
+    /// (the OS path is undeliverable on some machines and needs a permission
+    /// prompt; see CallOfferPanel). Never fires while we're busy: a prompt that
+    /// couldn't be honoured would be noise.
     private func promptCallTranscription(appName: String, isRetry: Bool = false) {
         guard state == .idle, !isCallCapturing, !fileTranscriber.isRunning,
               !dictationStarting else {
@@ -773,26 +763,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            Self.log.notice("Notification auth status before request: \(settings.authorizationStatus.rawValue, privacy: .public)")
-        }
-        center.requestAuthorization(options: [.alert]) { granted, error in
-            if let error {
-                Self.log.error("Notification authorization error: \(error.localizedDescription, privacy: .public)")
+        Self.log.notice("Offering call transcription for \(appName, privacy: .public)")
+        callOfferPanel.present(
+            appName: appName,
+            onAccept: { [weak self] in
+                self?.menuBarController.setCallOffer(pending: nil)
+                self?.beginCallCapture(appName: appName)
+            },
+            onDismiss: { [weak self] in
+                self?.menuBarController.setCallOffer(pending: nil)
             }
-            guard granted else {
-                Self.log.notice("Call detected but notifications not authorized — prompt dropped")
-                return
-            }
-            let content = UNMutableNotificationContent()
-            content.title = "Call detected — \(appName)"
-            content.body = "Transcribe your side of this call? It stays on your Mac."
-            content.categoryIdentifier = Self.callNotificationCategory
-            content.userInfo = ["appName": appName]
-            center.add(UNNotificationRequest(identifier: UUID().uuidString,
-                                             content: content, trigger: nil))
-        }
+        )
+        // Mirror the offer in the menu bar so it's reachable if the banner is
+        // missed or auto-dismisses (see MenuBarController).
+        menuBarController.setCallOffer(pending: appName)
     }
 
     /// Start a mic-only call capture. Same AudioRecorder as dictation, but:
@@ -851,7 +835,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, self.callCapturePhase == .recording else { return }
                 _ = self.audioRecorder.stop()
                 self.resetCallCaptureState()
-                self.notifyCall(title: "Call transcript failed", body: message)
+                self.notifyCall(title: "Call transcript failed", body: message, isError: true)
             }
         )
         // Auto-stop: poll whether any known call app still runs mic input.
@@ -932,7 +916,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                            body: "Open Shhhcribble to read it.")
             } catch {
                 notifyCall(title: "Call transcript failed",
-                           body: error.localizedDescription)
+                           body: error.localizedDescription, isError: true)
             }
         }
     }
@@ -960,13 +944,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func notifyCall(title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: UUID().uuidString,
-                                  content: content, trigger: nil))
+    /// Surface a call-capture status in the existing pill (top-center, brief
+    /// auto-hide) rather than a macOS notification — the OS path is unreliable on
+    /// some machines and the capture path already avoids it. `body` carries the
+    /// detail into the log; the pill shows the short `title` line.
+    private func notifyCall(title: String, body: String, isError: Bool = false) {
+        Self.log.notice("Call status: \(title, privacy: .public) — \(body, privacy: .public)")
+        // Don't clobber an in-flight dictation's pill: if the user started a
+        // dictation while a call offer was up and then accepted it, the "can't
+        // start — busy" message must not yank the live recording/transcribing
+        // pill off screen. The message is secondary to what they're doing; the
+        // log line above still records it. (Call-capture outcomes fire with
+        // `state == .idle`, so "saved"/"failed" pills are unaffected.)
+        guard state == .idle else { return }
+        if isError {
+            soundwavePanel.showError(title)
+        } else {
+            soundwavePanel.showInfo(title)
+        }
     }
 
     private func installMainMenu() {
@@ -1064,6 +1059,17 @@ extension AppDelegate: MenuBarControllerDelegate {
         endCallCapture()
     }
 
+    func menuBarControllerPendingCallOffer(_ controller: MenuBarController) -> String? {
+        callOfferPanel.pendingAppName
+    }
+
+    func menuBarControllerDidAcceptCallOffer(_ controller: MenuBarController) {
+        guard let appName = callOfferPanel.pendingAppName else { return }
+        callOfferPanel.dismissSilently()
+        menuBarController.setCallOffer(pending: nil)
+        beginCallCapture(appName: appName)
+    }
+
     func menuBarControllerUpdaterAvailable(_ controller: MenuBarController) -> Bool {
         updaterAvailable
     }
@@ -1111,41 +1117,6 @@ extension AppDelegate: NSWindowDelegate {
             settingsWindowController = nil
         } else if closing == transcriptionsWindowController?.window {
             transcriptionsWindowController = nil
-        }
-    }
-}
-
-
-// MARK: - UNUserNotificationCenterDelegate (call-detection prompts)
-
-extension AppDelegate: UNUserNotificationCenterDelegate {
-    // Both delegate methods are `nonisolated`: UNUserNotificationCenter calls
-    // them on its own internal queue, not the main actor — the @objc thunk
-    // does not hop. The bodies only touch Sendable notification content and
-    // hop to the main actor explicitly for any real work.
-
-    /// Show the banner even though an LSUIElement app counts as "active".
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                willPresent notification: UNNotification,
-                                withCompletionHandler completionHandler:
-                                @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner])
-    }
-
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                didReceive response: UNNotificationResponse,
-                                withCompletionHandler completionHandler: @escaping () -> Void) {
-        let content = response.notification.request.content
-        defer { completionHandler() }
-        guard content.categoryIdentifier == Self.callNotificationCategory else { return }
-        // Both the "Transcribe" action button and a plain click on the banner
-        // start the capture — the banner IS the offer, clicking it is consent.
-        switch response.actionIdentifier {
-        case Self.callNotificationAction, UNNotificationDefaultActionIdentifier:
-            let appName = content.userInfo["appName"] as? String ?? "Call"
-            Task { @MainActor in self.beginCallCapture(appName: appName) }
-        default:
-            break   // dismissed
         }
     }
 }

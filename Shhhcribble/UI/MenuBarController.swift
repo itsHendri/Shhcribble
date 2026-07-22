@@ -20,6 +20,12 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerIsCallCapturing(_ controller: MenuBarController) -> Bool
     /// The user chose "Stop Call Transcript" from the right-click menu.
     func menuBarControllerDidRequestStopCallCapture(_ controller: MenuBarController)
+    /// The app name of a pending call-transcription offer, or nil — gates the
+    /// "Transcribe <App> Call" fallback item (the in-app banner is the primary
+    /// surface; this is reachable if it's missed or auto-dismissed).
+    func menuBarControllerPendingCallOffer(_ controller: MenuBarController) -> String?
+    /// The user accepted a pending call offer from the right-click menu.
+    func menuBarControllerDidAcceptCallOffer(_ controller: MenuBarController)
 }
 
 /// Owns the NSStatusItem (menu-bar icon). **Left-click** opens the main
@@ -34,6 +40,9 @@ final class MenuBarController: NSObject {
     weak var delegate: MenuBarControllerDelegate?
     private var isRecording = false
     private var updateBadged = false
+    /// App name of a pending call-transcription offer (drives the amber tint +
+    /// the right-click "Transcribe <App> Call" item), or nil when none.
+    private var callOfferAppName: String?
 
     init(delegate: MenuBarControllerDelegate) {
         self.delegate = delegate
@@ -74,6 +83,14 @@ final class MenuBarController: NSObject {
                                       action: #selector(stopCallCaptureClicked), keyEquivalent: "")
             stopCall.target = self
             menu.addItem(stopCall)
+            menu.addItem(.separator())
+        } else if let appName = delegate?.menuBarControllerPendingCallOffer(self) {
+            // A detected-call offer is on screen — a reachable way to accept it
+            // if the top-right banner was missed or has auto-dismissed.
+            let accept = NSMenuItem(title: "Transcribe \(appName) Call",
+                                    action: #selector(acceptCallOfferClicked), keyEquivalent: "")
+            accept.target = self
+            menu.addItem(accept)
             menu.addItem(.separator())
         }
 
@@ -142,6 +159,17 @@ final class MenuBarController: NSObject {
         delegate?.menuBarControllerDidRequestStopCallCapture(self)
     }
 
+    @objc private func acceptCallOfferClicked() {
+        delegate?.menuBarControllerDidAcceptCallOffer(self)
+    }
+
+    /// Set (or clear) the pending call-offer indicator — amber tint + the
+    /// right-click accept item. Passing nil clears it.
+    func setCallOffer(pending appName: String?) {
+        callOfferAppName = appName
+        applyTint()
+    }
+
     @objc private func uploadAudioClicked() {
         delegate?.menuBarControllerDidRequestTranscribeFile(self)
     }
@@ -179,10 +207,11 @@ final class MenuBarController: NSObject {
         applyTint()
     }
 
-    /// Recording red > update-pending amber > default template tint.
+    /// Recording red > pending call-offer blue > update-pending amber > default.
     private func applyTint() {
         guard let button = statusItem.button else { return }
         if isRecording { button.contentTintColor = .systemRed }
+        else if callOfferAppName != nil { button.contentTintColor = .systemBlue }
         else if updateBadged { button.contentTintColor = .systemOrange }
         else { button.contentTintColor = nil }
     }
