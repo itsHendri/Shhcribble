@@ -249,8 +249,8 @@ final class TranscriptStoreTests: XCTestCase {
     // MARK: - Schema migration (v0 → latest)
 
     /// Latest schema version — bumped as migrations are added (v1 summary, v2
-    /// notes, v3 dictionary_entries table).
-    private let latestSchemaVersion: Int32 = 6
+    /// notes, v3 dictionary_entries table, …, v7 notes table).
+    private let latestSchemaVersion: Int32 = 7
 
     func testMigrationAddsColumnsToOldSchemaAndKeepsRows() throws {
         let path = tempDBPath()

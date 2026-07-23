@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Notes + Tasks.** A new **Notes** tab in the Studio holds free-standing
+  notes and checkable tasks in one place. Tasks can carry a reminder: at the
+  due time an in-app banner appears top-right (Done / Snooze 10 min) and the
+  menu-bar icon tints amber until you attend to it — no notification
+  permission involved, works on machines where macOS notifications are broken.
+- **Sticky notes.** Pin any note or task to your screen as a floating,
+  fully-editable glass sticky. Stickies remember their position across
+  launches; "New Note" in the menu-bar right-click menu drops a fresh sticky
+  at your cursor, ready to type.
+- **Action items are now live.** In a transcript's Summary tab, each AI-extracted
+  action item can be promoted to a real task with one click; its checkbox then
+  syncs between the Summary tab and the Notes tab (it's the same task).
+
 ## [1.12.0] - 2026-07-22
 
 ### Changed

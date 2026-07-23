@@ -37,6 +37,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var fileTranscriber: FileTranscriber!
     private var cancellables = Set<AnyCancellable>()
 
+    // Notes + Tasks (2026-07-23): floating stickies for pinned notes, and the
+    // in-process task-reminder pipeline (banner + menu-bar tint — deliberately
+    // NOT UNUserNotificationCenter, see ReminderScheduler).
+    private var stickyPanelManager: StickyPanelManager!
+    private var reminderScheduler: ReminderScheduler!
+    private var reminderPanel: ReminderPanel!
+
     #if canImport(Sparkle)
     /// Sparkle auto-updater. `startingUpdater: true` enables automatic
     /// background checks; the menu's "Check for Updates…" triggers a manual
@@ -162,6 +169,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         callOfferPanel = CallOfferPanel()
 
         menuBarController = MenuBarController(delegate: self)
+
+        // Notes + Tasks: restore pinned stickies and arm the reminder pipeline.
+        // Both observe the store; created after menuBarController so the
+        // reminder tint has somewhere to land.
+        stickyPanelManager = StickyPanelManager(store: transcriptStore)
+        reminderPanel = ReminderPanel()
+        reminderScheduler = ReminderScheduler(store: transcriptStore) { [weak self] note in
+            self?.presentReminder(for: note)
+        }
 
         // Call detection: when a known call app starts using the mic, offer to
         // transcribe via our own in-app banner (CallOfferPanel), NOT a macOS
@@ -604,7 +620,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Task reminders (Notes + Tasks)
+
+    /// A task's due time arrived (the scheduler already marked it fired).
+    /// Surface = our reminder banner + a persistent menu-bar tint; the tint
+    /// stays after the banner auto-dismisses and clears once the user acts on
+    /// the banner or opens the Studio window.
+    private func presentReminder(for note: Note) {
+        menuBarController.setReminderBadge(visible: true)
+        reminderPanel.present(
+            text: note.text,
+            onDone: { [weak self] in
+                guard let self else { return }
+                if let current = self.transcriptStore.notes.first(where: { $0.id == note.id }),
+                   !current.done {
+                    self.transcriptStore.toggleNoteDone(id: note.id)
+                }
+                self.menuBarController.setReminderBadge(visible: false)
+            },
+            onSnooze: { [weak self] in
+                guard let self else { return }
+                self.transcriptStore.snoozeNote(id: note.id, until: ReminderPlanner.snoozeDate())
+                self.menuBarController.setReminderBadge(visible: false)
+            }
+        )
+    }
+
     private func showTranscriptionsWindow(activate: Bool) {
+        // Opening the Studio counts as attending to a fired reminder — the
+        // tasks are visible there — so the amber tint has done its job.
+        menuBarController?.setReminderBadge(visible: false)
         if transcriptionsWindowController == nil {
             transcriptionsWindowController = TranscriptionsWindowController(
                 store: transcriptStore,
@@ -1080,6 +1125,10 @@ extension AppDelegate: MenuBarControllerDelegate {
 
     func menuBarControllerDidRequestTranscribeFile(_ controller: MenuBarController) {
         presentFilePicker()
+    }
+
+    func menuBarControllerDidRequestNewNote(_ controller: MenuBarController) {
+        stickyPanelManager.createStickyAtCursor()
     }
 
     func menuBarControllerDidRequestOpenTranscriptions(_ controller: MenuBarController) {

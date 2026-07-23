@@ -12,7 +12,7 @@ Everything through **v1.8.1** shipped (Sparkle; Personal Dictionary; Transcripti
 1. **Feedback tab** — ✅ **SHIPPED 2026-07-13/14** (single general form, `mailto:` + Gmail/Outlook web-compose picker + Copy). Design below.
 2. **Music-pause off the main actor ("Fix B")** — ✅ **SHIPPED 2026-07-13** (`ScriptThread` off-main, generation-guarded resume). ⚠ AirPods+Spotify smoke test still pending. See the audio note below.
 3. **Custom Styles / Skills** *(absorbs the old Sprint 3 "Modes")* — Skills-upload + custom writing-style editing + per-app Modes converge into one program: *user-authored prompts that shape transcript output*. Ship as **portable `SKILL.md` export** (copy / ZIP into Claude Code, Codex, Cursor, Gemini CLI — real today); do **not** promise live-sync into a claude.ai account (no third-party API exists — frame as export). **Design-gated (human)** — start with the axes/scope session.
-4. **Phase B — Cross-device sync + Notes as a standalone environment** — the biggest program; design session first. Scope clarified 2026-07-10, see below.
+4. **Phase B — Cross-device sync + Notes as a standalone environment** — the biggest program; design session first. Scope clarified 2026-07-10, see below. **Update 2026-07-23: the Notes/tasks/stickies half shipped Mac-only as its own program** (branch `shhhcribble/notes-tasks`; one converged `Note` entity — checkable tasks with in-app banner reminders, promoted action items, editable floating stickies — see the CLAUDE.md decision). **Phase B is now sync-only:** CloudKit/SwiftData + the iOS app, syncing transcripts *and* the new `notes` table (designed CloudKit-compatible: all columns optional/defaulted).
 5. **Cinematic transcription view** — future "delight": full-window dark pan with live word-highlighting.
 6. **Call / meeting detection + on-device call transcription** *(NEW — research done 2026-07-15, human-flagged)* — detect when another app (WhatsApp, Zoom, a phone call) puts the mic live and offer a one-tap "transcribe this call", capturing *both sides* on-device. Research + feasibility below. **Design-gated (human); touches audio capture → not autonomy-safe.**
 
@@ -180,6 +180,8 @@ Cap-10 UserDefaults JSON → durable, searchable. Both competitors use SQLite.
 ---
 
 ## Phase B (later, dedicated) — Notes / sticky-notes + iOS sync
+
+> **2026-07-23:** the Notes half of this phase shipped Mac-only (see the live pointer, item 4) — B0's note-entity/sticky-lifecycle questions are settled and B2 (desktop sticky UI) is built. What remains of Phase B is the **sync** program: B1 + B3, now covering both `transcripts` and `notes`.
 
 The companion **Scribble iOS** app vision. Its own multi-sprint phase; starts with a design session. Same Apple ID → CloudKit private DB.
 - **Granola insight (2026-07):** Granola's model separates **raw capture from the AI-enhanced note** (+ note versions) — worth borrowing as the note data-model shape. Avoid their custom cloud backend; CloudKit private DB stays our sync path. (See `COMPETITIVE-REFERENCE.md` Granola notes.)

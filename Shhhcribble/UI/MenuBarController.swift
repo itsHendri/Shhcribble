@@ -26,6 +26,9 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerPendingCallOffer(_ controller: MenuBarController) -> String?
     /// The user accepted a pending call offer from the right-click menu.
     func menuBarControllerDidAcceptCallOffer(_ controller: MenuBarController)
+    /// The user chose "New Note" from the right-click menu — create a blank
+    /// sticky ready for typing.
+    func menuBarControllerDidRequestNewNote(_ controller: MenuBarController)
 }
 
 /// Owns the NSStatusItem (menu-bar icon). **Left-click** opens the main
@@ -40,6 +43,9 @@ final class MenuBarController: NSObject {
     weak var delegate: MenuBarControllerDelegate?
     private var isRecording = false
     private var updateBadged = false
+    /// A task reminder has fired and hasn't been attended to yet (banner acted
+    /// on, or the Studio window opened). Drives the reminder tint.
+    private var reminderBadged = false
     /// App name of a pending call-transcription offer (drives the amber tint +
     /// the right-click "Transcribe <App> Call" item), or nil when none.
     private var callOfferAppName: String?
@@ -98,6 +104,11 @@ final class MenuBarController: NSObject {
                                 action: #selector(uploadAudioClicked), keyEquivalent: "")
         upload.target = self
         menu.addItem(upload)
+
+        let newNote = NSMenuItem(title: "New Note",
+                                 action: #selector(newNoteClicked), keyEquivalent: "")
+        newNote.target = self
+        menu.addItem(newNote)
 
         if let styleItem = makeStyleMenuItem() {
             menu.addItem(styleItem)
@@ -174,6 +185,10 @@ final class MenuBarController: NSObject {
         delegate?.menuBarControllerDidRequestTranscribeFile(self)
     }
 
+    @objc private func newNoteClicked() {
+        delegate?.menuBarControllerDidRequestNewNote(self)
+    }
+
     @objc private func quitClicked() {
         delegate?.menuBarControllerDidRequestQuit(self)
     }
@@ -207,11 +222,20 @@ final class MenuBarController: NSObject {
         applyTint()
     }
 
-    /// Recording red > pending call-offer blue > update-pending amber > default.
+    /// Persistent amber tint while a fired task reminder awaits attention —
+    /// the durable signal once the reminder banner has auto-dismissed. Cleared
+    /// when the banner is acted on or the Studio window is opened.
+    func setReminderBadge(visible: Bool) {
+        reminderBadged = visible
+        applyTint()
+    }
+
+    /// Recording red > pending call-offer blue > reminder amber > update-pending amber > default.
     private func applyTint() {
         guard let button = statusItem.button else { return }
         if isRecording { button.contentTintColor = .systemRed }
         else if callOfferAppName != nil { button.contentTintColor = .systemBlue }
+        else if reminderBadged { button.contentTintColor = .systemOrange }
         else if updateBadged { button.contentTintColor = .systemOrange }
         else { button.contentTintColor = nil }
     }

@@ -30,11 +30,12 @@ struct TranscriptionsView: View {
     /// other two fill the pane. Settings + Dictionary moved in here from the
     /// old separate settings window.
     enum RailSection: String, CaseIterable, Identifiable {
-        case transcriptions, dictionary, styles, feedback, settings
+        case transcriptions, notes, dictionary, styles, feedback, settings
         var id: String { rawValue }
         var label: String {
             switch self {
             case .transcriptions: return "Transcriptions"
+            case .notes:          return "Notes"
             case .dictionary:     return "Dictionary"
             case .styles:         return "Styles"
             case .feedback:       return "Feedback"
@@ -44,6 +45,7 @@ struct TranscriptionsView: View {
         var systemImage: String {
             switch self {
             case .transcriptions: return "text.bubble"
+            case .notes:          return "note.text"
             case .dictionary:     return "character.book.closed"
             case .styles:         return "wand.and.stars"
             case .feedback:       return "exclamationmark.bubble"
@@ -61,6 +63,7 @@ struct TranscriptionsView: View {
         } detail: {
             switch section ?? .transcriptions {
             case .transcriptions: transcriptionsPane
+            case .notes:          notesPane
             case .dictionary:     dictionaryPane
             case .styles:         stylesPane
             case .feedback:       feedbackPane
@@ -91,6 +94,7 @@ struct TranscriptionsView: View {
     private var rail: some View {
         VStack(alignment: .leading, spacing: 2) {
             railTab(.transcriptions)
+            railTab(.notes)
             railTab(.dictionary)
             railTab(.styles)
 
@@ -264,6 +268,12 @@ struct TranscriptionsView: View {
     }
 
     // MARK: - Dictionary & Settings panes
+
+    private var notesPane: some View {
+        NotesView(store: store)
+            .frame(maxWidth: 620, alignment: .topLeading)   // match the Dictionary pane width
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
 
     private var dictionaryPane: some View {
         DictionarySettingsView(store: store)
@@ -572,14 +582,7 @@ private struct TranscriptDetail: View {
                         Text("Action Items")
                             .font(.subheadline).fontWeight(.semibold)
                         ForEach(Array(transcript.actionItems.enumerated()), id: \.offset) { _, item in
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "checkmark.circle")
-                                    .foregroundStyle(.secondary)
-                                    .font(.system(size: 13))
-                                Text(item)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
+                            actionItemRow(item)
                         }
                     }
                 }
@@ -600,6 +603,43 @@ private struct TranscriptDetail: View {
                 .padding(.top, 4)
             }
             .padding(16)
+        }
+    }
+
+    /// One action item, live: unpromoted → a plus button turns it into a task
+    /// note (linked back to this transcript); promoted → a real checkbox bound
+    /// to the note's done state, so check-off syncs with the Notes tab (it *is*
+    /// the same note).
+    @ViewBuilder
+    private func actionItemRow(_ item: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            if let note = store.noteForActionItem(transcriptID: transcript.id, item: item) {
+                Button { store.toggleNoteDone(id: note.id) } label: {
+                    Image(systemName: note.done ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(note.done ? Color.accentColor : Color.secondary)
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.borderless)
+                .help(note.done ? "Mark as not done" : "Mark as done")
+                Text(item)
+                    .textSelection(.enabled)
+                    .strikethrough(note.done, color: .secondary)
+                    .foregroundStyle(note.done ? Color.secondary : Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("in Notes")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            } else {
+                Button { store.promoteActionItem(transcriptID: transcript.id, item: item) } label: {
+                    Image(systemName: "plus.circle")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.borderless)
+                .help("Add as task")
+                Text(item)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 

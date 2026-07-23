@@ -182,12 +182,8 @@ final class CallOfferPanel: NSPanel {
     }
 }
 
-/// Hosting view that reports `acceptsFirstMouse` so a click landing on the
-/// banner while another app is frontmost is delivered as a real button click,
-/// not swallowed to merely focus the panel.
-private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
+// (FirstMouseHostingView moved to its own file — it's now shared with
+// ReminderPanel and StickyNotePanel.)
 
 // MARK: - View model + view
 
