@@ -65,6 +65,8 @@ final class NoteStoreTests: XCTestCase {
         note.pinned = true
         note.pinX = 120.5
         note.pinY = 340.25
+        note.pinW = 320
+        note.pinH = 260
         let tid = UUID()
         note.sourceTranscriptID = tid
         note.sourceActionItem = "original item"
@@ -83,6 +85,8 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertTrue(r.pinned)
         XCTAssertEqual(r.pinX, 120.5)
         XCTAssertEqual(r.pinY, 340.25)
+        XCTAssertEqual(r.pinW, 320)
+        XCTAssertEqual(r.pinH, 260)
         XCTAssertEqual(r.sourceTranscriptID, tid)
         XCTAssertEqual(r.sourceActionItem, "original item")
     }
@@ -152,6 +156,51 @@ final class NoteStoreTests: XCTestCase {
         store.setNotePinned(id: note.id, pinned: false)
         XCTAssertFalse(store.notes[0].pinned)
         XCTAssertEqual(store.notes[0].pinX, 10)   // origin survives for re-pin
+    }
+
+    // MARK: - Schema v7 → v8 (sticky size columns)
+
+    /// A DB whose notes table predates the sticky-size columns (the v7 first
+    /// cut) must get `pinW`/`pinH` ALTERed in and reach the latest version —
+    /// this is the shape of any dev machine that ran the branch pre-resize.
+    func testV7NotesTableGainsSizeColumns() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        // Seed a v7-shaped notes table (no pinW/pinH) with one pinned row.
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        let ddl = """
+        CREATE TABLE notes (
+            id TEXT PRIMARY KEY, createdAt REAL NOT NULL, modifiedAt REAL NOT NULL,
+            text TEXT NOT NULL, isTask INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
+            completedAt REAL, dueAt REAL, reminderFiredAt REAL,
+            pinned INTEGER NOT NULL DEFAULT 0, pinX REAL, pinY REAL,
+            sourceTranscriptID TEXT, sourceActionItem TEXT, position INTEGER NOT NULL
+        );
+        """
+        XCTAssertEqual(sqlite3_exec(db, ddl, nil, nil, nil), SQLITE_OK)
+        let noteID = UUID().uuidString
+        let insert = """
+        INSERT INTO notes (id, createdAt, modifiedAt, text, pinned, pinX, pinY, position)
+        VALUES ('\(noteID)', 100, 100, 'old sticky', 1, 40, 50, 0);
+        """
+        XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = 7;", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+
+        let store = TranscriptStore(path: path)
+        XCTAssertEqual(store.notes.count, 1)
+        XCTAssertEqual(store.notes.first?.text, "old sticky")
+        XCTAssertEqual(store.notes.first?.pinX, 40)
+        XCTAssertNil(store.notes.first?.pinW)   // new column, NULL for old rows
+
+        // The new columns are fully writable end to end.
+        store.updateNotePinFrame(id: UUID(uuidString: noteID)!,
+                                 frame: CGRect(x: 10, y: 20, width: 300, height: 240))
+        let reopened = TranscriptStore(path: path)
+        XCTAssertEqual(reopened.notes.first?.pinW, 300)
+        XCTAssertEqual(reopened.notes.first?.pinH, 240)
     }
 
     // MARK: - Action-item promotion

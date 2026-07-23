@@ -269,10 +269,10 @@ struct TranscriptionsView: View {
 
     // MARK: - Dictionary & Settings panes
 
+    // Full-width like the Transcriptions pane (it's the same master-detail
+    // template), not the 620-capped Form panes.
     private var notesPane: some View {
         NotesView(store: store)
-            .frame(maxWidth: 620, alignment: .topLeading)   // match the Dictionary pane width
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var dictionaryPane: some View {

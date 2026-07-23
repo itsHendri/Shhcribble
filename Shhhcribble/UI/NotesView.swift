@@ -1,245 +1,456 @@
 import SwiftUI
 import AppKit
 
-/// The Notes tab — its own left-nav tab in the Studio shell. One converged
-/// list over the store's `Note` entity: a **task** is a note with a checkbox
-/// (optional due-time reminder), a **sticky** is a note pinned to the screen
-/// as a floating panel. Mirrors `StylesView` (grouped `Form`, sheet editor,
-/// destructive-confirm).
+/// The Notes tab — a master-detail environment deliberately templated on the
+/// Transcriptions pane (same searchable list on the left, same detail-with-
+/// actions on the right, same floating glass action button, same toast and
+/// confirm conventions). One converged list over the store's `Note` entity: a
+/// **task** is a note with a checkbox (optional due-time reminder), a
+/// **sticky** is a note pinned to the screen as a floating panel.
 struct NotesView: View {
     @ObservedObject var store: TranscriptStore
 
-    @State private var showingAddSheet = false
-    @State private var editingNote: Note? = nil
-    @State private var deletingNote: Note? = nil
+    @State private var selectedID: UUID?
+    @State private var hoveredID: UUID?
+    @State private var searchText = ""
+    @State private var copiedToast = false
+    @State private var copiedToastTask: Task<Void, Never>?
 
-    private var tasks: [Note] { store.notes.filter { $0.isTask } }
-    private var plainNotes: [Note] { store.notes.filter { !$0.isTask } }
+    /// Newest first, like the transcripts list.
+    private var ordered: [Note] {
+        store.notes.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var filtered: [Note] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return ordered }
+        return ordered.filter { $0.text.lowercased().contains(q) }
+    }
+
+    private var selected: Note? { store.notes.first { $0.id == selectedID } }
 
     var body: some View {
-        Form {
-            // MARK: Tasks
-            Section {
-                if tasks.isEmpty {
-                    Text("No tasks yet — add one, or promote an action item from a transcript's Summary tab.")
-                        .font(.caption).foregroundColor(.secondary)
-                }
-                // Open tasks first; completed sink to the bottom of the section.
-                ForEach(tasks.filter { !$0.done }) { note in
-                    noteRow(note)
-                }
-                ForEach(tasks.filter { $0.done }) { note in
-                    noteRow(note)
-                }
-            } header: {
-                Text("Tasks").font(.sectionTitle)
-            } footer: {
-                Text("Tasks with a reminder show a banner at their due time while Shhhcribble is running — no notification permission involved.")
-                    .font(.caption).foregroundColor(.secondary)
-            }
-
-            // MARK: Notes
-            Section {
-                if plainNotes.isEmpty {
-                    Text("No notes yet.")
-                        .font(.caption).foregroundColor(.secondary)
-                }
-                ForEach(plainNotes) { note in
-                    noteRow(note)
-                }
-                Button("Add…") { showingAddSheet = true }
-            } header: {
-                Text("Notes").font(.sectionTitle)
-            } footer: {
-                Text("Pin any note or task to keep it floating on your screen as a sticky. Stickies are editable in place and stay put across launches.")
-                    .font(.caption).foregroundColor(.secondary)
-            }
+        HStack(spacing: 0) {
+            listColumn
+                .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
+            Divider()
+            detailColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .formStyle(.grouped)
-        .alert("Delete this note?", isPresented: Binding(
-            get: { deletingNote != nil },
-            set: { if !$0 { deletingNote = nil } }
-        ), presenting: deletingNote) { note in
-            Button("Delete", role: .destructive) { store.deleteNote(id: note.id) }
-            Button("Cancel", role: .cancel) { }
-        } message: { note in
-            Text("“\(Self.preview(note.text))” will be removed. This can't be undone.")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) { copiedToastView }
+        // Preselect the newest note the first time the list is shown; the
+        // `== nil` guard means a later visit keeps whatever the user last picked.
+        .onAppear {
+            if selectedID == nil { selectedID = filtered.first?.id }
         }
-        .sheet(isPresented: $showingAddSheet) {
-            NoteEditor(title: "Add Note") { text, isTask, dueAt, pinned in
-                var note = Note(text: text)
-                note.isTask = isTask
-                note.dueAt = isTask ? dueAt : nil
-                note.pinned = pinned
-                store.addNote(note)
-            }
-        }
-        .sheet(item: $editingNote) { note in
-            NoteEditor(
-                title: "Edit Note",
-                text: note.text,
-                isTask: note.isTask,
-                dueAt: note.dueAt,
-                pinned: note.pinned
-            ) { text, isTask, dueAt, pinned in
-                var updated = note
-                updated.text = text
-                updated.isTask = isTask
-                updated.pinned = pinned
-                let newDue = isTask ? dueAt : nil
-                if newDue != updated.dueAt {
-                    // A changed due time re-arms the reminder; a cleared one
-                    // disarms it. Either way the old fired-state is stale.
-                    updated.dueAt = newDue
-                    updated.reminderFiredAt = nil
-                }
-                if !isTask { updated.done = false; updated.completedAt = nil }
-                store.updateNote(updated)
-            }
-        }
+        .onDisappear { copiedToastTask?.cancel() }
     }
 
-    // MARK: - Rows
+    // MARK: - List column
+
+    private var listColumn: some View {
+        VStack(spacing: 0) {
+            searchField
+            List {
+                ForEach(filtered) { note in
+                    NoteRow(note: note,
+                            hovered: hoveredID == note.id,
+                            onToggleDone: { store.toggleNoteDone(id: note.id) },
+                            onCopy: { copyNote(note) })
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedID = note.id }
+                        .onHover { hoveredID = $0 ? note.id : (hoveredID == note.id ? nil : hoveredID) }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(selectedID == note.id || hoveredID == note.id ? Color.primary.opacity(0.04) : Color.clear)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                        )
+                }
+            }
+            .overlay {
+                if filtered.isEmpty && searchText.isEmpty {
+                    ContentUnavailableView(
+                        "No notes yet",
+                        systemImage: "note.text",
+                        description: Text("Add a note here, or promote an action item from a transcript's Summary tab.")
+                    )
+                } else if filtered.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            // Floating glass action hovering over the bottom of the list —
+            // the Notes twin of the Transcriptions "Upload Audio…" button.
+            .overlay(alignment: .bottom) {
+                Button(action: addNote) {
+                    Label("Add Note", systemImage: "square.and.pencil")
+                        .font(.callout).fontWeight(.medium)
+                        .padding(.horizontal, 16).padding(.vertical, 9)
+                        .background(.regularMaterial, in: Capsule())
+                        .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 14)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+            TextField("Search notes", text: $searchText)
+                .textFieldStyle(.plain)
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1))
+        .padding(10)
+    }
 
     @ViewBuilder
-    private func noteRow(_ note: Note) -> some View {
-        HStack(spacing: 8) {
-            if note.isTask {
-                Button { store.toggleNoteDone(id: note.id) } label: {
-                    Image(systemName: note.done ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 15))
-                        .foregroundStyle(note.done ? Color.accentColor : Color.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help(note.done ? "Mark as not done" : "Mark as done")
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Self.preview(note.text))
-                    .lineLimit(2).truncationMode(.tail)
-                    .strikethrough(note.done, color: .secondary)
-                    .foregroundStyle(note.done ? Color.secondary : Color.primary)
-                HStack(spacing: 6) {
-                    if let due = note.dueAt, note.isTask {
-                        dueChip(due, done: note.done)
-                    }
-                    if note.sourceTranscriptID != nil {
-                        Text("from transcript")
-                            .font(.caption2).foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            Button { store.setNotePinned(id: note.id, pinned: !note.pinned) } label: {
-                Image(systemName: note.pinned ? "pin.fill" : "pin")
-                    .foregroundStyle(note.pinned ? Color.accentColor : Color.secondary)
-            }
-            .buttonStyle(.borderless)
-            .help(note.pinned ? "Unpin from screen" : "Pin to screen")
-
-            Button { editingNote = note } label: {
-                Image(systemName: "pencil")
-            }
-            .buttonStyle(.borderless)
-            .help("Edit")
-
-            Button { deletingNote = note } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help("Delete")
+    private var detailColumn: some View {
+        if let note = selected {
+            NoteDetail(note: note, store: store, onCopy: { copyNote(note) })
+                .id(note.id)
+        } else {
+            ContentUnavailableView(
+                "Select a note",
+                systemImage: "text.cursor",
+                description: Text("Pick a note from the list, or add a new one.")
+            )
         }
     }
 
     @ViewBuilder
-    private func dueChip(_ due: Date, done: Bool) -> some View {
-        let overdue = !done && due < Date()
-        Label(due.formatted(date: .abbreviated, time: .shortened), systemImage: "bell")
-            .font(.caption2)
-            .foregroundStyle(overdue ? Color.orange : Color.secondary)
+    private var copiedToastView: some View {
+        if copiedToast {
+            Label("Copied", systemImage: "checkmark.circle.fill")
+                .font(.callout).fontWeight(.medium)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .padding(.bottom, 18)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
-    /// First line, capped, for row display and the delete confirm.
+    // MARK: - Actions
+
+    /// Create a fresh empty note and select it — the detail editor is where
+    /// the typing happens (template: transcriptions never edit in the list).
+    private func addNote() {
+        let note = Note(text: "")
+        store.addNote(note)
+        searchText = ""
+        selectedID = note.id
+    }
+
+    private func copyNote(_ note: Note) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(note.text, forType: .string)
+        copiedToastTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        copiedToastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+        }
+    }
+
+    /// First line, capped, for row display and confirms.
     static func preview(_ text: String) -> String {
         let firstLine = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
         let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return "New note" }
         let prefix = String(trimmed.prefix(80))
         return trimmed.count > 80 ? "\(prefix)…" : prefix
     }
 }
 
-// MARK: - Note editor
+// MARK: - List row
 
-/// Sheet used for Add / Edit. Save is disabled until the text has
-/// non-whitespace content. The due-time picker only shows for tasks with
-/// "Remind me" on; turning "Task" off clears the reminder on save.
-private struct NoteEditor: View {
-    let title: String
-    @State private var text: String
-    @State private var isTask: Bool
-    @State private var remind: Bool
-    @State private var dueAt: Date
-    @State private var pinned: Bool
-    let onSave: (_ text: String, _ isTask: Bool, _ dueAt: Date?, _ pinned: Bool) -> Void
+/// One row in the notes list — mirrors `TranscriptRow`: a single-line title
+/// with a fixed-width trailing slot that shows the date normally and a copy
+/// button on hover, so the title never reflows. Tasks add a leading checkbox;
+/// pinned/reminder state shows as small trailing glyphs in the title line.
+private struct NoteRow: View {
+    let note: Note
+    var hovered: Bool = false
+    var onToggleDone: () -> Void = {}
+    var onCopy: () -> Void = {}
 
-    @Environment(\.dismiss) private var dismiss
-
-    init(title: String,
-         text: String = "",
-         isTask: Bool = false,
-         dueAt: Date? = nil,
-         pinned: Bool = false,
-         onSave: @escaping (_ text: String, _ isTask: Bool, _ dueAt: Date?, _ pinned: Bool) -> Void) {
-        self.title = title
-        _text = State(initialValue: text)
-        _isTask = State(initialValue: isTask)
-        _remind = State(initialValue: dueAt != nil)
-        // Default a fresh reminder to the next round hour so the picker doesn't
-        // start on an already-past minute.
-        _dueAt = State(initialValue: dueAt ?? Calendar.current.nextDate(
-            after: Date(), matching: DateComponents(minute: 0), matchingPolicy: .nextTime) ?? Date())
-        _pinned = State(initialValue: pinned)
-        self.onSave = onSave
-    }
-
-    private var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private let trailingWidth: CGFloat = 72
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.headline)
+        HStack(alignment: .center, spacing: 10) {
+            if note.isTask {
+                Button(action: onToggleDone) {
+                    Image(systemName: note.done ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(note.done ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(note.done ? "Mark as not done" : "Mark as done")
+            }
+            HStack(spacing: 5) {
+                Text(NotesView.preview(note.text))
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .strikethrough(note.done, color: .secondary)
+                    .foregroundStyle(note.done ? Color.secondary : Color.primary)
+                if note.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+                if note.hasArmedReminder {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing
+                .frame(width: trailingWidth, height: 24, alignment: .trailing)
+        }
+        .padding(.vertical, 5)
+    }
 
+    @ViewBuilder
+    private var trailing: some View {
+        if hovered {
+            Button(action: onCopy) {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 26, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("Copy note")
+        } else {
+            Text(note.createdAt.formatted(date: .abbreviated, time: .omitted))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
+// MARK: - Detail
+
+/// The detail pane: an editable note with the same header shape as
+/// `TranscriptDetail` — icon + title + meta line on the left, Copy / Save /
+/// Delete on the right — plus a compact controls row (task, reminder, pin)
+/// and an auto-saving editor (700 ms debounce, flush on disappear).
+private struct NoteDetail: View {
+    let note: Note
+    @ObservedObject var store: TranscriptStore
+    var onCopy: () -> Void
+
+    @State private var text = ""
+    @State private var saveTask: Task<Void, Never>?
+    @State private var showingDeleteConfirm = false
+    @FocusState private var editorFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            controls
+            Divider()
             TextEditor(text: $text)
                 .font(.body)
-                .frame(height: 110)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-
-            Toggle("Task (checkable)", isOn: $isTask)
-
-            if isTask {
-                Toggle("Remind me", isOn: $remind)
-                if remind {
-                    DatePicker("When", selection: $dueAt, displayedComponents: [.date, .hourAndMinute])
-                        .datePickerStyle(.compact)
-                }
-            }
-
-            Toggle("Pin to screen", isOn: $pinned)
-
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    onSave(trimmedText, isTask, (isTask && remind) ? dueAt : nil, pinned)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(trimmedText.isEmpty)
-            }
+                .scrollContentBackground(.hidden)
+                .focused($editorFocused)
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(20)
-        .frame(width: 420)
+        // Seed once; the view is keyed by note id, so a different note builds a
+        // fresh instance. `saveNow` guards on `text != note.text`, which also
+        // breaks the feedback loop when the store re-publishes the row.
+        .onAppear {
+            text = note.text
+            // A freshly-added empty note goes straight to typing.
+            if note.text.isEmpty { editorFocused = true }
+        }
+        .onChange(of: text) { _, _ in scheduleSave() }
+        .onDisappear {
+            saveTask?.cancel()
+            saveNow()
+        }
+        .alert("Delete this note?", isPresented: $showingDeleteConfirm) {
+            Button("Delete", role: .destructive) { store.deleteNote(id: note.id) }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("“\(NotesView.preview(note.text))” will be removed. This can't be undone.")
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: note.isTask ? "checkmark.circle" : "note.text")
+                        .foregroundStyle(note.isTask ? Color.accentColor : Color.secondary)
+                    Text(NotesView.preview(note.text)).font(.headline).lineLimit(1)
+                    if note.sourceTranscriptID != nil {
+                        sourceTag
+                    }
+                }
+                Text(metaLine).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                Button(action: { saveNow(); onCopy() }) { Image(systemName: "doc.on.doc") }
+                    .help("Copy note")
+                Button(action: saveTxt) { Image(systemName: "square.and.arrow.down") }
+                    .help("Save as .txt")
+                Button(role: .destructive) { showingDeleteConfirm = true } label: { Image(systemName: "trash") }
+                    .help("Delete note")
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(12)
+    }
+
+    /// Small capsule marking a task promoted from a transcript's action items
+    /// (same shape as the transcript style tag).
+    private var sourceTag: some View {
+        Text("from transcript")
+            .font(.caption2).fontWeight(.semibold)
+            .lineLimit(1)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(0.08)))
+            .foregroundStyle(.secondary)
+            .fixedSize()
+    }
+
+    private var metaLine: String {
+        var parts = [note.createdAt.formatted(date: .abbreviated, time: .shortened)]
+        if note.isTask, let due = note.dueAt {
+            let overdue = !note.done && due < Date()
+            parts.append("\(overdue ? "Overdue — was due" : "Due") \(due.formatted(date: .abbreviated, time: .shortened))")
+        }
+        if note.done, let at = note.completedAt {
+            parts.append("Completed \(at.formatted(date: .abbreviated, time: .shortened))")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Task / reminder / pin controls — write straight to the store; the row
+    /// republish keeps every surface (list, stickies, Summary tab) in sync.
+    private var controls: some View {
+        HStack(spacing: 16) {
+            Toggle("Task", isOn: Binding(
+                get: { note.isTask },
+                set: { isTask in
+                    var updated = note
+                    updated.isTask = isTask
+                    if !isTask {
+                        updated.done = false
+                        updated.completedAt = nil
+                        updated.dueAt = nil
+                        updated.reminderFiredAt = nil
+                    }
+                    store.updateNote(updated)
+                }
+            ))
+            .toggleStyle(.checkbox)
+
+            if note.isTask {
+                Toggle("Done", isOn: Binding(
+                    get: { note.done },
+                    set: { _ in store.toggleNoteDone(id: note.id) }
+                ))
+                .toggleStyle(.checkbox)
+
+                Toggle("Remind", isOn: Binding(
+                    get: { note.dueAt != nil },
+                    set: { remind in
+                        var updated = note
+                        updated.dueAt = remind ? Self.defaultDueDate() : nil
+                        updated.reminderFiredAt = nil
+                        store.updateNote(updated)
+                    }
+                ))
+                .toggleStyle(.checkbox)
+
+                if let due = note.dueAt {
+                    DatePicker("When", selection: Binding(
+                        get: { due },
+                        set: { newDue in
+                            var updated = note
+                            updated.dueAt = newDue
+                            updated.reminderFiredAt = nil   // a new time re-arms
+                            store.updateNote(updated)
+                        }
+                    ), displayedComponents: [.date, .hourAndMinute])
+                    .datePickerStyle(.compact)
+                    .labelsHidden()
+                }
+            }
+
+            Spacer()
+
+            Toggle(isOn: Binding(
+                get: { note.pinned },
+                set: { store.setNotePinned(id: note.id, pinned: $0) }
+            )) {
+                Label("Pin to screen", systemImage: note.pinned ? "pin.fill" : "pin")
+            }
+            .toggleStyle(.button)
+            .help(note.pinned ? "Unpin the floating sticky" : "Show as a floating sticky")
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    /// Next round hour — a sane default when "Remind" is first switched on.
+    private static func defaultDueDate() -> Date {
+        Calendar.current.nextDate(after: Date(), matching: DateComponents(minute: 0),
+                                  matchingPolicy: .nextTime) ?? Date().addingTimeInterval(3600)
+    }
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            saveNow()
+        }
+    }
+
+    private func saveNow() {
+        guard text != note.text,
+              var current = store.notes.first(where: { $0.id == note.id }) else { return }
+        current.text = text
+        store.updateNote(current)
+    }
+
+    private func saveTxt() {
+        saveNow()
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "\(NotesView.preview(text)).txt"
+        if panel.runModal() == .OK, let url = panel.url {
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 }

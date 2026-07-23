@@ -3,7 +3,7 @@ import SwiftUI
 import Combine
 import os
 
-/// A floating, fully-editable sticky note — one per pinned `Note`.
+/// A floating, fully-editable, **resizable** sticky note — one per pinned `Note`.
 ///
 /// Same panel species as `CallOfferPanel` (`.borderless + .nonactivatingPanel`,
 /// `canBecomeKey`, `FirstMouseHostingView`) so the first click lands on its
@@ -13,36 +13,47 @@ import os
 /// Shhhcribble (the installed Edit menu then carries the shortcuts; this is
 /// also how Apple Stickies behaves).
 ///
+/// **The shadow is the window's, not SwiftUI's.** A SwiftUI `.shadow` needs
+/// transparent panel margins to draw into and clips as soon as the blur
+/// exceeds them (the CallOfferPanel lesson) — and margins fight resizing,
+/// because the resize edge would sit in transparent space. With `hasShadow`
+/// on, AppKit draws the shadow around the card's opaque rounded shape, it can
+/// never clip, and the panel edge == the visible card edge, which is exactly
+/// where `.resizable` puts the resize cursors.
+///
 /// Visual language: the app's glass card (`.regularMaterial` + continuous
-/// rounded rect + thin stroke), not yellow paper. Dragging the header persists
-/// the position (`pinX`/`pinY`) via the manager; text edits save on a 700 ms
-/// debounce (the transcript-Notes precedent) and flush when focus leaves.
+/// rounded rect + thin stroke), not yellow paper. Dragging/resizing persists
+/// the frame (`pinX/pinY/pinW/pinH`) via the manager; text edits save on the
+/// 700 ms debounce precedent and flush when focus leaves. The close button
+/// always confirms — unpin for a note with content, discard for an empty one.
 @MainActor
 final class StickyNotePanel: NSPanel {
 
     let noteID: UUID
     private let model = StickyModel()
 
-    /// Debounce slot for persisting the dragged position.
-    private var movePersist: DispatchWorkItem?
-    private var moveObserver: NSObjectProtocol?
+    /// Debounce slot for persisting the dragged/resized frame.
+    private var framePersist: DispatchWorkItem?
+    private var frameObservers: [NSObjectProtocol] = []
 
     /// Callbacks into the manager (which owns the store writes).
     var onTextCommit: ((UUID, String) -> Void)?
     var onToggleDone: ((UUID) -> Void)?
     var onUnpin: ((UUID) -> Void)?
-    var onMove: ((UUID, CGPoint) -> Void)?
+    var onFrameChange: ((UUID, CGRect) -> Void)?
     var onDelete: ((UUID) -> Void)?
 
     private static let log = Logger(subsystem: "com.shhhcribble.app", category: "sticky")
 
     static let defaultSize = NSSize(width: 260, height: 200)
+    static let minStickySize = NSSize(width: 180, height: 140)
+    static let maxStickySize = NSSize(width: 640, height: 640)
 
     init(note: Note) {
         self.noteID = note.id
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.defaultSize),
-            styleMask:   [.borderless, .nonactivatingPanel],
+            styleMask:   [.borderless, .nonactivatingPanel, .resizable],
             backing:     .buffered,
             defer:       false
         )
@@ -50,16 +61,20 @@ final class StickyNotePanel: NSPanel {
         level              = .floating
         backgroundColor    = .clear
         isOpaque           = false
-        hasShadow          = false
+        // Window-drawn shadow around the card's opaque shape — see the class
+        // doc for why this beats a SwiftUI .shadow here.
+        hasShadow          = true
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        // The manager's dictionary holds the only strong reference; NSPanel
-        // defaults releasedWhenClosed to true, which under ARC risks an
-        // over-release if anything ever close()s instead of orderOut()s.
-        isReleasedWhenClosed = false
         // The header row is the drag surface (the text editor claims drags in
         // its own area); background-drag makes the whole card grabbable
         // wherever SwiftUI doesn't swallow the mouse.
         isMovableByWindowBackground = true
+        minSize = Self.minStickySize
+        maxSize = Self.maxStickySize
+        // The manager's dictionary holds the only strong reference; NSPanel
+        // defaults releasedWhenClosed to true, which under ARC risks an
+        // over-release if anything ever close()s instead of orderOut()s.
+        isReleasedWhenClosed = false
 
         model.apply(note)
 
@@ -83,18 +98,25 @@ final class StickyNotePanel: NSPanel {
             }
         ))
         content.frame = NSRect(origin: .zero, size: Self.defaultSize)
+        // Track the panel as it resizes so the SwiftUI card always fills it.
+        content.autoresizingMask = [.width, .height]
         contentView = content
 
-        moveObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: self, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.schedulePersistPosition() }
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            frameObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: self, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.invalidateShadow()   // shadow shape follows the resize
+                    self?.schedulePersistFrame()
+                }
+            })
         }
     }
 
     deinit {
-        if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
-        movePersist?.cancel()
+        for observer in frameObservers { NotificationCenter.default.removeObserver(observer) }
+        framePersist?.cancel()
     }
 
     override var canBecomeKey: Bool { true }
@@ -110,10 +132,13 @@ final class StickyNotePanel: NSPanel {
         model.done = note.done
     }
 
-    /// Show at the note's persisted origin (clamped to a visible screen), or at
+    /// Show at the note's persisted frame (clamped to a visible screen), or at
     /// `preferredOrigin`, or centered-ish on the main screen.
-    func present(at origin: CGPoint?) {
-        let size = Self.defaultSize
+    func present(at origin: CGPoint?, size restoredSize: CGSize?) {
+        var size = restoredSize ?? CGSize(width: Self.defaultSize.width, height: Self.defaultSize.height)
+        size.width = min(max(size.width, minSize.width), maxSize.width)
+        size.height = min(max(size.height, minSize.height), maxSize.height)
+
         var point: CGPoint
         if let origin {
             point = origin
@@ -129,7 +154,7 @@ final class StickyNotePanel: NSPanel {
             point.x = min(max(point.x, f.minX), f.maxX - size.width)
             point.y = min(max(point.y, f.minY), f.maxY - size.height)
         }
-        setFrameOrigin(point)
+        setFrame(NSRect(origin: point, size: size), display: true)
         orderFront(nil)
     }
 
@@ -143,13 +168,13 @@ final class StickyNotePanel: NSPanel {
         NSScreen.screens.first { $0.visibleFrame.contains(point) }
     }
 
-    private func schedulePersistPosition() {
-        movePersist?.cancel()
+    private func schedulePersistFrame() {
+        framePersist?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.onMove?(self.noteID, self.frame.origin)
+            self.onFrameChange?(self.noteID, self.frame)
         }
-        movePersist = item
+        framePersist = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
     }
 }
@@ -214,7 +239,9 @@ final class StickyPanelManager {
                 panels[note.id] = panel
                 let origin: CGPoint? = (note.pinX != nil && note.pinY != nil)
                     ? CGPoint(x: note.pinX!, y: note.pinY!) : nil
-                panel.present(at: origin)
+                let size: CGSize? = (note.pinW != nil && note.pinH != nil)
+                    ? CGSize(width: note.pinW!, height: note.pinH!) : nil
+                panel.present(at: origin, size: size)
                 if pendingEditID == note.id {
                     pendingEditID = nil
                     panel.beginEditing()
@@ -237,14 +264,13 @@ final class StickyPanelManager {
         panel.onUnpin = { [weak self] id in
             self?.store.setNotePinned(id: id, pinned: false)
         }
-        panel.onMove = { [weak self] id, origin in
-            self?.store.updateNotePinOrigin(id: id, origin: origin)
+        panel.onFrameChange = { [weak self] id, frame in
+            self?.store.updateNotePinFrame(id: id, frame: frame)
         }
         panel.onDelete = { [weak self] id in
-            // An empty quick-add sticky closed without typing shouldn't leave a
-            // blank row in the Notes tab — deleting from the sticky is scoped
-            // to that case in the UI (the close button deletes only when empty,
-            // otherwise it unpins).
+            // Only reachable through the confirmed "Discard" path for an empty
+            // note — a sticky with content is unpinned instead, keeping the
+            // note in the Notes tab.
             self?.store.deleteNote(id: id)
         }
         return panel
@@ -262,6 +288,9 @@ final class StickyModel: ObservableObject {
     @Published var isEditing: Bool = false
     /// Bumped to request editor focus (quick-add).
     @Published var focusRequest: Int = 0
+    /// The close button always confirms; this drives the in-card overlay
+    /// (an NSAlert/sheet looks absurd on a tiny floating card).
+    @Published var showingCloseConfirm: Bool = false
 
     func apply(_ note: Note) {
         text = note.text
@@ -280,11 +309,16 @@ private struct StickyView: View {
     @FocusState private var textFocused: Bool
     @State private var saveTask: Task<Void, Never>?
 
+    private var isEmpty: Bool {
+        model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             editor
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(.regularMaterial)
@@ -293,8 +327,7 @@ private struct StickyView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.22), radius: 10, x: 0, y: 5)
-        .padding(6)   // transparent margin so the shadow doesn't clip
+        .overlay { closeConfirmOverlay }
         .onChange(of: model.focusRequest) { _, _ in
             textFocused = true
         }
@@ -331,13 +364,15 @@ private struct StickyView: View {
                 .help(model.done ? "Mark as not done" : "Mark as done")
             }
             Spacer(minLength: 0)
-            Button(action: { model.text.isEmpty ? onDelete() : onUnpin() }) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { model.showingCloseConfirm = true }
+            } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help(model.text.isEmpty ? "Discard" : "Unpin (keeps the note)")
+            .help(isEmpty ? "Discard" : "Unpin (keeps the note)")
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
@@ -356,6 +391,55 @@ private struct StickyView: View {
             .foregroundStyle(model.isTask && model.done ? Color.secondary : Color.primary)
             .padding(.horizontal, 6)
             .padding(.bottom, 8)
+    }
+
+    /// In-card confirmation for the close button — always asked, per the
+    /// universal destructive-confirm convention. Empty note → Discard
+    /// (deletes); note with content → Unpin (keeps it in the Notes tab).
+    @ViewBuilder
+    private var closeConfirmOverlay: some View {
+        if model.showingCloseConfirm {
+            VStack(spacing: 10) {
+                Text(isEmpty ? "Discard this empty note?" : "Close this sticky?")
+                    .font(.system(size: 12, weight: .semibold))
+                if !isEmpty {
+                    Text("The note stays in your Notes list.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                HStack(spacing: 8) {
+                    Button("Cancel") {
+                        withAnimation(.easeOut(duration: 0.15)) { model.showingCloseConfirm = false }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    if isEmpty {
+                        Button("Discard", role: .destructive) {
+                            model.showingCloseConfirm = false
+                            onDelete()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    } else {
+                        Button("Unpin") {
+                            model.showingCloseConfirm = false
+                            onUnpin()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.regularMaterial)
+            )
+            .transition(.opacity)
+        }
     }
 
     private func scheduleSave() {

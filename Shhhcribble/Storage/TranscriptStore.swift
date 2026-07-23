@@ -75,9 +75,12 @@ struct Note: Identifiable, Equatable {
     /// relaunch doesn't re-fire it. Snoozing sets a new `dueAt` and clears this.
     var reminderFiredAt: Date? = nil
     var pinned: Bool = false
-    /// Persisted sticky-panel origin (bottom-left, screen coordinates).
+    /// Persisted sticky-panel origin (bottom-left, screen coordinates) and
+    /// size (the sticky is user-resizable; nil = default size).
     var pinX: Double? = nil
     var pinY: Double? = nil
+    var pinW: Double? = nil
+    var pinH: Double? = nil
     var sourceTranscriptID: UUID? = nil
     var sourceActionItem: String? = nil
 
@@ -480,8 +483,8 @@ final class TranscriptStore: ObservableObject {
         guard exec("""
         INSERT INTO notes
         (id, createdAt, modifiedAt, text, isTask, done, completedAt, dueAt, reminderFiredAt,
-         pinned, pinX, pinY, sourceTranscriptID, sourceActionItem, position)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+         pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem, position)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, bind: { stmt in
             sqlite3_bind_text(stmt, 1, note.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, note.createdAt.timeIntervalSince1970)
@@ -495,9 +498,11 @@ final class TranscriptStore: ObservableObject {
             sqlite3_bind_int(stmt, 10, note.pinned ? 1 : 0)
             self.bindOptionalDouble(stmt, 11, note.pinX)
             self.bindOptionalDouble(stmt, 12, note.pinY)
-            self.bindOptionalText(stmt, 13, note.sourceTranscriptID?.uuidString)
-            self.bindOptionalText(stmt, 14, note.sourceActionItem)
-            sqlite3_bind_int(stmt, 15, Int32(position))
+            self.bindOptionalDouble(stmt, 13, note.pinW)
+            self.bindOptionalDouble(stmt, 14, note.pinH)
+            self.bindOptionalText(stmt, 15, note.sourceTranscriptID?.uuidString)
+            self.bindOptionalText(stmt, 16, note.sourceActionItem)
+            sqlite3_bind_int(stmt, 17, Int32(position))
         }) else { return }
         notes.append(note)
     }
@@ -513,7 +518,7 @@ final class TranscriptStore: ObservableObject {
         updated.modifiedAt = modifiedAt
         exec("""
         UPDATE notes SET modifiedAt = ?, text = ?, isTask = ?, done = ?, completedAt = ?,
-        dueAt = ?, reminderFiredAt = ?, pinned = ?, pinX = ?, pinY = ?,
+        dueAt = ?, reminderFiredAt = ?, pinned = ?, pinX = ?, pinY = ?, pinW = ?, pinH = ?,
         sourceTranscriptID = ?, sourceActionItem = ? WHERE id = ?;
         """) { stmt in
             sqlite3_bind_double(stmt, 1, updated.modifiedAt.timeIntervalSince1970)
@@ -526,9 +531,11 @@ final class TranscriptStore: ObservableObject {
             sqlite3_bind_int(stmt, 8, updated.pinned ? 1 : 0)
             self.bindOptionalDouble(stmt, 9, updated.pinX)
             self.bindOptionalDouble(stmt, 10, updated.pinY)
-            self.bindOptionalText(stmt, 11, updated.sourceTranscriptID?.uuidString)
-            self.bindOptionalText(stmt, 12, updated.sourceActionItem)
-            sqlite3_bind_text(stmt, 13, updated.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            self.bindOptionalDouble(stmt, 11, updated.pinW)
+            self.bindOptionalDouble(stmt, 12, updated.pinH)
+            self.bindOptionalText(stmt, 13, updated.sourceTranscriptID?.uuidString)
+            self.bindOptionalText(stmt, 14, updated.sourceActionItem)
+            sqlite3_bind_text(stmt, 15, updated.id.uuidString, -1, Self.SQLITE_TRANSIENT)
         }
         notes[idx] = updated
     }
@@ -566,13 +573,15 @@ final class TranscriptStore: ObservableObject {
         updateNote(note)
     }
 
-    /// Persist a sticky's dragged position without touching `modifiedAt`
-    /// semantics elsewhere (it's still an update; position moves aren't edits
+    /// Persist a sticky's dragged/resized frame without touching `modifiedAt`
+    /// semantics elsewhere (it's still an update; frame moves aren't edits
     /// worth surfacing, but the single write path keeps the code simple).
-    func updateNotePinOrigin(id: UUID, origin: CGPoint) {
+    func updateNotePinFrame(id: UUID, frame: CGRect) {
         guard var note = notes.first(where: { $0.id == id }) else { return }
-        note.pinX = origin.x
-        note.pinY = origin.y
+        note.pinX = frame.origin.x
+        note.pinY = frame.origin.y
+        note.pinW = frame.size.width
+        note.pinH = frame.size.height
         updateNote(note, modifiedAt: note.modifiedAt)
     }
 
@@ -791,6 +800,8 @@ final class TranscriptStore: ObservableObject {
             pinned INTEGER NOT NULL DEFAULT 0,
             pinX REAL,
             pinY REAL,
+            pinW REAL,
+            pinH REAL,
             sourceTranscriptID TEXT,
             sourceActionItem TEXT,
             position INTEGER NOT NULL
@@ -894,17 +905,30 @@ final class TranscriptStore: ObservableObject {
             log.notice("Migrated schema to v7 (notes table).")
             version = 7
         }
+
+        if version < 8 {
+            // Sticky size columns. A fresh DB already has them from
+            // `createSchema`; a v7 DB (the notes table's first cut) gets them
+            // ALTERed in here.
+            guard addColumns([("pinW", "REAL"), ("pinH", "REAL")], to: "notes") else {
+                log.error("Schema v8 migration incomplete; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            exec("PRAGMA user_version = 8;", bind: nil)
+            log.notice("Migrated schema to v8 (sticky size columns).")
+            version = 8
+        }
     }
 
-    /// Add each column to `transcripts` only if it's missing (idempotent, so a
+    /// Add each column to `table` only if it's missing (idempotent, so a
     /// retried migration doesn't fail on "duplicate column name"). Returns true
     /// only when every requested column is present afterward. Names/types are
     /// code literals, not user input — safe to inline.
-    private func addColumns(_ columns: [(name: String, type: String)]) -> Bool {
-        let existing = existingColumns(of: "transcripts")
+    private func addColumns(_ columns: [(name: String, type: String)], to table: String = "transcripts") -> Bool {
+        let existing = existingColumns(of: table)
         var allAdded = true
         for column in columns where !existing.contains(column.name) {
-            if !exec("ALTER TABLE transcripts ADD COLUMN \(column.name) \(column.type);", bind: nil) {
+            if !exec("ALTER TABLE \(table) ADD COLUMN \(column.name) \(column.type);", bind: nil) {
                 allAdded = false
             }
         }
@@ -1013,7 +1037,7 @@ final class TranscriptStore: ObservableObject {
         var rows: [Note] = []
         forEachRow("""
         SELECT id, createdAt, modifiedAt, text, isTask, done, completedAt, dueAt,
-               reminderFiredAt, pinned, pinX, pinY, sourceTranscriptID, sourceActionItem
+               reminderFiredAt, pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem
         FROM notes ORDER BY position ASC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
@@ -1031,8 +1055,10 @@ final class TranscriptStore: ObservableObject {
             note.pinned = sqlite3_column_int(stmt, 9) != 0
             note.pinX = Self.columnDouble(stmt, 10)
             note.pinY = Self.columnDouble(stmt, 11)
-            note.sourceTranscriptID = Self.columnText(stmt, 12).flatMap(UUID.init(uuidString:))
-            note.sourceActionItem = Self.columnText(stmt, 13)
+            note.pinW = Self.columnDouble(stmt, 12)
+            note.pinH = Self.columnDouble(stmt, 13)
+            note.sourceTranscriptID = Self.columnText(stmt, 14).flatMap(UUID.init(uuidString:))
+            note.sourceActionItem = Self.columnText(stmt, 15)
             rows.append(note)
         }
         notes = rows
