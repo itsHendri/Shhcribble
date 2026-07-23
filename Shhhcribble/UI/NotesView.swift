@@ -1,12 +1,14 @@
 import SwiftUI
 import AppKit
 
-/// The Notes tab — a master-detail environment deliberately templated on the
-/// Transcriptions pane (same searchable list on the left, same detail-with-
-/// actions on the right, same floating glass action button, same toast and
-/// confirm conventions). One converged list over the store's `Note` entity: a
-/// **task** is a note with a checkbox (optional due-time reminder), a
-/// **sticky** is a note pinned to the screen as a floating panel.
+/// The Notes module — a master-detail environment deliberately templated on
+/// the Transcriptions pane (same searchable list on the left, same
+/// detail-with-actions on the right, same floating glass action button, same
+/// toast and confirm conventions).
+///
+/// Notes are rich text: **⌘B/⌘I/⌘U** style the selection (via the Format menu
+/// `AppDelegate` installs) and URLs become clickable blue links. Tasks and
+/// reminders were cut 2026-07-23 — this is plain note-taking for now.
 struct NotesView: View {
     @ObservedObject var store: TranscriptStore
 
@@ -56,7 +58,6 @@ struct NotesView: View {
                 ForEach(filtered) { note in
                     NoteRow(note: note,
                             hovered: hoveredID == note.id,
-                            onToggleDone: { store.toggleNoteDone(id: note.id) },
                             onCopy: { copyNote(note) })
                         .contentShape(Rectangle())
                         .onTapGesture { selectedID = note.id }
@@ -75,7 +76,7 @@ struct NotesView: View {
                     ContentUnavailableView(
                         "No notes yet",
                         systemImage: "note.text",
-                        description: Text("Add a note here, or promote an action item from a transcript's Summary tab.")
+                        description: Text("Add a note here, or send an action item over from a transcript's Summary tab.")
                     )
                 } else if filtered.isEmpty {
                     ContentUnavailableView.search(text: searchText)
@@ -149,8 +150,8 @@ struct NotesView: View {
 
     // MARK: - Actions
 
-    /// Create a fresh empty note and select it — the detail editor is where
-    /// the typing happens (template: transcriptions never edit in the list).
+    /// Create a fresh empty note and select it — the detail editor is where the
+    /// typing happens (template: transcriptions never edit in the list).
     private func addNote() {
         let note = Note(text: "")
         store.addNote(note)
@@ -185,43 +186,26 @@ struct NotesView: View {
 
 /// One row in the notes list — mirrors `TranscriptRow`: a single-line title
 /// with a fixed-width trailing slot that shows the date normally and a copy
-/// button on hover, so the title never reflows. Tasks add a leading checkbox;
-/// pinned/reminder state shows as small trailing glyphs in the title line.
+/// button on hover, so the title never reflows.
 private struct NoteRow: View {
     let note: Note
     var hovered: Bool = false
-    var onToggleDone: () -> Void = {}
     var onCopy: () -> Void = {}
 
     private let trailingWidth: CGFloat = 72
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            if note.isTask {
-                Button(action: onToggleDone) {
-                    Image(systemName: note.done ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 14))
-                        .foregroundStyle(note.done ? Color.accentColor : Color.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help(note.done ? "Mark as not done" : "Mark as done")
-            }
             HStack(spacing: 5) {
                 Text(NotesView.preview(note.text))
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .strikethrough(note.done, color: .secondary)
-                    .foregroundStyle(note.done ? Color.secondary : Color.primary)
                 if note.pinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
-                }
-                if note.hasArmedReminder {
-                    Image(systemName: "bell.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
+                        .help("Pinned to your screen")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -254,42 +238,39 @@ private struct NoteRow: View {
 
 // MARK: - Detail
 
-/// The detail pane: an editable note with the same header shape as
+/// The detail pane: a rich-text note with the same header shape as
 /// `TranscriptDetail` — icon + title + meta line on the left, Copy / Save /
-/// Delete on the right — plus a compact controls row (task, reminder, pin)
-/// and an auto-saving editor (700 ms debounce, flush on disappear).
+/// Delete on the right — over an auto-saving editor (700 ms debounce, flush on
+/// disappear and on focus loss).
 private struct NoteDetail: View {
     let note: Note
     @ObservedObject var store: TranscriptStore
     var onCopy: () -> Void
 
-    @State private var text = ""
+    @State private var attributed = NSAttributedString(string: "")
     @State private var saveTask: Task<Void, Never>?
     @State private var showingDeleteConfirm = false
-    @FocusState private var editorFocused: Bool
+
+    private static let editorFont = NSFont.systemFont(ofSize: 13)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            controls
-            Divider()
-            TextEditor(text: $text)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .focused($editorFocused)
-                .padding(10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            RichTextEditor(
+                attributed: $attributed,
+                font: Self.editorFont,
+                onFocusChange: { focused in if !focused { saveNow() } }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         // Seed once; the view is keyed by note id, so a different note builds a
-        // fresh instance. `saveNow` guards on `text != note.text`, which also
+        // fresh instance. `saveNow` guards on an actual change, which also
         // breaks the feedback loop when the store re-publishes the row.
         .onAppear {
-            text = note.text
-            // A freshly-added empty note goes straight to typing.
-            if note.text.isEmpty { editorFocused = true }
+            attributed = RichText.attributed(from: note.richText, plain: note.text, font: Self.editorFont)
         }
-        .onChange(of: text) { _, _ in scheduleSave() }
+        .onChange(of: attributed) { _, _ in scheduleSave() }
         .onDisappear {
             saveTask?.cancel()
             saveNow()
@@ -306,33 +287,51 @@ private struct NoteDetail: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: note.isTask ? "checkmark.circle" : "note.text")
-                        .foregroundStyle(note.isTask ? Color.accentColor : Color.secondary)
-                    Text(NotesView.preview(note.text)).font(.headline).lineLimit(1)
-                    if note.sourceTranscriptID != nil {
-                        sourceTag
-                    }
+                    Image(systemName: "note.text")
+                        .foregroundStyle(.secondary)
+                    Text(NotesView.preview(attributed.string)).font(.headline).lineLimit(1)
+                    if note.pinned { tag("Pinned") }
+                    if note.sourceTranscriptID != nil { tag("From transcript") }
                 }
                 Text(metaLine).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             HStack(spacing: 6) {
+                pinButton
                 Button(action: { saveNow(); onCopy() }) { Image(systemName: "doc.on.doc") }
+                    .buttonStyle(.borderless)
                     .help("Copy note")
                 Button(action: saveTxt) { Image(systemName: "square.and.arrow.down") }
+                    .buttonStyle(.borderless)
                     .help("Save as .txt")
                 Button(role: .destructive) { showingDeleteConfirm = true } label: { Image(systemName: "trash") }
+                    .buttonStyle(.borderless)
                     .help("Delete note")
             }
-            .buttonStyle(.borderless)
         }
         .padding(12)
     }
 
-    /// Small capsule marking a task promoted from a transcript's action items
-    /// (same shape as the transcript style tag).
-    private var sourceTag: some View {
-        Text("from transcript")
+    /// The pin control names the action it performs, never the current state —
+    /// a button that still reads "Pin to Screen" once pinned (and only turns
+    /// blue) leaves you guessing what clicking it does. Current state is shown
+    /// by the "Pinned" tag beside the title and the list row's pin glyph.
+    private var pinButton: some View {
+        Button {
+            store.setNotePinned(id: note.id, pinned: !note.pinned)
+        } label: {
+            Label(note.pinned ? "Unpin" : "Pin to Screen",
+                  systemImage: note.pinned ? "pin.slash" : "pin")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help(note.pinned ? "Remove the floating sticky (the note stays here)"
+                          : "Show this note as a floating sticky")
+    }
+
+    /// Small neutral capsule, same shape as the transcript style tag.
+    private func tag(_ label: String) -> some View {
+        Text(label)
             .font(.caption2).fontWeight(.semibold)
             .lineLimit(1)
             .padding(.horizontal, 7).padding(.vertical, 2)
@@ -343,90 +342,13 @@ private struct NoteDetail: View {
 
     private var metaLine: String {
         var parts = [note.createdAt.formatted(date: .abbreviated, time: .shortened)]
-        if note.isTask, let due = note.dueAt {
-            let overdue = !note.done && due < Date()
-            parts.append("\(overdue ? "Overdue — was due" : "Due") \(due.formatted(date: .abbreviated, time: .shortened))")
-        }
-        if note.done, let at = note.completedAt {
-            parts.append("Completed \(at.formatted(date: .abbreviated, time: .shortened))")
+        if note.modifiedAt.timeIntervalSince(note.createdAt) > 1 {
+            parts.append("Edited \(note.modifiedAt.formatted(date: .abbreviated, time: .shortened))")
         }
         return parts.joined(separator: " · ")
     }
 
-    /// Task / reminder / pin controls — write straight to the store; the row
-    /// republish keeps every surface (list, stickies, Summary tab) in sync.
-    private var controls: some View {
-        HStack(spacing: 16) {
-            Toggle("Task", isOn: Binding(
-                get: { note.isTask },
-                set: { isTask in
-                    var updated = note
-                    updated.isTask = isTask
-                    if !isTask {
-                        updated.done = false
-                        updated.completedAt = nil
-                        updated.dueAt = nil
-                        updated.reminderFiredAt = nil
-                    }
-                    store.updateNote(updated)
-                }
-            ))
-            .toggleStyle(.checkbox)
-
-            if note.isTask {
-                Toggle("Done", isOn: Binding(
-                    get: { note.done },
-                    set: { _ in store.toggleNoteDone(id: note.id) }
-                ))
-                .toggleStyle(.checkbox)
-
-                Toggle("Remind", isOn: Binding(
-                    get: { note.dueAt != nil },
-                    set: { remind in
-                        var updated = note
-                        updated.dueAt = remind ? Self.defaultDueDate() : nil
-                        updated.reminderFiredAt = nil
-                        store.updateNote(updated)
-                    }
-                ))
-                .toggleStyle(.checkbox)
-
-                if let due = note.dueAt {
-                    DatePicker("When", selection: Binding(
-                        get: { due },
-                        set: { newDue in
-                            var updated = note
-                            updated.dueAt = newDue
-                            updated.reminderFiredAt = nil   // a new time re-arms
-                            store.updateNote(updated)
-                        }
-                    ), displayedComponents: [.date, .hourAndMinute])
-                    .datePickerStyle(.compact)
-                    .labelsHidden()
-                }
-            }
-
-            Spacer()
-
-            Toggle(isOn: Binding(
-                get: { note.pinned },
-                set: { store.setNotePinned(id: note.id, pinned: $0) }
-            )) {
-                Label("Pin to screen", systemImage: note.pinned ? "pin.fill" : "pin")
-            }
-            .toggleStyle(.button)
-            .help(note.pinned ? "Unpin the floating sticky" : "Show as a floating sticky")
-        }
-        .font(.callout)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    /// Next round hour — a sane default when "Remind" is first switched on.
-    private static func defaultDueDate() -> Date {
-        Calendar.current.nextDate(after: Date(), matching: DateComponents(minute: 0),
-                                  matchingPolicy: .nextTime) ?? Date().addingTimeInterval(3600)
-    }
+    // MARK: - Saving
 
     private func scheduleSave() {
         saveTask?.cancel()
@@ -437,10 +359,15 @@ private struct NoteDetail: View {
         }
     }
 
+    /// Persist the rich body plus its plain-text mirror. No-ops when nothing
+    /// changed, which is what stops the store's republish from looping back.
     private func saveNow() {
-        guard text != note.text,
-              var current = store.notes.first(where: { $0.id == note.id }) else { return }
-        current.text = text
+        guard var current = store.notes.first(where: { $0.id == note.id }) else { return }
+        let plain = attributed.string
+        let rich = RichText.data(from: attributed)
+        guard plain != current.text || rich != current.richText else { return }
+        current.text = plain
+        current.richText = rich
         store.updateNote(current)
     }
 
@@ -448,9 +375,9 @@ private struct NoteDetail: View {
         saveNow()
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "\(NotesView.preview(text)).txt"
+        panel.nameFieldStringValue = "\(NotesView.preview(attributed.string)).txt"
         if panel.runModal() == .OK, let url = panel.url {
-            try? text.write(to: url, atomically: true, encoding: .utf8)
+            try? attributed.string.write(to: url, atomically: true, encoding: .utf8)
         }
     }
 }

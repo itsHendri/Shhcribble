@@ -43,9 +43,6 @@ final class MenuBarController: NSObject {
     weak var delegate: MenuBarControllerDelegate?
     private var isRecording = false
     private var updateBadged = false
-    /// A task reminder has fired and hasn't been attended to yet (banner acted
-    /// on, or the Studio window opened). Drives the reminder tint.
-    private var reminderBadged = false
     /// App name of a pending call-transcription offer (drives the amber tint +
     /// the right-click "Transcribe <App> Call" item), or nil when none.
     private var callOfferAppName: String?
@@ -222,20 +219,11 @@ final class MenuBarController: NSObject {
         applyTint()
     }
 
-    /// Persistent amber tint while a fired task reminder awaits attention —
-    /// the durable signal once the reminder banner has auto-dismissed. Cleared
-    /// when the banner is acted on or the Studio window is opened.
-    func setReminderBadge(visible: Bool) {
-        reminderBadged = visible
-        applyTint()
-    }
-
-    /// Recording red > pending call-offer blue > reminder amber > update-pending amber > default.
+    /// Recording red > pending call-offer blue > update-pending amber > default.
     private func applyTint() {
         guard let button = statusItem.button else { return }
         if isRecording { button.contentTintColor = .systemRed }
         else if callOfferAppName != nil { button.contentTintColor = .systemBlue }
-        else if reminderBadged { button.contentTintColor = .systemOrange }
         else if updateBadged { button.contentTintColor = .systemOrange }
         else { button.contentTintColor = nil }
     }

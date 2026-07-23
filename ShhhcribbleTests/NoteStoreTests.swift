@@ -2,10 +2,17 @@ import XCTest
 import SQLite3
 @testable import Shhhcribble
 
-/// Tests for the `notes` table CRUD (Notes + Tasks program, schema v7).
-/// In-memory DB for pure CRUD; a temp file for persistence round-trips.
+/// Tests for the `notes` table CRUD (Notes module). In-memory DB for pure
+/// CRUD; a temp file for persistence round-trips and migrations.
 @MainActor
 final class NoteStoreTests: XCTestCase {
+
+    private let transcriptNotesFlag = "didMigrateTranscriptNotesToNotes"
+
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: transcriptNotesFlag)
+        super.tearDown()
+    }
 
     private func makeStore() -> TranscriptStore { TranscriptStore(path: ":memory:") }
 
@@ -22,26 +29,20 @@ final class NoteStoreTests: XCTestCase {
 
     func testAddAndUpdateNote() {
         let store = makeStore()
-        var note = Note(text: "buy milk")
-        note.isTask = true
-        store.addNote(note)
+        store.addNote(Note(text: "buy milk"))
         XCTAssertEqual(store.notes.count, 1)
         XCTAssertEqual(store.notes.first?.text, "buy milk")
-        XCTAssertEqual(store.notes.first?.isTask, true)
 
         var updated = store.notes[0]
         updated.text = "buy oat milk"
-        updated.dueAt = Date(timeIntervalSince1970: 2_000_000_000)
         store.updateNote(updated)
         XCTAssertEqual(store.notes.first?.text, "buy oat milk")
-        XCTAssertEqual(store.notes.first?.dueAt, Date(timeIntervalSince1970: 2_000_000_000))
     }
 
     func testUpdateNoteStampsModifiedAt() {
         let store = makeStore()
         let created = Date(timeIntervalSince1970: 1_000)
-        let note = Note(createdAt: created, modifiedAt: created, text: "n")
-        store.addNote(note)
+        store.addNote(Note(createdAt: created, modifiedAt: created, text: "n"))
 
         let later = Date(timeIntervalSince1970: 5_000)
         var updated = store.notes[0]
@@ -56,12 +57,8 @@ final class NoteStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         let store = TranscriptStore(path: path)
-        var note = Note(text: "pinned task")
-        note.isTask = true
-        note.done = true
-        note.completedAt = Date(timeIntervalSince1970: 42)
-        note.dueAt = Date(timeIntervalSince1970: 99)
-        note.reminderFiredAt = Date(timeIntervalSince1970: 100)
+        var note = Note(text: "pinned note")
+        note.richText = Data("not-real-rtf-but-a-blob".utf8)
         note.pinned = true
         note.pinX = 120.5
         note.pinY = 340.25
@@ -76,12 +73,8 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(reopened.notes.count, 1)
         let r = reopened.notes[0]
         XCTAssertEqual(r.id, note.id)
-        XCTAssertEqual(r.text, "pinned task")
-        XCTAssertTrue(r.isTask)
-        XCTAssertTrue(r.done)
-        XCTAssertEqual(r.completedAt, Date(timeIntervalSince1970: 42))
-        XCTAssertEqual(r.dueAt, Date(timeIntervalSince1970: 99))
-        XCTAssertEqual(r.reminderFiredAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(r.text, "pinned note")
+        XCTAssertEqual(r.richText, note.richText)
         XCTAssertTrue(r.pinned)
         XCTAssertEqual(r.pinX, 120.5)
         XCTAssertEqual(r.pinY, 340.25)
@@ -112,38 +105,7 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(again.notes.map { $0.text }, ["b", "c", "d"])
     }
 
-    // MARK: - Task semantics
-
-    func testToggleDoneStampsAndClearsCompletedAt() {
-        let store = makeStore()
-        var note = Note(text: "t")
-        note.isTask = true
-        store.addNote(note)
-
-        store.toggleNoteDone(id: note.id)
-        XCTAssertTrue(store.notes[0].done)
-        XCTAssertNotNil(store.notes[0].completedAt)
-
-        store.toggleNoteDone(id: note.id)
-        XCTAssertFalse(store.notes[0].done)
-        XCTAssertNil(store.notes[0].completedAt)
-    }
-
-    func testSnoozeReArmsFiredReminder() {
-        let store = makeStore()
-        var note = Note(text: "t")
-        note.isTask = true
-        note.dueAt = Date(timeIntervalSince1970: 100)
-        store.addNote(note)
-        store.markNoteReminderFired(id: note.id, at: Date(timeIntervalSince1970: 101))
-        XCTAssertFalse(store.notes[0].hasArmedReminder)
-
-        let snoozeUntil = Date(timeIntervalSince1970: 700)
-        store.snoozeNote(id: note.id, until: snoozeUntil)
-        XCTAssertEqual(store.notes[0].dueAt, snoozeUntil)
-        XCTAssertNil(store.notes[0].reminderFiredAt)
-        XCTAssertTrue(store.notes[0].hasArmedReminder)
-    }
+    // MARK: - Pinning
 
     func testSetPinnedKeepsLastOriginAcrossUnpin() {
         let store = makeStore()
@@ -158,16 +120,27 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(store.notes[0].pinX, 10)   // origin survives for re-pin
     }
 
-    // MARK: - Schema v7 → v8 (sticky size columns)
+    func testUpdatePinFrameStoresOriginAndSize() {
+        let store = makeStore()
+        let note = Note(text: "sticky")
+        store.addNote(note)
+        store.updateNotePinFrame(id: note.id, frame: CGRect(x: 5, y: 6, width: 300, height: 240))
+        XCTAssertEqual(store.notes[0].pinX, 5)
+        XCTAssertEqual(store.notes[0].pinY, 6)
+        XCTAssertEqual(store.notes[0].pinW, 300)
+        XCTAssertEqual(store.notes[0].pinH, 240)
+    }
 
-    /// A DB whose notes table predates the sticky-size columns (the v7 first
-    /// cut) must get `pinW`/`pinH` ALTERed in and reach the latest version —
-    /// this is the shape of any dev machine that ran the branch pre-resize.
-    func testV7NotesTableGainsSizeColumns() throws {
+    // MARK: - Legacy notes-table migration (v7 shape → current)
+
+    /// A DB whose notes table predates the sticky-size and rich-text columns
+    /// (the v7 first cut) must get them ALTERed in, keep its rows, and reach
+    /// the latest version — this is the shape of any machine that ran an
+    /// earlier build of this branch.
+    func testV7NotesTableGainsLaterColumns() throws {
         let path = tempDBPath()
         defer { try? FileManager.default.removeItem(atPath: path) }
 
-        // Seed a v7-shaped notes table (no pinW/pinH) with one pinned row.
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
         let ddl = """
@@ -193,30 +166,64 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(store.notes.count, 1)
         XCTAssertEqual(store.notes.first?.text, "old sticky")
         XCTAssertEqual(store.notes.first?.pinX, 40)
-        XCTAssertNil(store.notes.first?.pinW)   // new column, NULL for old rows
+        XCTAssertNil(store.notes.first?.pinW)       // new columns, NULL for old rows
+        XCTAssertNil(store.notes.first?.richText)
 
         // The new columns are fully writable end to end.
+        var updated = store.notes[0]
+        updated.richText = Data("blob".utf8)
+        store.updateNote(updated)
         store.updateNotePinFrame(id: UUID(uuidString: noteID)!,
                                  frame: CGRect(x: 10, y: 20, width: 300, height: 240))
         let reopened = TranscriptStore(path: path)
         XCTAssertEqual(reopened.notes.first?.pinW, 300)
         XCTAssertEqual(reopened.notes.first?.pinH, 240)
+        XCTAssertEqual(reopened.notes.first?.richText, Data("blob".utf8))
     }
 
-    // MARK: - Action-item promotion
+    // MARK: - Transcript-notes migration
 
-    func testPromoteActionItemCreatesLinkedTask() {
+    func testTranscriptNotesMigrateIntoStandaloneNotes() {
+        let store = makeStore()
+        let withNotes = store.addDictation(text: "meeting body", rawText: "raw")
+        store.updateNotes(id: withNotes.id, notes: "my own thoughts")
+        store.addDictation(text: "no notes here", rawText: "raw")
+
+        UserDefaults.standard.removeObject(forKey: transcriptNotesFlag)
+        store.migrateTranscriptNotesIfNeeded()
+
+        XCTAssertEqual(store.notes.count, 1)
+        XCTAssertEqual(store.notes[0].text, "my own thoughts")
+        XCTAssertEqual(store.notes[0].sourceTranscriptID, withNotes.id)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: transcriptNotesFlag))
+    }
+
+    func testTranscriptNotesMigrationIsIdempotent() {
+        let store = makeStore()
+        let t = store.addDictation(text: "body", rawText: "raw")
+        store.updateNotes(id: t.id, notes: "keep me")
+
+        UserDefaults.standard.removeObject(forKey: transcriptNotesFlag)
+        store.migrateTranscriptNotesIfNeeded()
+        UserDefaults.standard.removeObject(forKey: transcriptNotesFlag)   // simulate an interrupted run
+        store.migrateTranscriptNotesIfNeeded()
+
+        XCTAssertEqual(store.notes.count, 1)   // the sentinel key stops a duplicate
+    }
+
+    // MARK: - Action items → Notes
+
+    func testAddActionItemCreatesLinkedNote() {
         let store = makeStore()
         let tid = UUID()
         let note = store.promoteActionItem(transcriptID: tid, item: "Email Sam the doc")
-        XCTAssertTrue(note.isTask)
         XCTAssertEqual(note.text, "Email Sam the doc")
         XCTAssertEqual(note.sourceTranscriptID, tid)
         XCTAssertEqual(note.sourceActionItem, "Email Sam the doc")
         XCTAssertEqual(store.notes.count, 1)
     }
 
-    func testPromoteActionItemIsIdempotent() {
+    func testAddActionItemIsIdempotent() {
         let store = makeStore()
         let tid = UUID()
         let first = store.promoteActionItem(transcriptID: tid, item: "same item")
@@ -224,7 +231,7 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(first.id, second.id)
         XCTAssertEqual(store.notes.count, 1)
 
-        // Same wording from a DIFFERENT transcript is a distinct task.
+        // Same wording from a DIFFERENT transcript is a distinct note.
         store.promoteActionItem(transcriptID: UUID(), item: "same item")
         XCTAssertEqual(store.notes.count, 2)
     }
@@ -238,7 +245,7 @@ final class NoteStoreTests: XCTestCase {
         edited.text = "call the bank about the mortgage — before Friday"
         store.updateNote(edited)
 
-        // The Summary tab resolves promotion state by the verbatim snapshot,
+        // The Summary tab resolves "already added" by the verbatim snapshot,
         // not the (now edited) note text.
         XCTAssertEqual(store.noteForActionItem(transcriptID: tid, item: "call the bank")?.id, note.id)
     }

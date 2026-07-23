@@ -17,10 +17,9 @@
 		CF000042000000000000001A /* SoundwavePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000027000000000000001A /* SoundwavePanel.swift */; };
 		CF0000FC000000000000001A /* CallOfferPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000FB000000000000001A /* CallOfferPanel.swift */; };
 		CF000102000000000000001A /* FirstMouseHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000101000000000000001A /* FirstMouseHostingView.swift */; };
-		CF000104000000000000001A /* ReminderPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000103000000000000001A /* ReminderPanel.swift */; };
 		CF000106000000000000001A /* StickyNotePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000105000000000000001A /* StickyNotePanel.swift */; };
+		CF000116000000000000001A /* RichTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000115000000000000001A /* RichTextEditor.swift */; };
 		CF000108000000000000001A /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000107000000000000001A /* NotesView.swift */; };
-		CF000110000000000000001A /* ReminderScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000109000000000000001A /* ReminderScheduler.swift */; };
 		CF000043000000000000001A /* SoundwaveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000028000000000000001A /* SoundwaveView.swift */; };
 		CF000044000000000000001A /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000029000000000000001A /* MenuBarController.swift */; };
 		CF000045000000000000001A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000030000000000000001A /* SettingsView.swift */; };
@@ -58,7 +57,7 @@
 		CFE00061000000000000001A /* ActivationModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00060000000000000001A /* ActivationModeTests.swift */; };
 		CFE00081000000000000001A /* CallDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00080000000000000001A /* CallDetectorTests.swift */; };
 		CF000112000000000000001A /* NoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000111000000000000001A /* NoteStoreTests.swift */; };
-		CF000114000000000000001A /* ReminderPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000113000000000000001A /* ReminderPlannerTests.swift */; };
+		CF000118000000000000001A /* RichTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000117000000000000001A /* RichTextTests.swift */; };
 		CF0000E1000000000000001A /* TranscriptSummarizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */; };
 		CFE00016000000000000001A /* TranscriptPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00006000000000000001A /* TranscriptPipeline.swift */; };
 /* End PBXBuildFile section */
@@ -85,10 +84,9 @@
 		CF000027000000000000001A /* SoundwavePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundwavePanel.swift; sourceTree = "<group>"; };
 		CF0000FB000000000000001A /* CallOfferPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallOfferPanel.swift; sourceTree = "<group>"; };
 		CF000101000000000000001A /* FirstMouseHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMouseHostingView.swift; sourceTree = "<group>"; };
-		CF000103000000000000001A /* ReminderPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderPanel.swift; sourceTree = "<group>"; };
 		CF000105000000000000001A /* StickyNotePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyNotePanel.swift; sourceTree = "<group>"; };
+		CF000115000000000000001A /* RichTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichTextEditor.swift; sourceTree = "<group>"; };
 		CF000107000000000000001A /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
-		CF000109000000000000001A /* ReminderScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderScheduler.swift; sourceTree = "<group>"; };
 		CF000028000000000000001A /* SoundwaveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundwaveView.swift; sourceTree = "<group>"; };
 		CF000029000000000000001A /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		CF000030000000000000001A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -127,7 +125,7 @@
 		CFE00060000000000000001A /* ActivationModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationModeTests.swift; sourceTree = "<group>"; };
 		CFE00080000000000000001A /* CallDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallDetectorTests.swift; sourceTree = "<group>"; };
 		CF000111000000000000001A /* NoteStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStoreTests.swift; sourceTree = "<group>"; };
-		CF000113000000000000001A /* ReminderPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderPlannerTests.swift; sourceTree = "<group>"; };
+		CF000117000000000000001A /* RichTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichTextTests.swift; sourceTree = "<group>"; };
 		CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSummarizerTests.swift; sourceTree = "<group>"; };
 		CFE00006000000000000001A /* TranscriptPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPipeline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -196,7 +194,7 @@
 				CFE00060000000000000001A /* ActivationModeTests.swift */,
 				CFE00080000000000000001A /* CallDetectorTests.swift */,
 				CF000111000000000000001A /* NoteStoreTests.swift */,
-				CF000113000000000000001A /* ReminderPlannerTests.swift */,
+				CF000117000000000000001A /* RichTextTests.swift */,
 				CF0000E0000000000000001A /* TranscriptSummarizerTests.swift */,
 				CF0000E6000000000000001A /* PromptFenceTests.swift */,
 				CF0000EA000000000000001A /* FeedbackReportTests.swift */,
@@ -209,7 +207,6 @@
 			children = (
 				CF000020000000000000001A /* main.swift */,
 				CF000021000000000000001A /* AppDelegate.swift */,
-				CF000109000000000000001A /* ReminderScheduler.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -274,8 +271,8 @@
 				CF0000EC000000000000001A /* DesignSystem.swift */,
 				CF0000F9000000000000001A /* StylesView.swift */,
 				CF000101000000000000001A /* FirstMouseHostingView.swift */,
-				CF000103000000000000001A /* ReminderPanel.swift */,
 				CF000105000000000000001A /* StickyNotePanel.swift */,
+				CF000115000000000000001A /* RichTextEditor.swift */,
 				CF000107000000000000001A /* NotesView.swift */,
 			);
 			path = UI;
@@ -423,10 +420,9 @@
 				CF000042000000000000001A /* SoundwavePanel.swift in Sources */,
 				CF0000FC000000000000001A /* CallOfferPanel.swift in Sources */,
 				CF000102000000000000001A /* FirstMouseHostingView.swift in Sources */,
-				CF000104000000000000001A /* ReminderPanel.swift in Sources */,
 				CF000106000000000000001A /* StickyNotePanel.swift in Sources */,
+				CF000116000000000000001A /* RichTextEditor.swift in Sources */,
 				CF000108000000000000001A /* NotesView.swift in Sources */,
-				CF000110000000000000001A /* ReminderScheduler.swift in Sources */,
 				CF000043000000000000001A /* SoundwaveView.swift in Sources */,
 				CF000044000000000000001A /* MenuBarController.swift in Sources */,
 				CF000045000000000000001A /* SettingsView.swift in Sources */,
@@ -463,7 +459,7 @@
 				CFE00061000000000000001A /* ActivationModeTests.swift in Sources */,
 				CFE00081000000000000001A /* CallDetectorTests.swift in Sources */,
 				CF000112000000000000001A /* NoteStoreTests.swift in Sources */,
-				CF000114000000000000001A /* ReminderPlannerTests.swift in Sources */,
+				CF000118000000000000001A /* RichTextTests.swift in Sources */,
 				CF0000E1000000000000001A /* TranscriptSummarizerTests.swift in Sources */,
 				CF0000E7000000000000001A /* PromptFenceTests.swift in Sources */,
 				CF0000EB000000000000001A /* FeedbackReportTests.swift in Sources */,

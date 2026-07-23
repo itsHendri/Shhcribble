@@ -183,7 +183,7 @@ final class CallOfferPanel: NSPanel {
 }
 
 // (FirstMouseHostingView moved to its own file — it's now shared with
-// ReminderPanel and StickyNotePanel.)
+// StickyNotePanel.)
 
 // MARK: - View model + view
 

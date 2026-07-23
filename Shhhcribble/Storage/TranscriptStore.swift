@@ -53,27 +53,33 @@ struct Transcript: Identifiable, Equatable {
     }
 }
 
-/// One converged note/task/sticky (the Notes + Tasks program, 2026-07-23).
-/// A **task** is a note with `isTask` (checkable, optional `dueAt` reminder);
-/// a **sticky** is a note with `pinned` (floating panel at `pinX`/`pinY`).
-/// A note promoted from a transcript's AI action items carries
+/// One note — the Notes module's single entity (2026-07-23).
+///
+/// `text` is the **plain-text mirror** (search, list previews, copy, .txt
+/// export); `richText` is the RTF blob carrying bold/italic/underline and link
+/// runs, `nil` until the note is saved from the rich editor. `text` is always
+/// kept in sync with the rich content, so every read-only surface can ignore
+/// `richText` entirely.
+///
+/// A **sticky** is a note with `pinned` (floating panel at `pinX`/`pinY`, sized
+/// `pinW`/`pinH`). A note added from a transcript's AI action items carries
 /// `sourceTranscriptID` + the verbatim `sourceActionItem` string, which is how
-/// the Summary tab resolves "already promoted" even after the note's `text`
-/// is edited. CloudKit-migration friendly by design: every column optional or
+/// the Summary tab resolves "already added" even after the note's `text` is
+/// edited. CloudKit-migration friendly by design: every column optional or
 /// defaulted, no unique constraints beyond the PK.
+///
+/// **Tasks + reminders were cut from the UI 2026-07-23** (human's call — "let's
+/// just make these notes for now"). Their columns (`isTask`, `done`,
+/// `completedAt`, `dueAt`, `reminderFiredAt`) stay in the table, unread and
+/// unwritten, so restoring them is a UI-only change and no existing row was
+/// destroyed. See the CLAUDE.md deferred-features entry for the commit to port.
 struct Note: Identifiable, Equatable {
     let id: UUID
     let createdAt: Date
     var modifiedAt: Date
     var text: String
-    var isTask: Bool = false
-    var done: Bool = false
-    var completedAt: Date? = nil
-    /// When a task should remind. `nil` = no reminder scheduled.
-    var dueAt: Date? = nil
-    /// Set when the reminder banner has fired for the current `dueAt`, so a
-    /// relaunch doesn't re-fire it. Snoozing sets a new `dueAt` and clears this.
-    var reminderFiredAt: Date? = nil
+    /// RTF encoding of the styled body — see `RichText`.
+    var richText: Data? = nil
     var pinned: Bool = false
     /// Persisted sticky-panel origin (bottom-left, screen coordinates) and
     /// size (the sticky is user-resizable; nil = default size).
@@ -89,12 +95,6 @@ struct Note: Identifiable, Equatable {
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
         self.text = text
-    }
-
-    /// A reminder is "armed" when it still owes the user a banner: a not-done
-    /// task with a due time whose current `dueAt` hasn't fired yet.
-    var hasArmedReminder: Bool {
-        isTask && !done && dueAt != nil && reminderFiredAt == nil
     }
 }
 
@@ -162,6 +162,7 @@ final class TranscriptStore: ObservableObject {
         let store = TranscriptStore(path: defaultDatabaseURL().path)
         store.migrateLegacyHistoryIfNeeded()
         store.migrateLegacyDictionaryIfNeeded()
+        store.migrateTranscriptNotesIfNeeded()
         store.seedExampleDictionaryIfNeeded()
         store.seedBuiltInStylesIfNeeded()
         store.refreshBuiltInStylePromptsIfNeeded()
@@ -482,27 +483,23 @@ final class TranscriptStore: ObservableObject {
         let position = notes.count
         guard exec("""
         INSERT INTO notes
-        (id, createdAt, modifiedAt, text, isTask, done, completedAt, dueAt, reminderFiredAt,
+        (id, createdAt, modifiedAt, text, richText,
          pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem, position)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, bind: { stmt in
             sqlite3_bind_text(stmt, 1, note.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, note.createdAt.timeIntervalSince1970)
             sqlite3_bind_double(stmt, 3, note.modifiedAt.timeIntervalSince1970)
             sqlite3_bind_text(stmt, 4, note.text, -1, Self.SQLITE_TRANSIENT)
-            sqlite3_bind_int(stmt, 5, note.isTask ? 1 : 0)
-            sqlite3_bind_int(stmt, 6, note.done ? 1 : 0)
-            self.bindOptionalDate(stmt, 7, note.completedAt)
-            self.bindOptionalDate(stmt, 8, note.dueAt)
-            self.bindOptionalDate(stmt, 9, note.reminderFiredAt)
-            sqlite3_bind_int(stmt, 10, note.pinned ? 1 : 0)
-            self.bindOptionalDouble(stmt, 11, note.pinX)
-            self.bindOptionalDouble(stmt, 12, note.pinY)
-            self.bindOptionalDouble(stmt, 13, note.pinW)
-            self.bindOptionalDouble(stmt, 14, note.pinH)
-            self.bindOptionalText(stmt, 15, note.sourceTranscriptID?.uuidString)
-            self.bindOptionalText(stmt, 16, note.sourceActionItem)
-            sqlite3_bind_int(stmt, 17, Int32(position))
+            self.bindOptionalBlob(stmt, 5, note.richText)
+            sqlite3_bind_int(stmt, 6, note.pinned ? 1 : 0)
+            self.bindOptionalDouble(stmt, 7, note.pinX)
+            self.bindOptionalDouble(stmt, 8, note.pinY)
+            self.bindOptionalDouble(stmt, 9, note.pinW)
+            self.bindOptionalDouble(stmt, 10, note.pinH)
+            self.bindOptionalText(stmt, 11, note.sourceTranscriptID?.uuidString)
+            self.bindOptionalText(stmt, 12, note.sourceActionItem)
+            sqlite3_bind_int(stmt, 13, Int32(position))
         }) else { return }
         notes.append(note)
     }
@@ -517,25 +514,21 @@ final class TranscriptStore: ObservableObject {
         var updated = note
         updated.modifiedAt = modifiedAt
         exec("""
-        UPDATE notes SET modifiedAt = ?, text = ?, isTask = ?, done = ?, completedAt = ?,
-        dueAt = ?, reminderFiredAt = ?, pinned = ?, pinX = ?, pinY = ?, pinW = ?, pinH = ?,
+        UPDATE notes SET modifiedAt = ?, text = ?, richText = ?,
+        pinned = ?, pinX = ?, pinY = ?, pinW = ?, pinH = ?,
         sourceTranscriptID = ?, sourceActionItem = ? WHERE id = ?;
         """) { stmt in
             sqlite3_bind_double(stmt, 1, updated.modifiedAt.timeIntervalSince1970)
             sqlite3_bind_text(stmt, 2, updated.text, -1, Self.SQLITE_TRANSIENT)
-            sqlite3_bind_int(stmt, 3, updated.isTask ? 1 : 0)
-            sqlite3_bind_int(stmt, 4, updated.done ? 1 : 0)
-            self.bindOptionalDate(stmt, 5, updated.completedAt)
-            self.bindOptionalDate(stmt, 6, updated.dueAt)
-            self.bindOptionalDate(stmt, 7, updated.reminderFiredAt)
-            sqlite3_bind_int(stmt, 8, updated.pinned ? 1 : 0)
-            self.bindOptionalDouble(stmt, 9, updated.pinX)
-            self.bindOptionalDouble(stmt, 10, updated.pinY)
-            self.bindOptionalDouble(stmt, 11, updated.pinW)
-            self.bindOptionalDouble(stmt, 12, updated.pinH)
-            self.bindOptionalText(stmt, 13, updated.sourceTranscriptID?.uuidString)
-            self.bindOptionalText(stmt, 14, updated.sourceActionItem)
-            sqlite3_bind_text(stmt, 15, updated.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            self.bindOptionalBlob(stmt, 3, updated.richText)
+            sqlite3_bind_int(stmt, 4, updated.pinned ? 1 : 0)
+            self.bindOptionalDouble(stmt, 5, updated.pinX)
+            self.bindOptionalDouble(stmt, 6, updated.pinY)
+            self.bindOptionalDouble(stmt, 7, updated.pinW)
+            self.bindOptionalDouble(stmt, 8, updated.pinH)
+            self.bindOptionalText(stmt, 9, updated.sourceTranscriptID?.uuidString)
+            self.bindOptionalText(stmt, 10, updated.sourceActionItem)
+            sqlite3_bind_text(stmt, 11, updated.id.uuidString, -1, Self.SQLITE_TRANSIENT)
         }
         notes[idx] = updated
     }
@@ -548,16 +541,6 @@ final class TranscriptStore: ObservableObject {
         }
         notes.remove(at: idx)
         renumberNotePositions(from: idx)
-    }
-
-    /// Flip a task's done state. Completing stamps `completedAt`; un-completing
-    /// clears it (and leaves `reminderFiredAt` alone, so a past-due task that's
-    /// unchecked doesn't immediately re-fire its banner).
-    func toggleNoteDone(id: UUID) {
-        guard var note = notes.first(where: { $0.id == id }) else { return }
-        note.done.toggle()
-        note.completedAt = note.done ? Date() : nil
-        updateNote(note)
     }
 
     /// Pin/unpin a note to the screen. Pinning may carry an initial origin
@@ -585,37 +568,21 @@ final class TranscriptStore: ObservableObject {
         updateNote(note, modifiedAt: note.modifiedAt)
     }
 
-    /// Record that the reminder banner fired for the note's current `dueAt`.
-    func markNoteReminderFired(id: UUID, at date: Date = Date()) {
-        guard var note = notes.first(where: { $0.id == id }) else { return }
-        note.reminderFiredAt = date
-        updateNote(note, modifiedAt: note.modifiedAt)
-    }
-
-    /// Re-arm a fired reminder for a later time (the Snooze button).
-    func snoozeNote(id: UUID, until date: Date) {
-        guard var note = notes.first(where: { $0.id == id }) else { return }
-        note.dueAt = date
-        note.reminderFiredAt = nil
-        updateNote(note, modifiedAt: note.modifiedAt)
-    }
-
-    /// The note previously promoted from this transcript action item, if any.
-    /// Matches on the *verbatim* item string captured at promotion time, so the
-    /// link survives later edits of the note's own `text`.
+    /// The note previously added from this transcript action item, if any.
+    /// Matches on the *verbatim* item string captured at the time, so the link
+    /// survives later edits of the note's own `text`.
     func noteForActionItem(transcriptID: UUID, item: String) -> Note? {
         notes.first { $0.sourceTranscriptID == transcriptID && $0.sourceActionItem == item }
     }
 
-    /// Promote a transcript action item into a task note. Idempotent: if the
-    /// item was already promoted, returns the existing note untouched.
+    /// Add a transcript action item to Notes. Idempotent: if the item was
+    /// already added, returns the existing note untouched.
     @discardableResult
     func promoteActionItem(transcriptID: UUID, item: String) -> Note {
         if let existing = noteForActionItem(transcriptID: transcriptID, item: item) {
             return existing
         }
         var note = Note(text: item)
-        note.isTask = true
         note.sourceTranscriptID = transcriptID
         note.sourceActionItem = item
         addNote(note)
@@ -638,14 +605,16 @@ final class TranscriptStore: ObservableObject {
 
     /// Case-insensitive substring match over title + text, newest first.
     /// Empty query returns everything (already newest-first in `transcripts`).
+    ///
+    /// `notes` is deliberately **not** searched: per-transcript notes moved out
+    /// into the Notes module (which has its own search), so matching a
+    /// transcript on text the reader no longer shows would be a dead end.
     func matching(_ query: String) -> [Transcript] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return transcripts }
         let needle = q.lowercased()
         return transcripts.filter {
-            $0.title.lowercased().contains(needle)
-                || $0.text.lowercased().contains(needle)
-                || $0.notes.lowercased().contains(needle)
+            $0.title.lowercased().contains(needle) || $0.text.lowercased().contains(needle)
         }
     }
 
@@ -692,6 +661,43 @@ final class TranscriptStore: ObservableObject {
     private struct LegacyEntry: Codable {
         let text: String
         let date: Date
+    }
+
+    private static let transcriptNotesMigrationFlagKey = "didMigrateTranscriptNotesToNotes"
+
+    /// One-shot: lift any per-transcript notes (the retired third tab in the
+    /// transcript reader) out into standalone `Note` rows, linked back by
+    /// `sourceTranscriptID`. Notes became their own module 2026-07-23, so
+    /// leaving this text reachable only through a tab that no longer exists
+    /// would silently hide it.
+    ///
+    /// The `transcripts.notes` column is **not** cleared — same rollback
+    /// discipline as the legacy UserDefaults keys, and it's what makes a
+    /// re-run harmless: the flag plus the `sourceActionItem` sentinel below
+    /// keep an interrupted-then-retried migration from duplicating rows.
+    func migrateTranscriptNotesIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.transcriptNotesMigrationFlagKey) else { return }
+        guard db != nil else { return }   // DB not open — retry next launch
+        defer { defaults.set(true, forKey: Self.transcriptNotesMigrationFlagKey) }
+
+        let withNotes = transcripts.filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !withNotes.isEmpty else { return }
+
+        // Oldest first so the resulting notes read in the same order as the
+        // transcripts they came from.
+        for transcript in withNotes.reversed() {
+            // Sentinel marks "this came from the transcript notes tab", and
+            // doubles as the idempotency key if this ever runs twice.
+            let sentinel = "__transcriptNotes__"
+            guard noteForActionItem(transcriptID: transcript.id, item: sentinel) == nil else { continue }
+            var note = Note(createdAt: transcript.createdAt, modifiedAt: transcript.createdAt,
+                            text: transcript.notes)
+            note.sourceTranscriptID = transcript.id
+            note.sourceActionItem = sentinel
+            addNote(note)
+        }
+        log.notice("Migrated \(withNotes.count) transcript notes into standalone notes.")
     }
 
     private static let dictionaryMigrationFlagKey = "didMigrateDictionaryToSQLite"
@@ -797,6 +803,7 @@ final class TranscriptStore: ObservableObject {
             completedAt REAL,
             dueAt REAL,
             reminderFiredAt REAL,
+            richText BLOB,
             pinned INTEGER NOT NULL DEFAULT 0,
             pinX REAL,
             pinY REAL,
@@ -918,6 +925,17 @@ final class TranscriptStore: ObservableObject {
             log.notice("Migrated schema to v8 (sticky size columns).")
             version = 8
         }
+
+        if version < 9 {
+            // Rich-text blob for notes (bold/italic/underline + link runs).
+            guard addColumns([("richText", "BLOB")], to: "notes") else {
+                log.error("Schema v9 migration incomplete; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            exec("PRAGMA user_version = 9;", bind: nil)
+            log.notice("Migrated schema to v9 (note rich text).")
+            version = 9
+        }
     }
 
     /// Add each column to `table` only if it's missing (idempotent, so a
@@ -1036,8 +1054,8 @@ final class TranscriptStore: ObservableObject {
     private func reloadNotesTable() {
         var rows: [Note] = []
         forEachRow("""
-        SELECT id, createdAt, modifiedAt, text, isTask, done, completedAt, dueAt,
-               reminderFiredAt, pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem
+        SELECT id, createdAt, modifiedAt, text, richText,
+               pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem
         FROM notes ORDER BY position ASC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
@@ -1047,18 +1065,14 @@ final class TranscriptStore: ObservableObject {
                 modifiedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 2)),
                 text: Self.columnText(stmt, 3) ?? ""
             )
-            note.isTask = sqlite3_column_int(stmt, 4) != 0
-            note.done = sqlite3_column_int(stmt, 5) != 0
-            note.completedAt = Self.columnDate(stmt, 6)
-            note.dueAt = Self.columnDate(stmt, 7)
-            note.reminderFiredAt = Self.columnDate(stmt, 8)
-            note.pinned = sqlite3_column_int(stmt, 9) != 0
-            note.pinX = Self.columnDouble(stmt, 10)
-            note.pinY = Self.columnDouble(stmt, 11)
-            note.pinW = Self.columnDouble(stmt, 12)
-            note.pinH = Self.columnDouble(stmt, 13)
-            note.sourceTranscriptID = Self.columnText(stmt, 14).flatMap(UUID.init(uuidString:))
-            note.sourceActionItem = Self.columnText(stmt, 15)
+            note.richText = Self.columnBlob(stmt, 4)
+            note.pinned = sqlite3_column_int(stmt, 5) != 0
+            note.pinX = Self.columnDouble(stmt, 6)
+            note.pinY = Self.columnDouble(stmt, 7)
+            note.pinW = Self.columnDouble(stmt, 8)
+            note.pinH = Self.columnDouble(stmt, 9)
+            note.sourceTranscriptID = Self.columnText(stmt, 10).flatMap(UUID.init(uuidString:))
+            note.sourceActionItem = Self.columnText(stmt, 11)
             rows.append(note)
         }
         notes = rows
@@ -1128,6 +1142,24 @@ final class TranscriptStore: ObservableObject {
     private func bindOptionalDouble(_ stmt: OpaquePointer?, _ index: Int32, _ value: Double?) {
         if let value { sqlite3_bind_double(stmt, index, value) }
         else { sqlite3_bind_null(stmt, index) }
+    }
+
+    private func bindOptionalBlob(_ stmt: OpaquePointer?, _ index: Int32, _ value: Data?) {
+        if let value, !value.isEmpty {
+            _ = value.withUnsafeBytes { raw in
+                sqlite3_bind_blob(stmt, index, raw.baseAddress, Int32(value.count), Self.SQLITE_TRANSIENT)
+            }
+        } else {
+            sqlite3_bind_null(stmt, index)
+        }
+    }
+
+    private static func columnBlob(_ stmt: OpaquePointer?, _ index: Int32) -> Data? {
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL,
+              let bytes = sqlite3_column_blob(stmt, index) else { return nil }
+        let count = Int(sqlite3_column_bytes(stmt, index))
+        guard count > 0 else { return nil }
+        return Data(bytes: bytes, count: count)
     }
 
     private static func columnDate(_ stmt: OpaquePointer?, _ index: Int32) -> Date? {

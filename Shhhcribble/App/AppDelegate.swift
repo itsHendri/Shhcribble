@@ -37,12 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var fileTranscriber: FileTranscriber!
     private var cancellables = Set<AnyCancellable>()
 
-    // Notes + Tasks (2026-07-23): floating stickies for pinned notes, and the
-    // in-process task-reminder pipeline (banner + menu-bar tint — deliberately
-    // NOT UNUserNotificationCenter, see ReminderScheduler).
+    /// Floating stickies for pinned notes (Notes module, 2026-07-23).
     private var stickyPanelManager: StickyPanelManager!
-    private var reminderScheduler: ReminderScheduler!
-    private var reminderPanel: ReminderPanel!
 
     #if canImport(Sparkle)
     /// Sparkle auto-updater. `startingUpdater: true` enables automatic
@@ -170,14 +166,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBarController = MenuBarController(delegate: self)
 
-        // Notes + Tasks: restore pinned stickies and arm the reminder pipeline.
-        // Both observe the store; created after menuBarController so the
-        // reminder tint has somewhere to land.
+        // Notes: restore any pinned stickies from the store.
         stickyPanelManager = StickyPanelManager(store: transcriptStore)
-        reminderPanel = ReminderPanel()
-        reminderScheduler = ReminderScheduler(store: transcriptStore) { [weak self] note in
-            self?.presentReminder(for: note)
-        }
 
         // Call detection: when a known call app starts using the mic, offer to
         // transcribe via our own in-app banner (CallOfferPanel), NOT a macOS
@@ -620,36 +610,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - Task reminders (Notes + Tasks)
-
-    /// A task's due time arrived (the scheduler already marked it fired).
-    /// Surface = our reminder banner + a persistent menu-bar tint; the tint
-    /// stays after the banner auto-dismisses and clears once the user acts on
-    /// the banner or opens the Studio window.
-    private func presentReminder(for note: Note) {
-        menuBarController.setReminderBadge(visible: true)
-        reminderPanel.present(
-            text: note.text,
-            onDone: { [weak self] in
-                guard let self else { return }
-                if let current = self.transcriptStore.notes.first(where: { $0.id == note.id }),
-                   !current.done {
-                    self.transcriptStore.toggleNoteDone(id: note.id)
-                }
-                self.menuBarController.setReminderBadge(visible: false)
-            },
-            onSnooze: { [weak self] in
-                guard let self else { return }
-                self.transcriptStore.snoozeNote(id: note.id, until: ReminderPlanner.snoozeDate())
-                self.menuBarController.setReminderBadge(visible: false)
-            }
-        )
-    }
-
     private func showTranscriptionsWindow(activate: Bool) {
-        // Opening the Studio counts as attending to a fired reminder — the
-        // tasks are visible there — so the amber tint has done its job.
-        menuBarController?.setReminderBadge(visible: false)
         if transcriptionsWindowController == nil {
             transcriptionsWindowController = TranscriptionsWindowController(
                 store: transcriptStore,
@@ -1028,6 +989,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
+
+        // Same reasoning as the Edit menu above, for inline styling: without a
+        // Format menu carrying ⌘B/⌘I/⌘U, those shortcuts reach nothing and the
+        // rich note editor can't be styled from the keyboard.
+        //
+        // Bold/Italic go through `NSFontManager.addFontTrait(_:)`, which reads
+        // the trait mask from the sender's `tag` — the standard Cocoa wiring.
+        // Underline is plain `NSText.underline(_:)` on the first responder.
+        let formatItem = NSMenuItem()
+        let formatMenu = NSMenu(title: "Format")
+        let bold = NSMenuItem(title: "Bold",
+                              action: #selector(NSFontManager.addFontTrait(_:)), keyEquivalent: "b")
+        bold.target = NSFontManager.shared
+        bold.tag = Int(NSFontTraitMask.boldFontMask.rawValue)
+        formatMenu.addItem(bold)
+
+        let italic = NSMenuItem(title: "Italic",
+                                action: #selector(NSFontManager.addFontTrait(_:)), keyEquivalent: "i")
+        italic.target = NSFontManager.shared
+        italic.tag = Int(NSFontTraitMask.italicFontMask.rawValue)
+        formatMenu.addItem(italic)
+
+        formatMenu.addItem(withTitle: "Underline",
+                           action: #selector(NSText.underline(_:)), keyEquivalent: "u")
+        formatItem.submenu = formatMenu
+        mainMenu.addItem(formatItem)
 
         NSApp.mainMenu = mainMenu
     }

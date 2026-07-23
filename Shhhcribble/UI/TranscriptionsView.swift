@@ -422,11 +422,11 @@ private struct TranscriptDetail: View {
     @State private var isSummarizing = false
     @State private var summaryError: String?
     @State private var didPrewarm = false
-    @State private var notesText = ""
-    @State private var noteSaveTask: Task<Void, Never>?
     @State private var copiedToast = false
     @State private var copiedToastTask: Task<Void, Never>?
-    enum Tab: Hashable { case transcript, summary, notes }
+    /// Notes became their own module 2026-07-23 — a transcript is a record of
+    /// what was said, not a place to keep your own writing.
+    enum Tab: Hashable { case transcript, summary }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -435,7 +435,6 @@ private struct TranscriptDetail: View {
             Picker("View", selection: $tab) {
                 Text("Transcript").tag(Tab.transcript)
                 Text("Summary").tag(Tab.summary)
-                Text("Notes").tag(Tab.notes)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -448,7 +447,6 @@ private struct TranscriptDetail: View {
                 switch tab {
                 case .transcript: transcriptBody
                 case .summary:    summaryBody
-                case .notes:      notesBody
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -606,28 +604,17 @@ private struct TranscriptDetail: View {
         }
     }
 
-    /// One action item, live: unpromoted → a plus button turns it into a task
-    /// note (linked back to this transcript); promoted → a real checkbox bound
-    /// to the note's done state, so check-off syncs with the Notes tab (it *is*
-    /// the same note).
+    /// One action item, with a one-click send into the Notes module. Already
+    /// sent → a quiet "In Notes" marker instead of the button (the link holds
+    /// through later edits of the note — see `noteForActionItem`).
     @ViewBuilder
     private func actionItemRow(_ item: String) -> some View {
+        let existing = store.noteForActionItem(transcriptID: transcript.id, item: item)
         HStack(alignment: .top, spacing: 8) {
-            if let note = store.noteForActionItem(transcriptID: transcript.id, item: item) {
-                Button { store.toggleNoteDone(id: note.id) } label: {
-                    Image(systemName: note.done ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(note.done ? Color.accentColor : Color.secondary)
-                        .font(.system(size: 13))
-                }
-                .buttonStyle(.borderless)
-                .help(note.done ? "Mark as not done" : "Mark as done")
-                Text(item)
-                    .textSelection(.enabled)
-                    .strikethrough(note.done, color: .secondary)
-                    .foregroundStyle(note.done ? Color.secondary : Color.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text("in Notes")
-                    .font(.caption2).foregroundStyle(.tertiary)
+            if existing != nil {
+                Image(systemName: "note.text")
+                    .foregroundStyle(Color.accentColor)
+                    .font(.system(size: 13))
             } else {
                 Button { store.promoteActionItem(transcriptID: transcript.id, item: item) } label: {
                     Image(systemName: "plus.circle")
@@ -635,10 +622,14 @@ private struct TranscriptDetail: View {
                         .font(.system(size: 13))
                 }
                 .buttonStyle(.borderless)
-                .help("Add as task")
-                Text(item)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Add to Notes")
+            }
+            Text(item)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if existing != nil {
+                Text("In Notes")
+                    .font(.caption2).foregroundStyle(.tertiary)
             }
         }
     }
@@ -672,31 +663,6 @@ private struct TranscriptDetail: View {
             guard !didPrewarm else { return }
             didPrewarm = true
             TranscriptSummarizer.prewarm()
-        }
-    }
-
-    private var notesBody: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $notesText)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .padding(12)
-            if notesText.isEmpty {
-                // TextEditor has no native placeholder — overlay one, non-hittable
-                // so taps fall through to the editor.
-                Text("Add notes for this transcript…")
-                    .font(.body)
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 17)
-                    .padding(.vertical, 20)
-                    .allowsHitTesting(false)
-            }
-        }
-        .onAppear { notesText = transcript.notes }
-        .onChange(of: notesText) { _, _ in debounceNotesSave() }
-        .onDisappear {
-            noteSaveTask?.cancel()
-            saveNotesNow()
         }
     }
 
@@ -759,25 +725,6 @@ private struct TranscriptDetail: View {
     /// Debounce writes while typing — reschedule a save 700 ms after the last
     /// keystroke. `.onDisappear` cancels this and flushes, so leaving the tab /
     /// switching transcripts / closing the window never loses the last edit.
-    private func debounceNotesSave() {
-        noteSaveTask?.cancel()
-        // @MainActor so the deferred `store.updateNotes` (a @MainActor @Published
-        // mutation) always lands on the main thread — a bare Task wouldn't
-        // guarantee that isolation under the Swift 5 language mode.
-        noteSaveTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(700))
-            guard !Task.isCancelled else { return }
-            saveNotesNow()
-        }
-    }
-
-    private func saveNotesNow() {
-        // No-op when unchanged — also stops a redundant write after the store
-        // re-publishes the row (which feeds a new `transcript` value back in).
-        guard notesText != transcript.notes else { return }
-        store.updateNotes(id: transcript.id, notes: notesText)
-    }
-
     private func generateSummary() {
         let text = transcript.text
         guard !text.isEmpty, !isSummarizing else { return }

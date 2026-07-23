@@ -37,8 +37,7 @@ final class StickyNotePanel: NSPanel {
     private var frameObservers: [NSObjectProtocol] = []
 
     /// Callbacks into the manager (which owns the store writes).
-    var onTextCommit: ((UUID, String) -> Void)?
-    var onToggleDone: ((UUID) -> Void)?
+    var onTextCommit: ((UUID, NSAttributedString) -> Void)?
     var onUnpin: ((UUID) -> Void)?
     var onFrameChange: ((UUID, CGRect) -> Void)?
     var onDelete: ((UUID) -> Void)?
@@ -84,10 +83,6 @@ final class StickyNotePanel: NSPanel {
                 guard let self else { return }
                 self.onTextCommit?(self.noteID, text)
             },
-            onToggleDone: { [weak self] in
-                guard let self else { return }
-                self.onToggleDone?(self.noteID)
-            },
             onUnpin: { [weak self] in
                 guard let self else { return }
                 self.onUnpin?(self.noteID)
@@ -125,11 +120,9 @@ final class StickyNotePanel: NSPanel {
     /// the editor is *not* focused — the store lags live typing by the save
     /// debounce, so overwriting mid-edit would eat keystrokes.
     func update(with note: Note) {
-        if !model.isEditing, model.text != note.text {
-            model.text = note.text
-        }
-        model.isTask = note.isTask
-        model.done = note.done
+        guard !model.isEditing, model.attributed.string != note.text else { return }
+        model.attributed = RichText.attributed(from: note.richText, plain: note.text,
+                                               font: StickyModel.font)
     }
 
     /// Show at the note's persisted frame (clamped to a visible screen), or at
@@ -199,7 +192,7 @@ final class StickyPanelManager {
     init(store: TranscriptStore) {
         self.store = store
         // `@Published` emits on willSet — hop a tick so `store.notes` is
-        // current when we diff (same discipline as ReminderScheduler).
+        // current when we diff, rather than the pre-mutation array.
         store.$notes
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.sync() }
@@ -252,14 +245,14 @@ final class StickyPanelManager {
 
     private func makePanel(for note: Note) -> StickyNotePanel {
         let panel = StickyNotePanel(note: note)
-        panel.onTextCommit = { [weak self] id, text in
-            guard let self, var current = self.store.notes.first(where: { $0.id == id }),
-                  current.text != text else { return }
-            current.text = text
+        panel.onTextCommit = { [weak self] id, attributed in
+            guard let self, var current = self.store.notes.first(where: { $0.id == id }) else { return }
+            let plain = attributed.string
+            let rich = RichText.data(from: attributed)
+            guard plain != current.text || rich != current.richText else { return }
+            current.text = plain
+            current.richText = rich
             self.store.updateNote(current)
-        }
-        panel.onToggleDone = { [weak self] id in
-            self?.store.toggleNoteDone(id: id)
         }
         panel.onUnpin = { [weak self] id in
             self?.store.setNotePinned(id: id, pinned: false)
@@ -281,9 +274,9 @@ final class StickyPanelManager {
 
 @MainActor
 final class StickyModel: ObservableObject {
-    @Published var text: String = ""
-    @Published var isTask: Bool = false
-    @Published var done: Bool = false
+    static let font = NSFont.systemFont(ofSize: 12.5)
+
+    @Published var attributed = NSAttributedString(string: "")
     /// True while the text editor has focus — blocks store→view text pushes.
     @Published var isEditing: Bool = false
     /// Bumped to request editor focus (quick-add).
@@ -293,30 +286,42 @@ final class StickyModel: ObservableObject {
     @Published var showingCloseConfirm: Bool = false
 
     func apply(_ note: Note) {
-        text = note.text
-        isTask = note.isTask
-        done = note.done
+        attributed = RichText.attributed(from: note.richText, plain: note.text, font: Self.font)
     }
 }
 
 private struct StickyView: View {
     @ObservedObject var model: StickyModel
-    let onCommitText: (String) -> Void
-    let onToggleDone: () -> Void
+    let onCommitText: (NSAttributedString) -> Void
     let onUnpin: () -> Void
     let onDelete: () -> Void
 
-    @FocusState private var textFocused: Bool
     @State private var saveTask: Task<Void, Never>?
 
     private var isEmpty: Bool {
-        model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        model.attributed.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            editor
+            RichTextEditor(
+                attributed: $model.attributed,
+                font: StickyModel.font,
+                insets: NSSize(width: 8, height: 4),
+                onFocusChange: { focused in
+                    model.isEditing = focused
+                    if focused {
+                        // ⌘V/⌘Z/⌘B route through the active app's main menu; as
+                        // an LSUIElement app ours only participates once
+                        // activated (the Apple Stickies behaviour).
+                        NSApp.activate(ignoringOtherApps: true)
+                    } else {
+                        flushSave()
+                    }
+                }
+            )
+            .padding(.bottom, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -328,21 +333,7 @@ private struct StickyView: View {
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
         .overlay { closeConfirmOverlay }
-        .onChange(of: model.focusRequest) { _, _ in
-            textFocused = true
-        }
-        .onChange(of: textFocused) { _, focused in
-            model.isEditing = focused
-            if focused {
-                // ⌘V/⌘Z/⌘A route through the active app's main menu; as an
-                // LSUIElement app ours only participates once activated (the
-                // Apple Stickies behaviour).
-                NSApp.activate(ignoringOtherApps: true)
-            } else {
-                flushSave()
-            }
-        }
-        .onChange(of: model.text) { _, _ in
+        .onChange(of: model.attributed) { _, _ in
             guard model.isEditing else { return }   // store pushes don't re-save
             scheduleSave()
         }
@@ -354,15 +345,6 @@ private struct StickyView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            if model.isTask {
-                Button(action: onToggleDone) {
-                    Image(systemName: model.done ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(model.done ? Color.accentColor : Color.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(model.done ? "Mark as not done" : "Mark as done")
-            }
             Spacer(minLength: 0)
             Button {
                 withAnimation(.easeOut(duration: 0.15)) { model.showingCloseConfirm = true }
@@ -376,21 +358,10 @@ private struct StickyView: View {
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
-        .padding(.bottom, 4)
+        .padding(.bottom, 2)
         .contentShape(Rectangle())
         // The header is the reliable drag surface (isMovableByWindowBackground
-        // covers it; the TextEditor below claims its own mouse events).
-    }
-
-    private var editor: some View {
-        TextEditor(text: $model.text)
-            .font(.system(size: 12.5))
-            .scrollContentBackground(.hidden)
-            .focused($textFocused)
-            .strikethrough(model.isTask && model.done, color: .secondary)
-            .foregroundStyle(model.isTask && model.done ? Color.secondary : Color.primary)
-            .padding(.horizontal, 6)
-            .padding(.bottom, 8)
+        // covers it; the text view below claims its own mouse events).
     }
 
     /// In-card confirmation for the close button — always asked, per the
@@ -444,16 +415,16 @@ private struct StickyView: View {
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let text = model.text
+        let snapshot = model.attributed
         saveTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard !Task.isCancelled else { return }
-            onCommitText(text)
+            onCommitText(snapshot)
         }
     }
 
     private func flushSave() {
         saveTask?.cancel()
-        onCommitText(model.text)
+        onCommitText(model.attributed)
     }
 }
