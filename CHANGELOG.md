@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Transcriptions: a searchable list on the left, the note itself on the right
   with Copy / Save-as-.txt / Delete and a pin control, plus a floating
   **Add Note** button.
-- **Rich text in notes.** Select text and press **⌘B**, **⌘I** or **⌘U** to
-  style it, and any web or email address you type becomes a clickable blue
+- **Rich text in notes.** Select text and press **⌘B**, **⌘I**, **⌘U** or
+  **⌘⇧H** to highlight it — or right-click for the same four commands — and any
+  web or email address you type becomes a clickable blue
   link. Pasted content keeps its formatting — fonts, sizes, colours,
   highlights, bullet and numbered lists, indentation and alignment all survive
   closing and reopening the note.

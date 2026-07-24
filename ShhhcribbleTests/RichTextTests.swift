@@ -223,6 +223,39 @@ final class RichTextTests: XCTestCase {
     }
 
     @MainActor
+    func testHighlightTogglesOnAndOff() {
+        let view = makeView("hello world")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+
+        view.toggleHighlight(nil)
+        XCTAssertNotNil(view.textStorage?.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+        XCTAssertNil(view.textStorage?.attribute(.backgroundColor, at: 6, effectiveRange: nil),
+                     "highlight leaked outside the selection")
+
+        view.toggleHighlight(nil)
+        XCTAssertNil(view.textStorage?.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+    }
+
+    /// The highlighter must be translucent: a solid yellow under the dynamic
+    /// `labelColor` is white-on-yellow in dark mode. Letting the background
+    /// show through keeps it legible in both appearances.
+    func testHighlightColourIsTranslucent() {
+        let alpha = RichTextView.highlightColor.usingColorSpace(.deviceRGB)?.alphaComponent ?? 1
+        XCTAssertLessThan(alpha, 1.0)
+        XCTAssertGreaterThan(alpha, 0.0)
+    }
+
+    @MainActor
+    func testHighlightSurvivesTheRoundTrip() throws {
+        let view = makeView("hello world")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        view.toggleHighlight(nil)
+
+        let back = roundTrip(view.attributedString())
+        XCTAssertNotNil(back.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+    }
+
+    @MainActor
     func testUnderlineTogglesOnAndOff() {
         let view = makeView("hello")
         view.setSelectedRange(NSRange(location: 0, length: 5))

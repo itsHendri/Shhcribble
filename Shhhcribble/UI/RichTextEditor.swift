@@ -230,19 +230,62 @@ final class RichTextView: NSTextView {
         return resigned
     }
 
+    /// The highlighter colour. **Translucent on purpose:** a solid yellow with
+    /// the dynamic `labelColor` on top is unreadable in dark mode (white text
+    /// on bright yellow). At 30% the underlying background shows through, so it
+    /// reads as pale yellow on light and muted amber on dark, and the text
+    /// stays legible in both without needing an appearance-specific colour.
+    static let highlightColor = NSColor.systemYellow.withAlphaComponent(0.30)
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Compare only the modifiers we care about — a stuck Caps Lock or the
+        // function flag would otherwise stop an exact `== .command` match.
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         // Only claim the shortcut when this view actually has focus —
         // otherwise ⌘B typed into the search field would style a note.
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard window?.firstResponder === self, flags == .command,
+        guard window?.firstResponder === self,
               let key = event.charactersIgnoringModifiers?.lowercased() else {
             return super.performKeyEquivalent(with: event)
         }
-        switch key {
-        case "b": toggleBoldTrait(nil);      return true
-        case "i": toggleItalicTrait(nil);    return true
-        case "u": toggleUnderlineTrait(nil); return true
-        default:  return super.performKeyEquivalent(with: event)
+        switch (flags, key) {
+        case (.command, "b"):          toggleBoldTrait(nil);      return true
+        case (.command, "i"):          toggleItalicTrait(nil);    return true
+        case (.command, "u"):          toggleUnderlineTrait(nil); return true
+        case ([.command, .shift], "h"): toggleHighlight(nil);     return true
+        default: return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    /// Right-click menu carries the styling commands too. An LSUIElement app
+    /// shows no menu bar, so without this the shortcuts would be the *only*
+    /// way to discover that notes can be styled at all. Safe where a Format
+    /// menu was not: a contextual menu is built per-click and never sits in
+    /// the main menu, so it can't intercept the key equivalents.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        let commands: [(String, Selector, String, NSEvent.ModifierFlags)] = [
+            ("Bold",      #selector(toggleBoldTrait(_:)),      "b", .command),
+            ("Italic",    #selector(toggleItalicTrait(_:)),    "i", .command),
+            ("Underline", #selector(toggleUnderlineTrait(_:)), "u", .command),
+            ("Highlight", #selector(toggleHighlight(_:)),      "h", [.command, .shift]),
+        ]
+        for (index, command) in commands.enumerated() {
+            let item = NSMenuItem(title: command.0, action: command.1, keyEquivalent: command.2)
+            item.keyEquivalentModifierMask = command.3
+            item.target = self
+            menu.insertItem(item, at: index)
+        }
+        menu.insertItem(.separator(), at: commands.count)
+        return menu
+    }
+
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(toggleBoldTrait(_:)), #selector(toggleItalicTrait(_:)),
+             #selector(toggleUnderlineTrait(_:)), #selector(toggleHighlight(_:)):
+            return isEditable
+        default:
+            return super.validateMenuItem(item)
         }
     }
 
@@ -254,6 +297,28 @@ final class RichTextView: NSTextView {
     @objc func toggleBoldTrait(_ sender: Any?) { toggleTrait(.boldFontMask) }
 
     @objc func toggleItalicTrait(_ sender: Any?) { toggleTrait(.italicFontMask) }
+
+    /// Toggle the highlighter over the selection (⌘⇧H). Un-highlighting clears
+    /// any background colour on the run, including one that arrived by paste —
+    /// "remove the highlight" is the only sensible reading of the command.
+    @objc func toggleHighlight(_ sender: Any?) {
+        let range = selectedRange()
+        if range.length == 0 {
+            let highlighted = typingAttributes[.backgroundColor] != nil
+            typingAttributes[.backgroundColor] = highlighted ? nil : Self.highlightColor
+            return
+        }
+        guard let storage = textStorage, shouldChangeText(in: range, replacementString: nil) else { return }
+        let highlighted = storage.attribute(.backgroundColor, at: range.location, effectiveRange: nil) != nil
+        storage.beginEditing()
+        if highlighted {
+            storage.removeAttribute(.backgroundColor, range: range)
+        } else {
+            storage.addAttribute(.backgroundColor, value: Self.highlightColor, range: range)
+        }
+        storage.endEditing()
+        didChangeText()
+    }
 
     @objc func toggleUnderlineTrait(_ sender: Any?) {
         let range = selectedRange()
