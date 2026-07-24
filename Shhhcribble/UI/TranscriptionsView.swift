@@ -722,9 +722,6 @@ private struct TranscriptDetail: View {
         flashCopied()
     }
 
-    /// Debounce writes while typing — reschedule a save 700 ms after the last
-    /// keystroke. `.onDisappear` cancels this and flushes, so leaving the tab /
-    /// switching transcripts / closing the window never loses the last edit.
     private func generateSummary() {
         let text = transcript.text
         guard !text.isEmpty, !isSummarizing else { return }

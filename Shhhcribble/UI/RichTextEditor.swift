@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import os
+
 
 /// Conversion between an `NSAttributedString` and the RTF blob we persist,
 /// plus the link-detection pass. Kept separate from the view so the encoding
@@ -18,16 +18,72 @@ enum RichText {
     /// persist near-black text and become invisible after a switch to dark
     /// mode. With no colour stored, `attributed(from:)` re-applies the dynamic
     /// `labelColor`, which resolves per appearance at draw time.
-    static func data(from attributed: NSAttributedString) -> Data? {
+    /// - Parameter font: the editor's base font, needed to recognise the exact
+    ///   line-height floor this editor injected so only that value is cleared.
+    static func data(from attributed: NSAttributedString, font: NSFont) -> Data? {
         let clean = NSMutableAttributedString(attributedString: attributed)
         let full = NSRange(location: 0, length: clean.length)
         clean.removeAttribute(.foregroundColor, range: full)
         clean.removeAttribute(.backgroundColor, range: full)
-        // Line height is a display concern, re-applied on load — same treatment
-        // as colour. Baking it in would freeze today's metric into every old
-        // note and bloat the RTF with paragraph tables.
-        clean.removeAttribute(.paragraphStyle, range: full)
+        clearLineHeightFloor(in: clean, font: font)
         return clean.rtf(from: full, documentAttributes: documentType)
+    }
+
+    /// Drop **only** the line-height floor this editor injected, leaving lists,
+    /// indents, alignment, spacing — and a paragraph's *own* line height —
+    /// intact.
+    ///
+    /// The floor is a display concern, re-applied on load — same treatment as
+    /// colour — so the constant stays tunable and old notes aren't frozen to
+    /// today's metric. Removing the whole `.paragraphStyle` attribute (the
+    /// first cut) destroyed the structure of anything pasted in: a bulleted or
+    /// indented block survived until the autosave fired and then came back as
+    /// flat text. Matching the exact floor value, rather than clearing any
+    /// non-zero minimum, is what also preserves a pasted paragraph's own
+    /// generous line spacing.
+    private static func clearLineHeightFloor(in string: NSMutableAttributedString, font: NSFont) {
+        let floor = paragraphStyle(for: font).minimumLineHeight
+        rewriteParagraphStyles(in: string) { style in
+            guard style.minimumLineHeight == floor else { return nil }
+            let stripped = NSMutableParagraphStyle()
+            stripped.setParagraphStyle(style)
+            stripped.minimumLineHeight = 0
+            return stripped
+        }
+    }
+
+    /// Raise each paragraph's `minimumLineHeight` to our floor, preserving
+    /// every other paragraph attribute. Runs carrying no style at all get the
+    /// plain floor style.
+    private static func applyLineHeightFloor(to string: NSMutableAttributedString, font: NSFont) {
+        let floor = paragraphStyle(for: font).minimumLineHeight
+        rewriteParagraphStyles(in: string) { style in
+            guard style.minimumLineHeight < floor else { return nil }
+            let raised = NSMutableParagraphStyle()
+            raised.setParagraphStyle(style)
+            raised.minimumLineHeight = floor
+            return raised
+        }
+    }
+
+    /// Apply `transform` to every paragraph-style run (absent styles are seen
+    /// as `.default`); returning nil leaves a run untouched. Ranges are
+    /// collected first, then written — mutating inside `enumerateAttribute`
+    /// invalidates the enumeration.
+    private static func rewriteParagraphStyles(
+        in string: NSMutableAttributedString,
+        _ transform: (NSParagraphStyle) -> NSParagraphStyle?
+    ) {
+        let full = NSRange(location: 0, length: string.length)
+        guard full.length > 0 else { return }
+        var updates: [(NSRange, NSParagraphStyle)] = []
+        string.enumerateAttribute(.paragraphStyle, in: full) { value, range, _ in
+            let base = (value as? NSParagraphStyle) ?? .default
+            if let replacement = transform(base) { updates.append((range, replacement)) }
+        }
+        for (range, style) in updates {
+            string.addAttribute(.paragraphStyle, value: style, range: range)
+        }
     }
 
     /// Paragraph style that keeps the baseline grid steady as text is styled.
@@ -78,7 +134,7 @@ enum RichText {
         // Dynamic colour, resolved per appearance at draw time. Links still
         // render blue: `linkTextAttributes` overrides this for `.link` ranges.
         base.addAttribute(.foregroundColor, value: NSColor.labelColor, range: full)
-        base.addAttribute(.paragraphStyle, value: paragraphStyle(for: font), range: full)
+        applyLineHeightFloor(to: base, font: font)
         addDetectedLinks(to: base)
         return base
     }
@@ -123,21 +179,32 @@ enum RichText {
 /// in a nonactivating sticky panel.
 final class RichTextView: NSTextView {
 
-    private static let log = Logger(subsystem: "com.shhhcribble.app", category: "richtext")
+    /// Reports **focus**, not the edit lifecycle. Driven by first-responder
+    /// changes rather than `textDidBeginEditing`/`textDidEndEditing`, which
+    /// only fire once the text actually changes: a sticky the user had clicked
+    /// into but not yet typed in was still reported unfocused, so the app was
+    /// never activated and ⌘V — which routes through the *active* app's Edit
+    /// menu — did nothing until a character had been typed first.
+    var onFocusChange: ((Bool) -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocusChange?(true) }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onFocusChange?(false) }
+        return resigned
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command), ["b", "i", "u"].contains(key) {
-            Self.log.notice("""
-            performKeyEquivalent key=\(key, privacy: .public) \
-            isFirstResponder=\(self.window?.firstResponder === self, privacy: .public) \
-            firstResponder=\(String(describing: type(of: self.window?.firstResponder)), privacy: .public)
-            """)
-        }
         // Only claim the shortcut when this view actually has focus —
         // otherwise ⌘B typed into the search field would style a note.
-        guard window?.firstResponder === self, flags == .command else {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard window?.firstResponder === self, flags == .command,
+              let key = event.charactersIgnoringModifiers?.lowercased() else {
             return super.performKeyEquivalent(with: event)
         }
         switch key {
@@ -148,8 +215,10 @@ final class RichTextView: NSTextView {
         }
     }
 
-    // Also exposed as actions so the Format menu items (nil target → responder
-    // chain) drive the exact same code.
+    // Exposed as `@objc` actions so they're also reachable through the
+    // responder chain — but note there is deliberately **no Format menu**
+    // carrying ⌘B/⌘I/⌘U (see `AppDelegate.installMainMenu`): a menu item is
+    // offered the key equivalent before the key window and swallows it.
 
     @objc func toggleBoldTrait(_ sender: Any?) { toggleTrait(.boldFontMask) }
 
@@ -278,6 +347,9 @@ struct RichTextEditor: NSViewRepresentable {
             .paragraphStyle: paragraph,
         ]
         textView.textStorage?.setAttributedString(attributed)
+        textView.onFocusChange = { [weak coordinator = context.coordinator] focused in
+            coordinator?.focusChanged(focused)
+        }
 
         scroll.documentView = textView
         context.coordinator.textView = textView
@@ -309,18 +381,14 @@ struct RichTextEditor: NSViewRepresentable {
             parent.attributed = textView.attributedString()
         }
 
-        func textDidBeginEditing(_ notification: Notification) {
-            isEditing = true
-            parent.onFocusChange?(true)
-        }
-
-        func textDidEndEditing(_ notification: Notification) {
-            isEditing = false
+        /// Focus gained/lost, from `RichTextView`'s first-responder overrides.
+        /// `isEditing` therefore means "this editor has the caret", which is
+        /// what the store-push guards actually need.
+        func focusChanged(_ focused: Bool) {
+            isEditing = focused
             // Push the final value through before the caller flushes its save.
-            if let textView = notification.object as? NSTextView {
-                parent.attributed = textView.attributedString()
-            }
-            parent.onFocusChange?(false)
+            if !focused, let textView { parent.attributed = textView.attributedString() }
+            parent.onFocusChange?(focused)
         }
 
         /// Open a clicked link, but only for schemes we've vetted — see

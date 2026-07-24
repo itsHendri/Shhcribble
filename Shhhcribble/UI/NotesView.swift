@@ -6,9 +6,10 @@ import AppKit
 /// detail-with-actions on the right, same floating glass action button, same
 /// toast and confirm conventions).
 ///
-/// Notes are rich text: **⌘B/⌘I/⌘U** style the selection (via the Format menu
-/// `AppDelegate` installs) and URLs become clickable blue links. Tasks and
-/// reminders were cut 2026-07-23 — this is plain note-taking for now.
+/// Notes are rich text: **⌘B/⌘I/⌘U** style the selection (handled by
+/// `RichTextView` itself — see why there is no Format menu) and URLs become
+/// clickable blue links. Tasks and reminders were cut 2026-07-23 — this is
+/// plain note-taking for now.
 struct NotesView: View {
     @ObservedObject var store: TranscriptStore
 
@@ -295,6 +296,7 @@ private struct NoteDetail: View {
         .onDisappear {
             saveTask?.cancel()
             saveNow()
+            discardIfUntouched()
         }
         .alert("Delete this note?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) { store.deleteNote(id: note.id) }
@@ -394,13 +396,29 @@ private struct NoteDetail: View {
     private func saveNow() {
         guard var current = store.notes.first(where: { $0.id == note.id }) else { return }
         let plain = attributed.string
-        let rich = RichText.data(from: attributed)
+        let rich = RichText.data(from: attributed, font: Self.editorFont)
         guard plain != current.text || rich != current.richText else { return }
         current.text = plain
         current.richText = rich
         lastSyncedText = plain
         lastSyncedRich = rich
         store.updateNote(current)
+    }
+
+    /// Drop a note that was created and then left completely untouched, so a
+    /// stray "Add Note" click doesn't leave a permanent blank row in the list.
+    /// The sticky path asks "Discard this empty note?" for the same case; here
+    /// there's nothing to ask about, because there is nothing to lose.
+    ///
+    /// Deliberately narrow — it must never reach a note the user did something
+    /// with: no text, no styling, not pinned, and not linked to a transcript.
+    private func discardIfUntouched() {
+        guard let current = store.notes.first(where: { $0.id == note.id }),
+              current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              current.richText == nil,
+              !current.pinned,
+              current.sourceTranscriptID == nil else { return }
+        store.deleteNote(id: current.id)
     }
 
     private func saveTxt() {

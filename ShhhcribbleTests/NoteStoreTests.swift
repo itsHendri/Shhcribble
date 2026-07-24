@@ -123,6 +123,22 @@ final class NoteStoreTests: XCTestCase {
 
     // MARK: - Pinning
 
+    /// Pinning changes where a note is shown, not what it says, so it must not
+    /// stamp `modifiedAt` — otherwise an untouched note is labelled "Edited"
+    /// just for being pinned.
+    func testPinningDoesNotMarkTheNoteEdited() {
+        let store = makeStore()
+        let created = Date(timeIntervalSince1970: 1_000)
+        store.addNote(Note(createdAt: created, modifiedAt: created, text: "untouched"))
+        let id = store.notes[0].id
+
+        store.setNotePinned(id: id, pinned: true, origin: CGPoint(x: 1, y: 2))
+        XCTAssertEqual(store.notes[0].modifiedAt, created)
+
+        store.updateNotePinFrame(id: id, frame: CGRect(x: 3, y: 4, width: 200, height: 200))
+        XCTAssertEqual(store.notes[0].modifiedAt, created)
+    }
+
     func testSetPinnedKeepsLastOriginAcrossUnpin() {
         let store = makeStore()
         let note = Note(text: "sticky")

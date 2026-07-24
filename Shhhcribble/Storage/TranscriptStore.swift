@@ -513,11 +513,15 @@ final class TranscriptStore: ObservableObject {
         guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return }
         var updated = note
         updated.modifiedAt = modifiedAt
-        exec("""
+        // Guarded like `addNote`: if the write fails (full disk, locked DB) the
+        // in-memory row must NOT change, or the editor would keep showing text
+        // that is already gone from disk and the loss would only surface at the
+        // next launch.
+        guard exec("""
         UPDATE notes SET modifiedAt = ?, text = ?, richText = ?,
         pinned = ?, pinX = ?, pinY = ?, pinW = ?, pinH = ?,
         sourceTranscriptID = ?, sourceActionItem = ? WHERE id = ?;
-        """) { stmt in
+        """, bind: { stmt in
             sqlite3_bind_double(stmt, 1, updated.modifiedAt.timeIntervalSince1970)
             sqlite3_bind_text(stmt, 2, updated.text, -1, Self.SQLITE_TRANSIENT)
             self.bindOptionalBlob(stmt, 3, updated.richText)
@@ -529,7 +533,7 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalText(stmt, 9, updated.sourceTranscriptID?.uuidString)
             self.bindOptionalText(stmt, 10, updated.sourceActionItem)
             sqlite3_bind_text(stmt, 11, updated.id.uuidString, -1, Self.SQLITE_TRANSIENT)
-        }
+        }) else { return }
         notes[idx] = updated
     }
 
@@ -546,6 +550,10 @@ final class TranscriptStore: ObservableObject {
     /// Pin/unpin a note to the screen. Pinning may carry an initial origin
     /// (bottom-left screen coords); unpinning keeps the last origin so re-pinning
     /// restores the old spot.
+    ///
+    /// `modifiedAt` is preserved: where a note is displayed is not a change to
+    /// what it says, and bumping it would label an untouched note "Edited" just
+    /// for being pinned (`updateNotePinFrame` preserves it for the same reason).
     func setNotePinned(id: UUID, pinned: Bool, origin: CGPoint? = nil) {
         guard var note = notes.first(where: { $0.id == id }) else { return }
         note.pinned = pinned
@@ -553,7 +561,7 @@ final class TranscriptStore: ObservableObject {
             note.pinX = origin.x
             note.pinY = origin.y
         }
-        updateNote(note)
+        updateNote(note, modifiedAt: note.modifiedAt)
     }
 
     /// Persist a sticky's dragged/resized frame without touching `modifiedAt`
@@ -1134,11 +1142,6 @@ final class TranscriptStore: ObservableObject {
         else { sqlite3_bind_null(stmt, index) }
     }
 
-    private func bindOptionalDate(_ stmt: OpaquePointer?, _ index: Int32, _ value: Date?) {
-        if let value { sqlite3_bind_double(stmt, index, value.timeIntervalSince1970) }
-        else { sqlite3_bind_null(stmt, index) }
-    }
-
     private func bindOptionalDouble(_ stmt: OpaquePointer?, _ index: Int32, _ value: Double?) {
         if let value { sqlite3_bind_double(stmt, index, value) }
         else { sqlite3_bind_null(stmt, index) }
@@ -1160,11 +1163,6 @@ final class TranscriptStore: ObservableObject {
         let count = Int(sqlite3_column_bytes(stmt, index))
         guard count > 0 else { return nil }
         return Data(bytes: bytes, count: count)
-    }
-
-    private static func columnDate(_ stmt: OpaquePointer?, _ index: Int32) -> Date? {
-        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else { return nil }
-        return Date(timeIntervalSince1970: sqlite3_column_double(stmt, index))
     }
 
     private static func columnDouble(_ stmt: OpaquePointer?, _ index: Int32) -> Double? {

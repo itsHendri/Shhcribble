@@ -94,7 +94,7 @@ final class StickyNotePanel: NSPanel {
                 // Record what's about to be written so the store's echo back
                 // through `update(with:)` isn't mistaken for an external edit.
                 self.lastAppliedText = text.string
-                self.lastAppliedRich = RichText.data(from: text)
+                self.lastAppliedRich = RichText.data(from: text, font: StickyModel.font)
                 self.onTextCommit?(self.noteID, text)
             },
             onUnpin: { [weak self] in
@@ -270,7 +270,7 @@ final class StickyPanelManager {
         panel.onTextCommit = { [weak self] id, attributed in
             guard let self, var current = self.store.notes.first(where: { $0.id == id }) else { return }
             let plain = attributed.string
-            let rich = RichText.data(from: attributed)
+            let rich = RichText.data(from: attributed, font: StickyModel.font)
             guard plain != current.text || rich != current.richText else { return }
             current.text = plain
             current.richText = rich

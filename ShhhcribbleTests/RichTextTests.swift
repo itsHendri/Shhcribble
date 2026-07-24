@@ -19,7 +19,7 @@ final class RichTextTests: XCTestCase {
         styled.addAttribute(.foregroundColor, value: NSColor.red,
                             range: NSRange(location: 0, length: 5))
 
-        let data = try XCTUnwrap(RichText.data(from: styled))
+        let data = try XCTUnwrap(RichText.data(from: styled, font: font))
         let decoded = try XCTUnwrap(NSAttributedString(rtf: data, documentAttributes: nil))
         let colour = decoded.attribute(.foregroundColor, at: 0, effectiveRange: nil)
         XCTAssertNil(colour)
@@ -29,7 +29,7 @@ final class RichTextTests: XCTestCase {
         let bold = NSFont.boldSystemFont(ofSize: 13)
         let styled = NSAttributedString(string: "loud", attributes: [.font: bold])
 
-        let data = try XCTUnwrap(RichText.data(from: styled))
+        let data = try XCTUnwrap(RichText.data(from: styled, font: font))
         let decoded = try XCTUnwrap(NSAttributedString(rtf: data, documentAttributes: nil))
         let decodedFont = try XCTUnwrap(decoded.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
         XCTAssertTrue(decodedFont.fontDescriptor.symbolicTraits.contains(.bold))
@@ -37,7 +37,7 @@ final class RichTextTests: XCTestCase {
 
     func testRoundTripPreservesPlainString() throws {
         let original = NSAttributedString(string: "line one\nline two", attributes: [.font: font])
-        let data = try XCTUnwrap(RichText.data(from: original))
+        let data = try XCTUnwrap(RichText.data(from: original, font: font))
         let back = RichText.attributed(from: data, plain: "", font: font)
         XCTAssertEqual(back.string, "line one\nline two")
     }
@@ -297,6 +297,27 @@ final class RichTextTests: XCTestCase {
         XCTAssertTrue(isBold(view, at: 0))
     }
 
+    /// Focus must be reported from first-responder changes, not from
+    /// `textDidBeginEditing` — a sticky the user clicked into but hasn't typed
+    /// in yet has to count as focused, or the app is never activated and ⌘V
+    /// (which routes through the *active* app's Edit menu) does nothing.
+    @MainActor
+    func testFocusIsReportedOnClickInNotFirstKeystroke() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let view = makeView("hello")
+        window.contentView?.addSubview(view)
+
+        var reported: [Bool] = []
+        view.onFocusChange = { reported.append($0) }
+
+        XCTAssertTrue(window.makeFirstResponder(view))
+        XCTAssertEqual(reported, [true], "focus was not reported without an edit")
+
+        window.makeFirstResponder(nil)
+        XCTAssertEqual(reported, [true, false], "focus loss was not reported")
+    }
+
     @MainActor
     private func firstRichTextView(in view: NSView) -> RichTextView? {
         if let match = view as? RichTextView { return match }
@@ -333,16 +354,55 @@ final class RichTextTests: XCTestCase {
         XCTAssertGreaterThan(style.minimumLineHeight, 0)
     }
 
-    /// Line height is display-only, re-applied on load — baking it into the
-    /// stored RTF would freeze today's metric into every existing note.
-    func testParagraphStyleIsStrippedOnSave() throws {
+    /// The line-height floor is display-only, re-applied on load — baking it
+    /// into the stored RTF would freeze today's metric into every existing note.
+    func testLineHeightFloorIsNotPersisted() throws {
         let styled = RichText.attributed(from: nil, plain: "hello", font: font)
-        let data = try XCTUnwrap(RichText.data(from: styled))
+        let data = try XCTUnwrap(RichText.data(from: styled, font: font))
         let decoded = try XCTUnwrap(NSAttributedString(rtf: data, documentAttributes: nil))
         let style = decoded.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
         // RTF always yields *some* paragraph style; what matters is that our
         // pinned minimum isn't among what got written.
         XCTAssertEqual(style?.minimumLineHeight ?? 0, 0)
+    }
+
+    /// Only the injected floor is cleared on save. An earlier cut removed the
+    /// whole `.paragraphStyle` attribute, which silently flattened anything
+    /// pasted in — a bulleted or indented block survived until the autosave
+    /// fired and then came back as plain text.
+    func testPastedParagraphFormattingSurvivesARoundTrip() throws {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.headIndent = 24
+        paragraph.firstLineHeadIndent = 12
+        paragraph.paragraphSpacing = 7
+        let pasted = NSAttributedString(string: "indented and centred",
+                                        attributes: [.font: font, .paragraphStyle: paragraph])
+
+        let data = try XCTUnwrap(RichText.data(from: pasted, font: font))
+        let restored = RichText.attributed(from: data, plain: "", font: font)
+        let style = try XCTUnwrap(
+            restored.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+
+        XCTAssertEqual(style.alignment, .center)
+        XCTAssertEqual(style.headIndent, 24)
+        XCTAssertEqual(style.firstLineHeadIndent, 12)
+        XCTAssertEqual(style.paragraphSpacing, 7)
+        // …and the floor is layered back on top of the preserved structure.
+        XCTAssertGreaterThan(style.minimumLineHeight, 0)
+    }
+
+    /// A paragraph that already asks for more room than our floor keeps its own
+    /// value — the floor raises, it never lowers.
+    func testExistingLargerLineHeightIsNotReduced() throws {
+        let roomy = NSMutableParagraphStyle()
+        roomy.minimumLineHeight = 400
+        let pasted = NSAttributedString(string: "big",
+                                        attributes: [.font: font, .paragraphStyle: roomy])
+        let restored = RichText.attributed(from: RichText.data(from: pasted, font: font), plain: "", font: font)
+        let style = try XCTUnwrap(
+            restored.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(style.minimumLineHeight, 400)
     }
 
     /// Styling must survive the store round-trip, or bold would vanish the
@@ -353,7 +413,7 @@ final class RichTextTests: XCTestCase {
         view.setSelectedRange(NSRange(location: 0, length: 5))
         view.toggleBoldTrait(nil)
 
-        let data = try XCTUnwrap(RichText.data(from: view.attributedString()))
+        let data = try XCTUnwrap(RichText.data(from: view.attributedString(), font: font))
         let restored = RichText.attributed(from: data, plain: "", font: font)
         let restoredFont = try XCTUnwrap(restored.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
         XCTAssertTrue(restoredFont.fontDescriptor.symbolicTraits.contains(.bold))
