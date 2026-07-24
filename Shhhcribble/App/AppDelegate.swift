@@ -990,29 +990,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
-        // Same reasoning as the Edit menu above, for inline styling: without a
-        // Format menu carrying ⌘B/⌘I/⌘U, those shortcuts reach nothing and the
-        // rich note editor can't be styled from the keyboard.
+        // A Format menu for the note editor's inline styling. These target the
+        // first responder (nil target) and are implemented by `RichTextView`,
+        // which ALSO handles the same shortcuts in `performKeyEquivalent` — the
+        // view gets the key event before the menu does, so the view path is
+        // what normally fires and the menu is the discoverable duplicate.
         //
-        // Bold/Italic go through `NSFontManager.addFontTrait(_:)`, which reads
-        // the trait mask from the sender's `tag` — the standard Cocoa wiring.
-        // Underline is plain `NSText.underline(_:)` on the first responder.
+        // Deliberately NOT the textbook `NSFontManager.addFontTrait(_:)` route:
+        // it depends on menu-item validation against the font manager plus the
+        // font manager tracking the view's selected font, and in this
+        // LSUIElement app that chain silently did nothing.
         let formatItem = NSMenuItem()
         let formatMenu = NSMenu(title: "Format")
-        let bold = NSMenuItem(title: "Bold",
-                              action: #selector(NSFontManager.addFontTrait(_:)), keyEquivalent: "b")
-        bold.target = NSFontManager.shared
-        bold.tag = Int(NSFontTraitMask.boldFontMask.rawValue)
-        formatMenu.addItem(bold)
-
-        let italic = NSMenuItem(title: "Italic",
-                                action: #selector(NSFontManager.addFontTrait(_:)), keyEquivalent: "i")
-        italic.target = NSFontManager.shared
-        italic.tag = Int(NSFontTraitMask.italicFontMask.rawValue)
-        formatMenu.addItem(italic)
-
+        formatMenu.addItem(withTitle: "Bold",
+                           action: #selector(RichTextView.toggleBoldTrait(_:)), keyEquivalent: "b")
+        formatMenu.addItem(withTitle: "Italic",
+                           action: #selector(RichTextView.toggleItalicTrait(_:)), keyEquivalent: "i")
         formatMenu.addItem(withTitle: "Underline",
-                           action: #selector(NSText.underline(_:)), keyEquivalent: "u")
+                           action: #selector(RichTextView.toggleUnderlineTrait(_:)), keyEquivalent: "u")
         formatItem.submenu = formatMenu
         mainMenu.addItem(formatItem)
 

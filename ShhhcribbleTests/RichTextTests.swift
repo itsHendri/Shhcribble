@@ -108,4 +108,113 @@ final class RichTextTests: XCTestCase {
         XCTAssertTrue(RichText.isOpenable(URL(string: "HTTPS://example.com")!))
         XCTAssertFalse(RichText.isOpenable(URL(string: "FILE:///tmp/x")!))
     }
+
+    // MARK: - Inline styling
+    //
+    // `RichTextView` implements ⌘B/⌘I/⌘U itself rather than going through the
+    // Format menu → NSFontManager route (which silently did nothing in this
+    // LSUIElement app). These pin the toggle behaviour directly.
+
+    @MainActor
+    private func makeView(_ text: String) -> RichTextView {
+        let view = RichTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        view.isRichText = true
+        view.font = font
+        view.textStorage?.setAttributedString(
+            NSAttributedString(string: text, attributes: [.font: font]))
+        return view
+    }
+
+    @MainActor
+    private func isBold(_ view: RichTextView, at index: Int) -> Bool {
+        guard let f = view.textStorage?.attribute(.font, at: index, effectiveRange: nil) as? NSFont
+        else { return false }
+        return f.fontDescriptor.symbolicTraits.contains(.bold)
+    }
+
+    @MainActor
+    func testBoldAppliesToSelection() {
+        let view = makeView("hello world")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        view.toggleBoldTrait(nil)
+
+        XCTAssertTrue(isBold(view, at: 0))
+        XCTAssertFalse(isBold(view, at: 6))   // outside the selection, untouched
+    }
+
+    @MainActor
+    func testBoldTogglesBackOffWhenAlreadyBold() {
+        let view = makeView("hello")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        view.toggleBoldTrait(nil)
+        XCTAssertTrue(isBold(view, at: 0))
+
+        view.toggleBoldTrait(nil)
+        XCTAssertFalse(isBold(view, at: 0))
+    }
+
+    /// A selection that's only partly bold should end up uniformly bold, not
+    /// have each run flip against itself.
+    @MainActor
+    func testMixedSelectionFlipsTogether() {
+        let view = makeView("hello world")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        view.toggleBoldTrait(nil)          // "hello" bold, " world" plain
+
+        view.setSelectedRange(NSRange(location: 0, length: 11))
+        view.toggleBoldTrait(nil)          // leading run is bold → remove
+        XCTAssertFalse(isBold(view, at: 0))
+        XCTAssertFalse(isBold(view, at: 6))
+    }
+
+    @MainActor
+    func testItalicAppliesToSelection() {
+        let view = makeView("hello")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        view.toggleItalicTrait(nil)
+
+        let f = view.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        XCTAssertEqual(f?.fontDescriptor.symbolicTraits.contains(.italic), true)
+    }
+
+    @MainActor
+    func testUnderlineTogglesOnAndOff() {
+        let view = makeView("hello")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+
+        view.toggleUnderlineTrait(nil)
+        let on = view.textStorage?.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+        XCTAssertEqual(on, NSUnderlineStyle.single.rawValue)
+
+        view.toggleUnderlineTrait(nil)
+        let off = view.textStorage?.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+        XCTAssertEqual(off, 0)
+    }
+
+    /// With no selection the shortcut changes what gets typed next, rather
+    /// than doing nothing.
+    @MainActor
+    func testBoldWithEmptySelectionSetsTypingAttributes() {
+        let view = makeView("hello")
+        view.setSelectedRange(NSRange(location: 5, length: 0))
+        view.toggleBoldTrait(nil)
+
+        let typing = view.typingAttributes[.font] as? NSFont
+        XCTAssertEqual(typing?.fontDescriptor.symbolicTraits.contains(.bold), true)
+    }
+
+    /// Styling must survive the store round-trip, or bold would vanish the
+    /// moment a note is reopened.
+    @MainActor
+    func testStylingSurvivesStorageRoundTrip() throws {
+        let view = makeView("hello world")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        view.toggleBoldTrait(nil)
+
+        let data = try XCTUnwrap(RichText.data(from: view.attributedString()))
+        let restored = RichText.attributed(from: data, plain: "", font: font)
+        let restoredFont = try XCTUnwrap(restored.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertTrue(restoredFont.fontDescriptor.symbolicTraits.contains(.bold))
+        XCTAssertEqual(restored.string, "hello world")
+    }
 }

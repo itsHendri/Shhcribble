@@ -26,7 +26,7 @@ enum RichText {
     }
 
     /// Decode a stored blob, falling back to `plain` when there's no RTF yet
-    /// (a note created before rich text, or promoted from an action item).
+    /// (a note created before rich text, or added from an action item).
     /// Always normalises colour and re-runs link detection so migrated plain
     /// text gets clickable links too.
     static func attributed(from data: Data?, plain: String, font: NSFont) -> NSAttributedString {
@@ -78,18 +78,102 @@ enum RichText {
     }
 }
 
-/// An editable rich-text view: bold/italic/underline via the Format menu
-/// (⌘B/⌘I/⌘U), automatic link detection, and clickable links.
+/// The text view behind `RichTextEditor`.
 ///
-/// **Why `NSTextView` and not SwiftUI's `TextEditor`:** `TextEditor` only
-/// binds to a `String` on our macOS 14 target (the `AttributedString` binding
-/// is macOS 15+), and it exposes no link handling. `NSTextView` gives rich
-/// text, `NSFontManager` trait toggling, and link clicks for free.
+/// **It handles ⌘B/⌘I/⌘U itself** rather than relying on the standard
+/// Format-menu → `NSFontManager.addFontTrait(_:)` route. That route has several
+/// links that must all hold (the menu item must survive auto-enable validation
+/// against the font manager, the font manager must be tracking the view's
+/// selected font, and `changeFont:` must reach the view through the responder
+/// chain) — and in this LSUIElement app it silently did nothing. A view-level
+/// `performKeyEquivalent` is one link instead of four, and it fires *before*
+/// the main menu gets the event, so it works the same in the Studio window and
+/// in a nonactivating sticky panel.
+final class RichTextView: NSTextView {
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Only claim the shortcut when this view actually has focus —
+        // otherwise ⌘B typed into the search field would style a note.
+        guard window?.firstResponder === self,
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+              let key = event.charactersIgnoringModifiers?.lowercased() else {
+            return super.performKeyEquivalent(with: event)
+        }
+        switch key {
+        case "b": toggleBoldTrait(nil);      return true
+        case "i": toggleItalicTrait(nil);    return true
+        case "u": toggleUnderlineTrait(nil); return true
+        default:  return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    // Also exposed as actions so the Format menu items (nil target → responder
+    // chain) drive the exact same code.
+
+    @objc func toggleBoldTrait(_ sender: Any?) { toggleTrait(.boldFontMask) }
+
+    @objc func toggleItalicTrait(_ sender: Any?) { toggleTrait(.italicFontMask) }
+
+    @objc func toggleUnderlineTrait(_ sender: Any?) {
+        let range = selectedRange()
+        if range.length == 0 {
+            let current = typingAttributes[.underlineStyle] as? Int ?? 0
+            typingAttributes[.underlineStyle] = current == 0 ? NSUnderlineStyle.single.rawValue : 0
+            return
+        }
+        guard let storage = textStorage, shouldChangeText(in: range, replacementString: nil) else { return }
+        let current = storage.attribute(.underlineStyle, at: range.location, effectiveRange: nil) as? Int ?? 0
+        let updated = current == 0 ? NSUnderlineStyle.single.rawValue : 0
+        storage.beginEditing()
+        storage.addAttribute(.underlineStyle, value: updated, range: range)
+        storage.endEditing()
+        didChangeText()
+    }
+
+    /// Add the trait, or remove it if the selection already starts with it, so
+    /// the shortcut toggles the way it does everywhere else. With an empty
+    /// selection it changes what gets typed next (also standard).
+    private func toggleTrait(_ trait: NSFontTraitMask) {
+        let manager = NSFontManager.shared
+        let fallback = font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        let range = selectedRange()
+
+        if range.length == 0 {
+            let current = typingAttributes[.font] as? NSFont ?? fallback
+            typingAttributes[.font] = converted(current, trait: trait,
+                                                removing: manager.traits(of: current).contains(trait))
+            return
+        }
+
+        guard let storage = textStorage, shouldChangeText(in: range, replacementString: nil) else { return }
+        // Decide once, from the start of the selection, so a mixed run flips
+        // together instead of each sub-run toggling against itself.
+        let leading = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+        let removing = leading.map { manager.traits(of: $0).contains(trait) } ?? false
+
+        storage.beginEditing()
+        storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
+            let base = value as? NSFont ?? fallback
+            storage.addAttribute(.font, value: converted(base, trait: trait, removing: removing),
+                                 range: subrange)
+        }
+        storage.endEditing()
+        didChangeText()
+    }
+
+    private func converted(_ font: NSFont, trait: NSFontTraitMask, removing: Bool) -> NSFont {
+        let manager = NSFontManager.shared
+        return removing ? manager.convert(font, toNotHaveTrait: trait)
+                        : manager.convert(font, toHaveTrait: trait)
+    }
+}
+
+/// An editable rich-text view: bold/italic/underline via ⌘B/⌘I/⌘U, automatic
+/// link detection, and clickable links.
 ///
-/// Bold works because `AppDelegate.installMainMenu()` installs a **Format**
-/// menu — the same LSUIElement gap that made ⌘C/⌘V dead before the Edit menu
-/// was added: with no menu carrying the key equivalent, the shortcut reaches
-/// nothing.
+/// **Why `NSTextView` and not SwiftUI's `TextEditor`:** `TextEditor` only binds
+/// to a `String` on our macOS 14 target (the `AttributedString` binding is
+/// macOS 15+), and it exposes no link handling.
 struct RichTextEditor: NSViewRepresentable {
 
     @Binding var attributed: NSAttributedString
@@ -102,9 +186,24 @@ struct RichTextEditor: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
-        guard let textView = scroll.documentView as? NSTextView else { return scroll }
+        // Built by hand rather than via `NSTextView.scrollableTextView()` so
+        // the view is our `RichTextView` subclass (which owns the formatting
+        // shortcuts).
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
 
+        let storage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        storage.addLayoutManager(layoutManager)
+        let unbounded = CGFloat.greatestFiniteMagnitude
+        let container = NSTextContainer(size: NSSize(width: CGFloat.zero, height: unbounded))
+        container.widthTracksTextView = true
+        layoutManager.addTextContainer(container)
+
+        let textView = RichTextView(frame: .zero, textContainer: container)
         textView.delegate = context.coordinator
         textView.isRichText = true
         textView.isEditable = true
@@ -114,6 +213,11 @@ struct RichTextEditor: NSViewRepresentable {
         textView.textColor = .labelColor
         textView.drawsBackground = false
         textView.textContainerInset = insets
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: CGFloat.zero, height: CGFloat.zero)
+        textView.maxSize = NSSize(width: unbounded, height: unbounded)
         textView.isAutomaticLinkDetectionEnabled = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -123,18 +227,15 @@ struct RichTextEditor: NSViewRepresentable {
             .cursor: NSCursor.pointingHand,
         ]
         textView.typingAttributes = [.font: font, .foregroundColor: NSColor.labelColor]
-
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-
         textView.textStorage?.setAttributedString(attributed)
+
+        scroll.documentView = textView
         context.coordinator.textView = textView
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let textView = scroll.documentView as? NSTextView else { return }
+        guard let textView = scroll.documentView as? RichTextView else { return }
         context.coordinator.parent = self
 
         // Never overwrite while the user is typing: the binding lags the view
@@ -148,7 +249,7 @@ struct RichTextEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: RichTextEditor
-        weak var textView: NSTextView?
+        weak var textView: RichTextView?
         private(set) var isEditing = false
 
         init(_ parent: RichTextEditor) { self.parent = parent }
