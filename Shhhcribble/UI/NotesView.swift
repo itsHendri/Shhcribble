@@ -256,7 +256,10 @@ private struct NoteDetail: View {
     @State private var attributed = NSAttributedString(string: "")
     @State private var saveTask: Task<Void, Never>?
     @State private var showingDeleteConfirm = false
-    @State private var isEditing = false
+    /// An edit lives here that the store doesn't have yet. Guards store pushes
+    /// and is cleared by `saveNow` — see `RichTextEditor.hasPendingEdit` for
+    /// why this replaced focus.
+    @State private var hasPendingEdit = false
     /// The stored values this pane last read from (or wrote to) the store —
     /// see the matching note on `StickyNotePanel`, which uses the same scheme
     /// to tell a real external edit from the store echoing our own write back.
@@ -271,11 +274,10 @@ private struct NoteDetail: View {
             Divider()
             RichTextEditor(
                 attributed: $attributed,
+                hasPendingEdit: $hasPendingEdit,
                 font: Self.editorFont,
-                onFocusChange: { focused in
-                    isEditing = focused
-                    if !focused { saveNow() }
-                }
+                onFocusChange: { focused in if !focused { saveNow() } },
+                onUserEdit: { scheduleSave() }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -285,14 +287,8 @@ private struct NoteDetail: View {
         // has to land here too. Skipped while this editor has focus (the store
         // lags typing by the debounce).
         .onChange(of: note) { _, updated in
-            guard !isEditing else { return }
+            guard !hasPendingEdit else { return }
             syncFromStore(updated)
-        }
-        // Only the user's own typing schedules a save; a sync-in must not echo
-        // straight back out as a write.
-        .onChange(of: attributed) { _, _ in
-            guard isEditing else { return }
-            scheduleSave()
         }
         .onDisappear {
             saveTask?.cancel()
@@ -398,6 +394,9 @@ private struct NoteDetail: View {
     /// Persist the rich body plus its plain-text mirror. No-ops when nothing
     /// changed, which is what stops the store's republish from looping back.
     private func saveNow() {
+        // Whatever happens below, this editor no longer holds anything the
+        // store hasn't seen — so store pushes are safe again.
+        defer { hasPendingEdit = false }
         guard var current = store.notes.first(where: { $0.id == note.id }) else { return }
         let plain = attributed.string
         let rich = RichText.data(from: attributed, font: Self.editorFont)

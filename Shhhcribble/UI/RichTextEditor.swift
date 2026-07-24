@@ -601,11 +601,27 @@ final class RichTextView: NSTextView {
 struct RichTextEditor: NSViewRepresentable {
 
     @Binding var attributed: NSAttributedString
+
+    /// True while this editor holds a user edit that hasn't been persisted.
+    /// The editor sets it on a real edit; the owner clears it once its
+    /// debounced save lands, and store pushes are refused while it's set.
+    ///
+    /// **This, not focus, is what guards the two-editor case.** Focus was
+    /// load-bearing for two unrelated questions — "did the user type?" and "may
+    /// we overwrite what's on screen?" — so whenever focus misreported (and on
+    /// a nonactivating sticky panel it did), edits silently failed to save
+    /// *and* incoming changes could overwrite text mid-keystroke.
+    @Binding var hasPendingEdit: Bool
+
     var font: NSFont = RichText.baseFont
     var insets: NSSize = NSSize(width: 12, height: 10)
-    /// Called when the editor gains or loses focus — the sticky panel uses it
-    /// to activate the app and to flush its debounced save.
+    /// Gains/loses focus. Only used for things that are harmless to get wrong:
+    /// activating the app (so ⌘V works in a sticky) and flushing on blur.
     var onFocusChange: ((Bool) -> Void)?
+    /// A genuine user edit landed — the owner schedules its debounced save from
+    /// this. `NSTextView` distinguishes it from a programmatic
+    /// `setAttributedString`, which is exactly the distinction that was missing.
+    var onUserEdit: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -674,33 +690,42 @@ struct RichTextEditor: NSViewRepresentable {
         guard let textView = scroll.documentView as? RichTextView else { return }
         context.coordinator.parent = self
 
-        // Never overwrite while the user is typing: the binding lags the view
-        // by the caller's save debounce, so pushing it back in would fight the
-        // cursor. (Same invariant as the sticky's `update(with:)`.)
-        guard !context.coordinator.isEditing,
-              textView.attributedString() != attributed else { return }
+        // Never overwrite an edit that hasn't been saved yet: the binding lags
+        // the view by the owner's save debounce, so pushing it back in would
+        // fight the cursor — or drop the keystrokes outright.
+        guard !hasPendingEdit, textView.attributedString() != attributed else { return }
+        // Flagged so the resulting text-storage change can't be mistaken for
+        // the user typing (which would re-arm `hasPendingEdit` forever).
+        context.coordinator.isApplyingProgrammaticChange = true
         textView.textStorage?.setAttributedString(attributed)
+        context.coordinator.isApplyingProgrammaticChange = false
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: RichTextEditor
         weak var textView: RichTextView?
-        private(set) var isEditing = false
 
         init(_ parent: RichTextEditor) { self.parent = parent }
+
+        /// Set while `updateNSView` is pushing store content in, so that write
+        /// isn't counted as the user typing.
+        var isApplyingProgrammaticChange = false
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             parent.attributed = textView.attributedString()
+            guard !isApplyingProgrammaticChange else { return }
+            parent.hasPendingEdit = true
+            parent.onUserEdit?()
         }
 
         /// Focus gained/lost, from `RichTextView`'s first-responder overrides.
-        /// `isEditing` therefore means "this editor has the caret", which is
-        /// what the store-push guards actually need.
+        /// Deliberately **not** used to decide whether to save or whether a
+        /// store push is safe — `hasPendingEdit` answers both, and focus is
+        /// unreliable on a nonactivating panel.
         func focusChanged(_ focused: Bool) {
-            isEditing = focused
-            // Push the final value through before the caller flushes its save.
+            // Push the final value through before the owner flushes its save.
             if !focused, let textView { parent.attributed = textView.attributedString() }
             parent.onFocusChange?(focused)
         }

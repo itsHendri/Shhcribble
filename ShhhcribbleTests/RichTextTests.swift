@@ -351,10 +351,14 @@ final class RichTextTests: XCTestCase {
     /// must not swallow the key equivalent.
     @MainActor
     func testCommandBSurvivesTheSwiftUIHostingView() throws {
-        final class Box { var value = NSAttributedString(string: "hello world") }
+        final class Box {
+            var value = NSAttributedString(string: "hello world")
+            var pending = false
+        }
         let box = Box()
         let editor = RichTextEditor(
             attributed: Binding(get: { box.value }, set: { box.value = $0 }),
+            hasPendingEdit: Binding(get: { box.pending }, set: { box.pending = $0 }),
             font: font
         )
         let hosting = NSHostingView(rootView: editor)
@@ -423,6 +427,41 @@ final class RichTextTests: XCTestCase {
         // Still first responder of its own window — which is exactly why
         // first-responder state alone cannot answer this.
         XCTAssertTrue(window.firstResponder === view)
+    }
+
+    /// Saving must be driven by "did the user type?", which `NSTextView`
+    /// answers via `textDidChange` — **not** by focus, which misreports on a
+    /// nonactivating sticky panel and left edits unsaved while also letting
+    /// store pushes overwrite text mid-keystroke.
+    @MainActor
+    func testUserEditFiresOnUserEditAndMarksPending() throws {
+        final class Box {
+            var value = NSAttributedString(string: "start")
+            var pending = false
+            var edits = 0
+        }
+        let box = Box()
+        let editor = RichTextEditor(
+            attributed: Binding(get: { box.value }, set: { box.value = $0 }),
+            hasPendingEdit: Binding(get: { box.pending }, set: { box.pending = $0 }),
+            font: font,
+            onUserEdit: { box.edits += 1 }
+        )
+        let hosting = NSHostingView(rootView: editor)
+        hosting.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        defer { window.orderOut(nil) }
+
+        let view = try XCTUnwrap(firstRichTextView(in: hosting))
+        view.setSelectedRange(NSRange(location: 5, length: 0))
+        view.insertText(" typed", replacementRange: view.selectedRange())
+
+        XCTAssertEqual(box.edits, 1, "a user edit did not report itself")
+        XCTAssertTrue(box.pending, "a user edit did not mark the editor as unsaved")
+        XCTAssertTrue(box.value.string.contains("typed"))
     }
 
     @MainActor

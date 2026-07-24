@@ -145,7 +145,7 @@ final class StickyNotePanel: NSPanel {
     /// edit (same words, now bold) still lands — comparing plain text alone made
     /// styling silently fail to propagate.
     func update(with note: Note) {
-        guard !model.isEditing else { return }
+        guard !model.hasPendingEdit else { return }
         guard note.text != lastAppliedText || note.richText != lastAppliedRich else { return }
         lastAppliedText = note.text
         lastAppliedRich = note.richText
@@ -305,8 +305,9 @@ final class StickyModel: ObservableObject {
     static let font = RichText.baseFont
 
     @Published var attributed = NSAttributedString(string: "")
-    /// True while the text editor has focus — blocks store→view text pushes.
-    @Published var isEditing: Bool = false
+    /// An edit lives here that the store doesn't have yet — blocks store→view
+    /// pushes. See `RichTextEditor.hasPendingEdit` for why this replaced focus.
+    @Published var hasPendingEdit: Bool = false
     /// Bumped to request editor focus (quick-add).
     @Published var focusRequest: Int = 0
     /// The close button always confirms; this drives the in-card overlay
@@ -335,10 +336,10 @@ private struct StickyView: View {
             header
             RichTextEditor(
                 attributed: $model.attributed,
+                hasPendingEdit: $model.hasPendingEdit,
                 font: StickyModel.font,
                 insets: NSSize(width: 8, height: 4),
                 onFocusChange: { focused in
-                    model.isEditing = focused
                     if focused {
                         // ⌘V/⌘Z/⌘B route through the active app's main menu; as
                         // an LSUIElement app ours only participates once
@@ -347,7 +348,8 @@ private struct StickyView: View {
                     } else {
                         flushSave()
                     }
-                }
+                },
+                onUserEdit: { scheduleSave() }
             )
             .padding(.bottom, 6)
         }
@@ -361,10 +363,6 @@ private struct StickyView: View {
                 .strokeBorder(.white.opacity(DesignSystem.strokeSubtle), lineWidth: 1)
         )
         .overlay { closeConfirmOverlay }
-        .onChange(of: model.attributed) { _, _ in
-            guard model.isEditing else { return }   // store pushes don't re-save
-            scheduleSave()
-        }
         .onDisappear {
             saveTask?.cancel()
             flushSave()
@@ -449,16 +447,19 @@ private struct StickyView: View {
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let snapshot = model.attributed
         saveTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard !Task.isCancelled else { return }
-            onCommitText(snapshot)
+            flushSave()
         }
     }
 
+    /// Commit whatever the editor currently holds. Clearing the pending flag
+    /// first means store pushes are unblocked as soon as the value is on its
+    /// way out, and a commit the panel skips (nothing changed) still clears it.
     private func flushSave() {
         saveTask?.cancel()
+        model.hasPendingEdit = false
         onCommitText(model.attributed)
     }
 }
