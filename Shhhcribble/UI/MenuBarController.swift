@@ -224,15 +224,20 @@ final class MenuBarController: NSObject {
     private enum IconStatus {
         case idle, recording, callOffer, updateWaiting
 
-        /// **Symbol, not just tint.** Colour alone fails anyone who can't
-        /// separate red from amber, and the menu bar gives us no text — so each
-        /// status changes the glyph as well.
+        /// A distinct glyph for the states that aren't about the microphone,
+        /// so they don't rely on telling red from amber. Nil means "keep the
+        /// app's own icon".
+        ///
+        /// **Recording deliberately keeps the brand icon** (tinted red) rather
+        /// than swapping to `mic.fill`: our icon is already a mic, so swapping
+        /// gains nothing and costs the brand mark — and on a menu bar that
+        /// often holds other dictation apps, a generic mic makes ours
+        /// indistinguishable from theirs.
         var symbol: String? {
             switch self {
-            case .idle:          return nil          // the app's own icon
-            case .recording:     return "mic.fill"
-            case .callOffer:     return "phone.fill"
-            case .updateWaiting: return "arrow.down.circle.fill"
+            case .idle, .recording: return nil       // the app's own icon
+            case .callOffer:        return "phone.fill"
+            case .updateWaiting:    return "arrow.down.circle.fill"
             }
         }
 
@@ -285,7 +290,9 @@ final class MenuBarController: NSObject {
         let image = NSImage(named: "MenuBarIcon") ?? NSImage(
             systemSymbolName: "mic.fill", accessibilityDescription: status.describedAs)
         image?.size = NSSize(width: 18, height: 18)
-        image?.isTemplate = true   // let macOS handle light/dark tinting
+        // Template lets macOS tint for light/dark; a status tint needs it off
+        // so our own colour shows through instead.
+        image?.isTemplate = (status.tint == nil)
         return image
     }
 

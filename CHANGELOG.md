@@ -40,10 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   afterwards.
 
 ### Changed
-- **The menu-bar icon now changes shape, not just colour.** Recording, a
-  detected call and a waiting update each show their own symbol, so they're
-  distinguishable without relying on telling red from amber. The icon also
-  describes its state to VoiceOver.
+- **The menu-bar icon is clearer about non-recording states.** A detected call
+  and a waiting update now show their own symbol rather than only a tint, so
+  they don't rely on telling red from amber. Recording keeps the Shhhcribble
+  icon, just tinted. The icon also describes its state to VoiceOver.
 - **Reduce Motion is respected** throughout — the recording pill, banners,
   toasts and the soundwave shimmer all settle instantly when the system
   setting is on.

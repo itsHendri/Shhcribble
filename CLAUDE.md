@@ -210,6 +210,7 @@ Two rules established 2026-07-08, expected everywhere going forward:
 - **Fills/hairlines:** `fillSubtle` .03 (boxes) / `fillHover` .04 (list row hover *and* selection — same value on purpose, so the two read as one affordance) / `fillActive` .09 (rail selection, a step above the list) / `strokeSubtle` .08 / `strokeStrong` .15 (the outlined search pill).
 - **Shadows:** `shadowSoft` .12 (toasts) / `shadowCard` .22 (stickies) / `shadowBanner` .28.
 - **Radii:** four by role — `radiusBadge` 3, `radiusControl` 7 (rows, boxes, controls; absorbed the old 6 and 8), `radiusCard` 12, `radiusBanner` 16. **`SoundwaveView`'s 2pt bar is exempt** — that's a drawn shape, not a container.
+- **Menu-bar status:** priority recording > call offer > update > idle. Non-mic states (call offer, update) swap the *glyph* so they don't depend on telling red from amber; **recording keeps the brand icon tinted red** — our icon is already a mic, so swapping to `mic.fill` costs the brand mark and, on a menu bar that often holds other dictation apps, makes ours indistinguishable from theirs (human's call, 2026-07-24). The button carries an accessibility label for every state.
 - **Motion:** `motionQuick` .15 / `motionStandard` .25 / `springStandard`, plus **`DesignSystem.motion(_:)`, which every `withAnimation` call site now goes through** so Reduce Motion degrades it to an instant change (`withAnimation` takes an `Animation?`). The soundwave's forever-repeating shimmer guards on `prefersReducedMotion` directly and parks mid-travel.
 
 ### Hidden picker labels in Settings
