@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Add Note** button.
 - **Rich text in notes.** Select text and press **⌘B**, **⌘I** or **⌘U** to
   style it, and any web or email address you type becomes a clickable blue
-  link. Styling is preserved when you reopen the note.
+  link. Pasted content keeps its formatting — fonts, sizes, colours,
+  highlights, bullet and numbered lists, indentation and alignment all survive
+  closing and reopening the note.
 - **Sticky notes.** Pin any note to your screen as a floating, fully-editable,
   **resizable** glass sticky. Stickies remember their position and size across
   launches; closing one always confirms first (unpin for a note with content,

@@ -7,26 +7,49 @@ import AppKit
 /// rules are testable and shared by the store.
 enum RichText {
 
-    /// Attributes we intentionally persist. Everything else (notably colour —
-    /// see `data(from:)`) is stripped so notes render correctly in whichever
-    /// appearance they're later opened in.
-    static let documentType: [NSAttributedString.DocumentAttributeKey: Any] =
-        [.documentType: NSAttributedString.DocumentType.rtf]
+    /// Classes allowed when decoding a stored note. Explicit (rather than
+    /// switching secure coding off) so a corrupt or tampered blob can't
+    /// instantiate arbitrary classes; anything outside this set fails the
+    /// decode and falls back to the plain-text mirror.
+    private static let decodableClasses: [AnyClass] = [
+        NSAttributedString.self, NSMutableAttributedString.self,
+        NSFont.self, NSColor.self, NSParagraphStyle.self, NSMutableParagraphStyle.self,
+        NSTextAttachment.self, NSImage.self, NSURL.self, NSTextList.self,
+        NSString.self, NSNumber.self, NSArray.self, NSDictionary.self,
+    ]
 
-    /// Encode for storage. **Foreground colour is deliberately stripped:** RTF
-    /// stores literal resolved colours, so a note typed in light mode would
-    /// persist near-black text and become invisible after a switch to dark
-    /// mode. With no colour stored, `attributed(from:)` re-applies the dynamic
-    /// `labelColor`, which resolves per appearance at draw time.
+    /// Encode for storage as a keyed archive of the attributed string.
+    ///
+    /// **Not RTF — measured, not assumed.** RTF cannot represent the system
+    /// font: `.AppleSystemUIFont` round-trips to `HelveticaNeue`, so a note
+    /// silently changed typeface the first time it was reloaded, and pasted
+    /// text degraded to whatever the RTF font table could resolve. A keyed
+    /// archive preserves fonts, colours, paragraph structure and attachments
+    /// exactly.
+    ///
+    /// It also removes the reason colour used to be stripped here: RTF stores
+    /// literal resolved colours (so a note typed in light mode came back
+    /// near-black on dark), but an archive keeps `labelColor` as the *dynamic*
+    /// colour it is, resolving per appearance at draw time. Pasted colours and
+    /// highlights are therefore kept as-is.
+    ///
     /// - Parameter font: the editor's base font, needed to recognise the exact
     ///   line-height floor this editor injected so only that value is cleared.
     static func data(from attributed: NSAttributedString, font: NSFont) -> Data? {
         let clean = NSMutableAttributedString(attributedString: attributed)
-        let full = NSRange(location: 0, length: clean.length)
-        clean.removeAttribute(.foregroundColor, range: full)
-        clean.removeAttribute(.backgroundColor, range: full)
         clearLineHeightFloor(in: clean, font: font)
-        return clean.rtf(from: full, documentAttributes: documentType)
+        return try? NSKeyedArchiver.archivedData(withRootObject: clean, requiringSecureCoding: true)
+    }
+
+    /// Decode a stored blob: a keyed archive, or — for notes written before the
+    /// format change — the legacy RTF. Returns nil if it is neither, and the
+    /// caller falls back to the plain-text mirror.
+    private static func decode(_ data: Data) -> NSAttributedString? {
+        if let archived = try? NSKeyedUnarchiver.unarchivedObject(
+            ofClasses: decodableClasses, from: data) as? NSAttributedString {
+            return archived
+        }
+        return NSAttributedString(rtf: data, documentAttributes: nil)
     }
 
     /// Drop **only** the line-height floor this editor injected, leaving lists,
@@ -118,7 +141,7 @@ enum RichText {
     /// text gets clickable links too.
     static func attributed(from data: Data?, plain: String, font: NSFont) -> NSAttributedString {
         let base: NSMutableAttributedString
-        if let data, let decoded = NSAttributedString(rtf: data, documentAttributes: nil) {
+        if let data, let decoded = decode(data) {
             base = NSMutableAttributedString(attributedString: decoded)
         } else {
             base = NSMutableAttributedString(string: plain, attributes: [.font: font])
@@ -131,9 +154,17 @@ enum RichText {
         base.enumerateAttribute(.font, in: full) { value, range, _ in
             if value == nil { base.addAttribute(.font, value: font, range: range) }
         }
-        // Dynamic colour, resolved per appearance at draw time. Links still
-        // render blue: `linkTextAttributes` overrides this for `.link` ranges.
-        base.addAttribute(.foregroundColor, value: NSColor.labelColor, range: full)
+        // Only runs with NO colour of their own get the dynamic `labelColor`
+        // (plain text, and legacy RTF notes, which were stored colourless).
+        // Deliberate colour — including anything pasted in — is left alone;
+        // blanket-overriding it would wipe a pasted highlight's text colour.
+        // Links still render blue regardless: `linkTextAttributes` overrides
+        // this for `.link` ranges.
+        base.enumerateAttribute(.foregroundColor, in: full) { value, range, _ in
+            if value == nil {
+                base.addAttribute(.foregroundColor, value: NSColor.labelColor, range: range)
+            }
+        }
         applyLineHeightFloor(to: base, font: font)
         addDetectedLinks(to: base)
         return base

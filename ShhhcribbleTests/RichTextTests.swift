@@ -10,29 +10,73 @@ final class RichTextTests: XCTestCase {
 
     // MARK: - Encoding
 
-    /// Colour must NOT survive into the stored RTF: RTF records literal
-    /// resolved colours, so a note written in light mode would come back as
-    /// near-black text on a dark background. `attributed(from:)` re-applies the
-    /// dynamic `labelColor` on load instead.
-    func testEncodingStripsForegroundColor() throws {
-        let styled = NSMutableAttributedString(string: "hello", attributes: [.font: font])
-        styled.addAttribute(.foregroundColor, value: NSColor.red,
-                            range: NSRange(location: 0, length: 5))
+    /// Round-trip helper — encode then decode the way the app does.
+    private func roundTrip(_ string: NSAttributedString) -> NSAttributedString {
+        RichText.attributed(from: RichText.data(from: string, font: font), plain: "", font: font)
+    }
 
-        let data = try XCTUnwrap(RichText.data(from: styled, font: font))
-        let decoded = try XCTUnwrap(NSAttributedString(rtf: data, documentAttributes: nil))
-        let colour = decoded.attribute(.foregroundColor, at: 0, effectiveRange: nil)
-        XCTAssertNil(colour)
+    /// **The typeface regression.** RTF cannot represent the system font —
+    /// `.AppleSystemUIFont` came back as `HelveticaNeue` — so every note
+    /// silently changed face the first time it was reloaded. The archive
+    /// format must keep it exactly.
+    func testSystemFontSurvivesTheRoundTrip() throws {
+        let system = NSFont.systemFont(ofSize: 13)
+        let back = roundTrip(NSAttributedString(string: "hello", attributes: [.font: system]))
+        let restored = try XCTUnwrap(back.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(restored.fontName, system.fontName)
+        XCTAssertEqual(restored.pointSize, 13)
+    }
+
+    /// A pasted face and size must come back unchanged too, not collapse to a
+    /// default.
+    func testPastedFontFamilyAndSizeSurvive() throws {
+        let pasted = NSFont(name: "Helvetica", size: 22) ?? NSFont.systemFont(ofSize: 22)
+        let back = roundTrip(NSAttributedString(string: "pasted", attributes: [.font: pasted]))
+        let restored = try XCTUnwrap(back.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(restored.fontName, pasted.fontName)
+        XCTAssertEqual(restored.pointSize, 22)
     }
 
     func testEncodingPreservesBold() throws {
         let bold = NSFont.boldSystemFont(ofSize: 13)
-        let styled = NSAttributedString(string: "loud", attributes: [.font: bold])
-
-        let data = try XCTUnwrap(RichText.data(from: styled, font: font))
-        let decoded = try XCTUnwrap(NSAttributedString(rtf: data, documentAttributes: nil))
-        let decodedFont = try XCTUnwrap(decoded.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let back = roundTrip(NSAttributedString(string: "loud", attributes: [.font: bold]))
+        let decodedFont = try XCTUnwrap(back.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
         XCTAssertTrue(decodedFont.fontDescriptor.symbolicTraits.contains(.bold))
+    }
+
+    /// Pasted colour and highlight are the user's content — they must survive.
+    /// The old encoder stripped both to dodge a dark-mode problem that the
+    /// archive format doesn't have.
+    func testPastedColourAndHighlightSurvive() throws {
+        let styled = NSMutableAttributedString(string: "highlighted", attributes: [.font: font])
+        let range = NSRange(location: 0, length: styled.length)
+        styled.addAttribute(.foregroundColor, value: NSColor.red, range: range)
+        styled.addAttribute(.backgroundColor, value: NSColor.systemYellow, range: range)
+
+        let back = roundTrip(styled)
+        XCTAssertEqual(back.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, .red)
+        XCTAssertEqual(back.attribute(.backgroundColor, at: 0, effectiveRange: nil) as? NSColor, .systemYellow)
+    }
+
+    /// Text with no colour of its own still gets the *dynamic* label colour, so
+    /// it stays readable when the appearance changes.
+    func testUncolouredTextGetsDynamicLabelColour() throws {
+        let back = RichText.attributed(from: nil, plain: "plain", font: font)
+        XCTAssertEqual(back.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+                       NSColor.labelColor)
+    }
+
+    /// Notes written before the format change are RTF blobs; they must still
+    /// open rather than falling back to bare plain text.
+    func testLegacyRTFBlobsStillDecode() throws {
+        let legacy = NSAttributedString(string: "old note",
+                                        attributes: [.font: NSFont(name: "Helvetica", size: 14)!])
+        let rtf = try XCTUnwrap(legacy.rtf(from: NSRange(location: 0, length: legacy.length),
+                                           documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]))
+        let back = RichText.attributed(from: rtf, plain: "", font: font)
+        XCTAssertEqual(back.string, "old note")
+        let restored = try XCTUnwrap(back.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(restored.fontName, "Helvetica")
     }
 
     func testRoundTripPreservesPlainString() throws {
@@ -355,14 +399,13 @@ final class RichTextTests: XCTestCase {
     }
 
     /// The line-height floor is display-only, re-applied on load — baking it
-    /// into the stored RTF would freeze today's metric into every existing note.
+    /// into the stored blob would freeze today's metric into every existing note.
     func testLineHeightFloorIsNotPersisted() throws {
         let styled = RichText.attributed(from: nil, plain: "hello", font: font)
         let data = try XCTUnwrap(RichText.data(from: styled, font: font))
-        let decoded = try XCTUnwrap(NSAttributedString(rtf: data, documentAttributes: nil))
+        let decoded = try XCTUnwrap(NSKeyedUnarchiver.unarchivedObject(
+            ofClass: NSAttributedString.self, from: data))
         let style = decoded.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-        // RTF always yields *some* paragraph style; what matters is that our
-        // pinned minimum isn't among what got written.
         XCTAssertEqual(style?.minimumLineHeight ?? 0, 0)
     }
 
