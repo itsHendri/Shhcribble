@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import Shhhcribble
 
 /// Tests for the note rich-text encoding rules and the link-handling policy.
@@ -201,6 +202,108 @@ final class RichTextTests: XCTestCase {
 
         let typing = view.typingAttributes[.font] as? NSFont
         XCTAssertEqual(typing?.fontDescriptor.symbolicTraits.contains(.bold), true)
+    }
+
+    // MARK: - Real key-equivalent dispatch
+    //
+    // The tests above call the action methods directly, which proves the trait
+    // maths but NOT that ⌘B ever reaches them — the bug the user hit. These
+    // drive the actual AppKit path: a real window, the view as first responder,
+    // a synthetic ⌘B, through `NSWindow.performKeyEquivalent`.
+
+    @MainActor
+    private func commandKeyEvent(_ character: String) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: character,
+            charactersIgnoringModifiers: character,
+            isARepeat: false,
+            keyCode: 0
+        )!
+    }
+
+    @MainActor
+    func testCommandBReachesTheViewThroughTheWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let view = makeView("hello world")
+        window.contentView?.addSubview(view)
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        XCTAssertTrue(window.makeFirstResponder(view))
+
+        let handled = window.performKeyEquivalent(with: commandKeyEvent("b"))
+        XCTAssertTrue(handled, "⌘B was not claimed by the text view")
+        XCTAssertTrue(isBold(view, at: 0), "⌘B reached the view but didn't bold the selection")
+    }
+
+    /// **The bug that made ⌘B look dead.** `NSApplication` offers a key
+    /// equivalent to the **main menu before the key window**, so any main-menu
+    /// item carrying ⌘B/⌘I/⌘U swallows the shortcut — the view's handler never
+    /// runs. A Format menu did exactly that: it claimed ⌘B and its action never
+    /// reached the text view. The menu was removed (an LSUIElement app shows no
+    /// menu bar, so it only ever carried key equivalents); this test stops one
+    /// being reintroduced.
+    @MainActor
+    func testMainMenuDoesNotSwallowStylingKeys() throws {
+        let menu = try XCTUnwrap(NSApp.mainMenu, "the app installs a main menu at launch")
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let view = makeView("hello world")
+        window.contentView?.addSubview(view)
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        window.makeFirstResponder(view)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        for key in ["b", "i", "u"] {
+            XCTAssertFalse(
+                menu.performKeyEquivalent(with: commandKeyEvent(key)),
+                "a main-menu item claimed ⌘\(key.uppercased()); it will swallow the shortcut before the editor sees it"
+            )
+        }
+    }
+
+    /// The same path, but through the SwiftUI wrapper the app actually uses —
+    /// an `NSHostingView` sits between the window and the text view, and it
+    /// must not swallow the key equivalent.
+    @MainActor
+    func testCommandBSurvivesTheSwiftUIHostingView() throws {
+        final class Box { var value = NSAttributedString(string: "hello world") }
+        let box = Box()
+        let editor = RichTextEditor(
+            attributed: Binding(get: { box.value }, set: { box.value = $0 }),
+            font: font
+        )
+        let hosting = NSHostingView(rootView: editor)
+        hosting.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+
+        let window = NSWindow(contentRect: hosting.frame,
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+
+        let view = try XCTUnwrap(firstRichTextView(in: hosting), "no RichTextView was built")
+        view.setSelectedRange(NSRange(location: 0, length: 5))
+        XCTAssertTrue(window.makeFirstResponder(view))
+
+        let handled = window.performKeyEquivalent(with: commandKeyEvent("b"))
+        XCTAssertTrue(handled, "⌘B was swallowed before reaching the text view")
+        XCTAssertTrue(isBold(view, at: 0))
+    }
+
+    @MainActor
+    private func firstRichTextView(in view: NSView) -> RichTextView? {
+        if let match = view as? RichTextView { return match }
+        for subview in view.subviews {
+            if let match = firstRichTextView(in: subview) { return match }
+        }
+        return nil
     }
 
     /// Styling must survive the store round-trip, or bold would vanish the

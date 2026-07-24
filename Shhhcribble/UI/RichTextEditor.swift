@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import os
 
 /// Conversion between an `NSAttributedString` and the RTF blob we persist,
 /// plus the link-detection pass. Kept separate from the view so the encoding
@@ -91,12 +92,21 @@ enum RichText {
 /// in a nonactivating sticky panel.
 final class RichTextView: NSTextView {
 
+    private static let log = Logger(subsystem: "com.shhhcribble.app", category: "richtext")
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command), ["b", "i", "u"].contains(key) {
+            Self.log.notice("""
+            performKeyEquivalent key=\(key, privacy: .public) \
+            isFirstResponder=\(self.window?.firstResponder === self, privacy: .public) \
+            firstResponder=\(String(describing: type(of: self.window?.firstResponder)), privacy: .public)
+            """)
+        }
         // Only claim the shortcut when this view actually has focus —
         // otherwise ⌘B typed into the search field would style a note.
-        guard window?.firstResponder === self,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-              let key = event.charactersIgnoringModifiers?.lowercased() else {
+        guard window?.firstResponder === self, flags == .command else {
             return super.performKeyEquivalent(with: event)
         }
         switch key {

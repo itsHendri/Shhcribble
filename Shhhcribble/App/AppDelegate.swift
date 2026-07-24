@@ -990,26 +990,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
-        // A Format menu for the note editor's inline styling. These target the
-        // first responder (nil target) and are implemented by `RichTextView`,
-        // which ALSO handles the same shortcuts in `performKeyEquivalent` — the
-        // view gets the key event before the menu does, so the view path is
-        // what normally fires and the menu is the discoverable duplicate.
+        // **No Format menu here — deliberately.** ⌘B/⌘I/⌘U for the note editor
+        // are handled by `RichTextView.performKeyEquivalent`, and a menu item
+        // carrying those key equivalents actively BREAKS them: `NSApplication`
+        // offers a key equivalent to the main menu *before* the key window, and
+        // a Format item claimed ⌘B while its action never reached the text view
+        // — so the shortcut was swallowed and the view's handler never ran
+        // (reproduced by `RichTextTests.testMainMenuDoesNotSwallowStylingKeys`).
         //
-        // Deliberately NOT the textbook `NSFontManager.addFontTrait(_:)` route:
-        // it depends on menu-item validation against the font manager plus the
-        // font manager tracking the view's selected font, and in this
-        // LSUIElement app that chain silently did nothing.
-        let formatItem = NSMenuItem()
-        let formatMenu = NSMenu(title: "Format")
-        formatMenu.addItem(withTitle: "Bold",
-                           action: #selector(RichTextView.toggleBoldTrait(_:)), keyEquivalent: "b")
-        formatMenu.addItem(withTitle: "Italic",
-                           action: #selector(RichTextView.toggleItalicTrait(_:)), keyEquivalent: "i")
-        formatMenu.addItem(withTitle: "Underline",
-                           action: #selector(RichTextView.toggleUnderlineTrait(_:)), keyEquivalent: "u")
-        formatItem.submenu = formatMenu
-        mainMenu.addItem(formatItem)
+        // Nothing is lost by omitting it: an LSUIElement app shows no menu bar,
+        // so this menu exists only to carry key equivalents. The Edit menu above
+        // stays because its actions (`copy:`/`paste:`/…) are ones NSTextView
+        // genuinely implements, and without it those shortcuts have no home.
 
         NSApp.mainMenu = mainMenu
     }
