@@ -30,11 +30,12 @@ struct TranscriptionsView: View {
     /// other two fill the pane. Settings + Dictionary moved in here from the
     /// old separate settings window.
     enum RailSection: String, CaseIterable, Identifiable {
-        case transcriptions, dictionary, styles, feedback, settings
+        case transcriptions, notes, dictionary, styles, feedback, settings
         var id: String { rawValue }
         var label: String {
             switch self {
             case .transcriptions: return "Transcriptions"
+            case .notes:          return "Notes"
             case .dictionary:     return "Dictionary"
             case .styles:         return "Styles"
             case .feedback:       return "Feedback"
@@ -44,6 +45,7 @@ struct TranscriptionsView: View {
         var systemImage: String {
             switch self {
             case .transcriptions: return "text.bubble"
+            case .notes:          return "note.text"
             case .dictionary:     return "character.book.closed"
             case .styles:         return "wand.and.stars"
             case .feedback:       return "exclamationmark.bubble"
@@ -61,6 +63,7 @@ struct TranscriptionsView: View {
         } detail: {
             switch section ?? .transcriptions {
             case .transcriptions: transcriptionsPane
+            case .notes:          notesPane
             case .dictionary:     dictionaryPane
             case .styles:         stylesPane
             case .feedback:       feedbackPane
@@ -74,7 +77,7 @@ struct TranscriptionsView: View {
         // (TranscriptionsWindowController); the toggle flips `chrome.sidebarCollapsed`,
         // which we mirror onto the split view's column visibility here.
         .onChange(of: chrome.sidebarCollapsed) { _, collapsed in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(DesignSystem.motion(.easeInOut(duration: 0.2))) {
                 columnVisibility = collapsed ? .detailOnly : .all
             }
         }
@@ -91,6 +94,7 @@ struct TranscriptionsView: View {
     private var rail: some View {
         VStack(alignment: .leading, spacing: 2) {
             railTab(.transcriptions)
+            railTab(.notes)
             railTab(.dictionary)
             railTab(.styles)
 
@@ -140,10 +144,10 @@ struct TranscriptionsView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous)
                         // Neutral, subtle — same family as the list-row selection,
                         // a touch lighter there so the two read as a hierarchy.
-                        .fill(selected ? Color.primary.opacity(0.09) : Color.clear)
+                        .fill(selected ? Color.primary.opacity(DesignSystem.fillActive) : Color.clear)
                 )
                 .contentShape(Rectangle())
         }
@@ -189,11 +193,11 @@ struct TranscriptionsView: View {
                         .onHover { hoveredID = $0 ? t.id : (hoveredID == t.id ? nil : hoveredID) }
                         .listRowSeparator(.hidden)
                         .listRowBackground(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous)
                                 // Selected OR hovered rows get the same quiet grey
                                 // (lighter than the rail-tab selection at 0.09) so
                                 // hover and selection read as one affordance.
-                                .fill(selectedID == t.id || hoveredID == t.id ? Color.primary.opacity(0.04) : Color.clear)
+                                .fill(selectedID == t.id || hoveredID == t.id ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                         )
@@ -218,7 +222,7 @@ struct TranscriptionsView: View {
                         .padding(.horizontal, 16).padding(.vertical, 9)
                         .background(.regularMaterial, in: Capsule())
                         .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                        .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 14)
@@ -235,7 +239,7 @@ struct TranscriptionsView: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
                 .background(.regularMaterial, in: Capsule())
                 .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
                 .padding(.bottom, 18)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -259,11 +263,17 @@ struct TranscriptionsView: View {
         .padding(.vertical, 6)
         // Outlined pill (no fill) so the search reads as a distinct affordance
         // rather than sharing the neutral grey of the selection highlights.
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(DesignSystem.strokeStrong), lineWidth: 1))
         .padding(10)
     }
 
     // MARK: - Dictionary & Settings panes
+
+    // Full-width like the Transcriptions pane (it's the same master-detail
+    // template), not the 620-capped Form panes.
+    private var notesPane: some View {
+        NotesView(store: store)
+    }
 
     private var dictionaryPane: some View {
         DictionarySettingsView(store: store)
@@ -332,11 +342,11 @@ struct TranscriptionsView: View {
         pb.clearContents()
         pb.setString(t.text, forType: .string)
         copiedToastTask?.cancel()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
         copiedToastTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.4))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+            withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
         }
     }
 }
@@ -379,6 +389,7 @@ private struct TranscriptRow: View {
             }
             .buttonStyle(.borderless)
             .help("Copy transcript")
+            .accessibilityLabel("Copy transcript")
         } else {
             VStack(alignment: .trailing, spacing: 1) {
                 Text(transcript.createdAt.formatted(date: .abbreviated, time: .omitted))
@@ -412,11 +423,11 @@ private struct TranscriptDetail: View {
     @State private var isSummarizing = false
     @State private var summaryError: String?
     @State private var didPrewarm = false
-    @State private var notesText = ""
-    @State private var noteSaveTask: Task<Void, Never>?
     @State private var copiedToast = false
     @State private var copiedToastTask: Task<Void, Never>?
-    enum Tab: Hashable { case transcript, summary, notes }
+    /// Notes became their own module 2026-07-23 — a transcript is a record of
+    /// what was said, not a place to keep your own writing.
+    enum Tab: Hashable { case transcript, summary }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -425,7 +436,6 @@ private struct TranscriptDetail: View {
             Picker("View", selection: $tab) {
                 Text("Transcript").tag(Tab.transcript)
                 Text("Summary").tag(Tab.summary)
-                Text("Notes").tag(Tab.notes)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -438,7 +448,6 @@ private struct TranscriptDetail: View {
                 switch tab {
                 case .transcript: transcriptBody
                 case .summary:    summaryBody
-                case .notes:      notesBody
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -450,7 +459,7 @@ private struct TranscriptDetail: View {
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(.regularMaterial, in: Capsule())
                     .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -483,14 +492,18 @@ private struct TranscriptDetail: View {
             HStack(spacing: 6) {
                 Button(action: copy) { Image(systemName: "doc.on.doc") }
                     .help("Copy transcript")
+                    .accessibilityLabel("Copy transcript")
                 Button(action: saveTxt) { Image(systemName: "square.and.arrow.down") }
                     .help("Save as .txt")
+                    .accessibilityLabel("Save transcript as plain text file")
                 if transcript.sourcePath != nil {
                     Button(action: reveal) { Image(systemName: "folder") }
                         .help("Reveal source in Finder")
+                        .accessibilityLabel("Reveal source file in Finder")
                 }
                 Button(role: .destructive) { showingDeleteConfirm = true } label: { Image(systemName: "trash") }
                     .help("Delete transcript")
+                    .accessibilityLabel("Delete transcript")
             }
             .buttonStyle(.borderless)
         }
@@ -514,7 +527,7 @@ private struct TranscriptDetail: View {
             .font(.caption2).fontWeight(.semibold)
             .lineLimit(1)
             .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(Color.primary.opacity(0.08)))
+            .background(Capsule().fill(Color.primary.opacity(DesignSystem.strokeSubtle)))
             .foregroundStyle(.secondary)
             .fixedSize()
     }
@@ -572,14 +585,7 @@ private struct TranscriptDetail: View {
                         Text("Action Items")
                             .font(.subheadline).fontWeight(.semibold)
                         ForEach(Array(transcript.actionItems.enumerated()), id: \.offset) { _, item in
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "checkmark.circle")
-                                    .foregroundStyle(.secondary)
-                                    .font(.system(size: 13))
-                                Text(item)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
+                            actionItemRow(item)
                         }
                     }
                 }
@@ -600,6 +606,37 @@ private struct TranscriptDetail: View {
                 .padding(.top, 4)
             }
             .padding(16)
+        }
+    }
+
+    /// One action item, with a one-click send into the Notes module. Already
+    /// sent → a quiet "In Notes" marker instead of the button (the link holds
+    /// through later edits of the note — see `noteForActionItem`).
+    @ViewBuilder
+    private func actionItemRow(_ item: String) -> some View {
+        let existing = store.noteForActionItem(transcriptID: transcript.id, item: item)
+        HStack(alignment: .top, spacing: 8) {
+            if existing != nil {
+                Image(systemName: "note.text")
+                    .foregroundStyle(Color.accentColor)
+                    .font(.system(size: 13))
+            } else {
+                Button { store.promoteActionItem(transcriptID: transcript.id, item: item) } label: {
+                    Image(systemName: "plus.circle")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.borderless)
+                .help("Add to Notes")
+                .accessibilityLabel("Add action item to Notes")
+            }
+            Text(item)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if existing != nil {
+                Text("In Notes")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
         }
     }
 
@@ -635,31 +672,6 @@ private struct TranscriptDetail: View {
         }
     }
 
-    private var notesBody: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $notesText)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .padding(12)
-            if notesText.isEmpty {
-                // TextEditor has no native placeholder — overlay one, non-hittable
-                // so taps fall through to the editor.
-                Text("Add notes for this transcript…")
-                    .font(.body)
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 17)
-                    .padding(.vertical, 20)
-                    .allowsHitTesting(false)
-            }
-        }
-        .onAppear { notesText = transcript.notes }
-        .onChange(of: notesText) { _, _ in debounceNotesSave() }
-        .onDisappear {
-            noteSaveTask?.cancel()
-            saveNotesNow()
-        }
-    }
-
     private var metaLine: String {
         var parts: [String] = [transcript.source == .file ? "Imported" : "Dictated"]
         parts.append(transcript.createdAt.formatted(date: .abbreviated, time: .shortened))
@@ -681,11 +693,11 @@ private struct TranscriptDetail: View {
     /// flickering.
     private func flashCopied() {
         copiedToastTask?.cancel()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
         copiedToastTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.4))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+            withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
         }
     }
 
@@ -714,28 +726,6 @@ private struct TranscriptDetail: View {
         pb.clearContents()
         pb.setString(out, forType: .string)
         flashCopied()
-    }
-
-    /// Debounce writes while typing — reschedule a save 700 ms after the last
-    /// keystroke. `.onDisappear` cancels this and flushes, so leaving the tab /
-    /// switching transcripts / closing the window never loses the last edit.
-    private func debounceNotesSave() {
-        noteSaveTask?.cancel()
-        // @MainActor so the deferred `store.updateNotes` (a @MainActor @Published
-        // mutation) always lands on the main thread — a bare Task wouldn't
-        // guarantee that isolation under the Swift 5 language mode.
-        noteSaveTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(700))
-            guard !Task.isCancelled else { return }
-            saveNotesNow()
-        }
-    }
-
-    private func saveNotesNow() {
-        // No-op when unchanged — also stops a redundant write after the store
-        // re-publishes the row (which feeds a new `transcript` value back in).
-        guard notesText != transcript.notes else { return }
-        store.updateNotes(id: transcript.id, notes: notesText)
     }
 
     private func generateSummary() {

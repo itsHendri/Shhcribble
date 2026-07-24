@@ -78,7 +78,7 @@ final class SoundwavePanel: NSPanel {
 
         representIfHidden()
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(DesignSystem.motion(.easeInOut(duration: 0.2))) {
             viewModel.state    = .recording
             viewModel.liveText = ""
         }
@@ -116,7 +116,7 @@ final class SoundwavePanel: NSPanel {
         // never mutated into an off-screen window. Same recovery as showError.
         representIfHidden()
 
-        withAnimation(.easeInOut(duration: 0.3)) {
+        withAnimation(DesignSystem.motion(.easeInOut(duration: 0.3))) {
             viewModel.state    = .transcribing
             viewModel.liveText = ""
         }
@@ -127,7 +127,7 @@ final class SoundwavePanel: NSPanel {
 
         representIfHidden()
 
-        withAnimation(.easeInOut(duration: 0.35)) {
+        withAnimation(DesignSystem.motion(.easeInOut(duration: 0.35))) {
             viewModel.state    = .copied
             viewModel.liveText = ""
         }
@@ -144,7 +144,7 @@ final class SoundwavePanel: NSPanel {
         viewModel.isVisible = false
         orderFront(nil)
         DispatchQueue.main.async {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+            withAnimation(DesignSystem.motion(.spring(response: 0.25, dampingFraction: 0.75))) {
                 self.viewModel.isVisible = true
             }
         }
@@ -165,7 +165,7 @@ final class SoundwavePanel: NSPanel {
 
         representIfHidden()
 
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(DesignSystem.motion(.easeInOut(duration: 0.25))) {
             viewModel.state    = .noResult
             viewModel.liveText = ""
         }
@@ -183,7 +183,7 @@ final class SoundwavePanel: NSPanel {
 
         representIfHidden()
 
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(DesignSystem.motion(.easeInOut(duration: 0.25))) {
             viewModel.state    = .info(message)
             viewModel.liveText = ""
         }
@@ -200,7 +200,7 @@ final class SoundwavePanel: NSPanel {
         // recording never started.
         representIfHidden()
 
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(DesignSystem.motion(.easeInOut(duration: 0.25))) {
             viewModel.state    = .error(message)
             viewModel.liveText = ""
         }
@@ -221,7 +221,7 @@ final class SoundwavePanel: NSPanel {
         pendingHide?.cancel()
 
         // Exit animation: spring back up and shrink — reverse of entry
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+        withAnimation(DesignSystem.motion(.spring(response: 0.22, dampingFraction: 0.88))) {
             viewModel.isVisible = false
         }
 

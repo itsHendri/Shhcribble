@@ -96,7 +96,7 @@ final class CallOfferPanel: NSPanel {
         model.isVisible = false
         orderFront(nil)
         DispatchQueue.main.async {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+            withAnimation(DesignSystem.motion(.spring(response: 0.28, dampingFraction: 0.78))) {
                 self.model.isVisible = true
             }
         }
@@ -149,7 +149,7 @@ final class CallOfferPanel: NSPanel {
         pendingWork?.cancel()
         pendingAppName = nil
 
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+        withAnimation(DesignSystem.motion(.spring(response: 0.22, dampingFraction: 0.9))) {
             model.isVisible = false
         }
         let item = DispatchWorkItem { [weak self] in
@@ -182,12 +182,8 @@ final class CallOfferPanel: NSPanel {
     }
 }
 
-/// Hosting view that reports `acceptsFirstMouse` so a click landing on the
-/// banner while another app is frontmost is delivered as a real button click,
-/// not swallowed to merely focus the panel.
-private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
+// (FirstMouseHostingView moved to its own file — it's now shared with
+// StickyNotePanel.)
 
 // MARK: - View model + view
 
@@ -219,7 +215,7 @@ private struct CallOfferView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     Text("Transcribe your side? It stays on your Mac.")
-                        .font(.system(size: 11.5))
+                        .font(.system(size: DesignSystem.ChromeText.secondary))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -251,14 +247,14 @@ private struct CallOfferView: View {
         .padding(14)
         .frame(width: 356, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignSystem.radiusBanner, style: .continuous)
                 .fill(.regularMaterial)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesignSystem.radiusBanner, style: .continuous)
+                .strokeBorder(.white.opacity(DesignSystem.strokeSubtle), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.28), radius: 16, x: 0, y: 8)
+        .shadow(color: .black.opacity(DesignSystem.shadowBanner), radius: 16, x: 0, y: 8)
         .scaleEffect(model.isVisible ? 1 : 0.92)
         .offset(y: model.isVisible ? 0 : -18)
         .opacity(model.isVisible ? 1 : 0)

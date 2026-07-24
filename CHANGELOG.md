@@ -10,6 +10,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Notes.** A new **Notes** tab in the Studio, laid out exactly like
+  Transcriptions: a searchable list on the left, the note itself on the right
+  with Copy / Save-as-.txt / Delete and a pin control, plus a floating
+  **Add Note** button.
+- **Text styles.** Five sizes — **Display, Title, Subtitle, Paragraph, Caption** —
+  applied to the current paragraph with **⌘1**–**⌘5** or the right-click Style
+  menu, which ticks whichever style the cursor is currently in. All use the
+  system font, so a note stays visually consistent.
+- **Pasted text now adopts the app's font.** Paste from anywhere and it takes
+  on the note's typeface, with headings mapped to the matching style based on
+  how large they were relative to their own body text. Links, highlights,
+  colours, bullet and numbered lists and indentation all come through
+  unchanged; ⌥⇧⌘V still pastes as plain text.
+- **Rich text in notes.** Select text and press **⌘B**, **⌘I**, **⌘U** or
+  **⌘⇧H** to highlight it — or right-click for the same four commands — and any
+  web or email address you type becomes a clickable blue
+  link. Pasted content keeps its formatting — fonts, sizes, colours,
+  highlights, bullet and numbered lists, indentation and alignment all survive
+  closing and reopening the note.
+- **Sticky notes.** Pin any note to your screen as a floating, fully-editable,
+  **resizable** glass sticky. Stickies remember their position and size across
+  launches; closing one always confirms first (unpin for a note with content,
+  discard for an empty one); "New Note" in the menu-bar right-click menu drops
+  a fresh sticky at your cursor, ready to type.
+- **Action items go to Notes.** In a transcript's Summary tab, each AI-extracted
+  action item can be sent to Notes with one click, and shows as "In Notes"
+  afterwards.
+
+### Changed
+- **The menu-bar icon is clearer about non-recording states.** A detected call
+  and a waiting update now show their own symbol rather than only a tint, so
+  they don't rely on telling red from amber. Recording keeps the Shhhcribble
+  icon, just tinted. The icon also describes its state to VoiceOver.
+- **Reduce Motion is respected** throughout — the recording pill, banners,
+  toasts and the soundwave shimmer all settle instantly when the system
+  setting is on.
+- **Icon-only buttons are now labelled for VoiceOver** across the whole app.
+- **Notes are their own module, not part of a transcript.** The transcript
+  reader's third tab is gone — it's now Transcript and Summary. Any notes you'd
+  written against a transcript are moved into the Notes tab automatically on
+  first launch, still linked back to the transcript they came from.
+
 ## [1.12.0] - 2026-07-22
 
 ### Changed

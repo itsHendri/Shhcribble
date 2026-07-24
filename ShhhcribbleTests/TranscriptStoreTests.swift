@@ -238,19 +238,23 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertTrue(store.transcripts.allSatisfy { $0.notes.isEmpty })
     }
 
-    func testSearchMatchesNotes() {
+    /// Transcript search deliberately ignores the legacy `notes` column: notes
+    /// moved into their own module (with their own search), so matching a
+    /// transcript on text its reader no longer shows would be a dead end.
+    func testSearchIgnoresLegacyTranscriptNotes() {
         let store = makeStore()
         let t = store.addDictation(text: "unrelated body", rawText: "raw")
         store.updateNotes(id: t.id, notes: "Zephyr project kickoff")
-        XCTAssertEqual(store.matching("zephyr").count, 1)   // case-insensitive, notes-only hit
-        XCTAssertEqual(store.matching("nothere").count, 0)
+        XCTAssertEqual(store.matching("zephyr").count, 0)
+        XCTAssertEqual(store.matching("unrelated").count, 1)
     }
 
     // MARK: - Schema migration (v0 → latest)
 
     /// Latest schema version — bumped as migrations are added (v1 summary, v2
-    /// notes, v3 dictionary_entries table).
-    private let latestSchemaVersion: Int32 = 6
+    /// notes, v3 dictionary_entries, …, v7 notes table, v8 sticky size,
+    /// v9 note rich text).
+    private let latestSchemaVersion: Int32 = 9
 
     func testMigrationAddsColumnsToOldSchemaAndKeepsRows() throws {
         let path = tempDBPath()

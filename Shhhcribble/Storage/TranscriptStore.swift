@@ -53,6 +53,51 @@ struct Transcript: Identifiable, Equatable {
     }
 }
 
+/// One note — the Notes module's single entity (2026-07-23).
+///
+/// `text` is the **plain-text mirror** (search, list previews, copy, .txt
+/// export); `richText` is the RTF blob carrying bold/italic/underline and link
+/// runs, `nil` until the note is saved from the rich editor. `text` is always
+/// kept in sync with the rich content, so every read-only surface can ignore
+/// `richText` entirely.
+///
+/// A **sticky** is a note with `pinned` (floating panel at `pinX`/`pinY`, sized
+/// `pinW`/`pinH`). A note added from a transcript's AI action items carries
+/// `sourceTranscriptID` + the verbatim `sourceActionItem` string, which is how
+/// the Summary tab resolves "already added" even after the note's `text` is
+/// edited. CloudKit-migration friendly by design: every column optional or
+/// defaulted, no unique constraints beyond the PK.
+///
+/// **Tasks + reminders were cut from the UI 2026-07-23** (human's call — "let's
+/// just make these notes for now"). Their columns (`isTask`, `done`,
+/// `completedAt`, `dueAt`, `reminderFiredAt`) stay in the table, unread and
+/// unwritten, so restoring them is a UI-only change and no existing row was
+/// destroyed. See the CLAUDE.md deferred-features entry for the commit to port.
+struct Note: Identifiable, Equatable {
+    let id: UUID
+    let createdAt: Date
+    var modifiedAt: Date
+    var text: String
+    /// RTF encoding of the styled body — see `RichText`.
+    var richText: Data? = nil
+    var pinned: Bool = false
+    /// Persisted sticky-panel origin (bottom-left, screen coordinates) and
+    /// size (the sticky is user-resizable; nil = default size).
+    var pinX: Double? = nil
+    var pinY: Double? = nil
+    var pinW: Double? = nil
+    var pinH: Double? = nil
+    var sourceTranscriptID: UUID? = nil
+    var sourceActionItem: String? = nil
+
+    init(id: UUID = UUID(), createdAt: Date = Date(), modifiedAt: Date = Date(), text: String) {
+        self.id = id
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+        self.text = text
+    }
+}
+
 /// SQLite-backed store for all transcripts (dictation + file), replacing the
 /// cap-10 UserDefaults history. Deliberately a thin wrapper over the system
 /// `libsqlite3` (imported via the `SQLite3` module, which auto-links the system
@@ -80,6 +125,11 @@ final class TranscriptStore: ObservableObject {
     /// synthetic Off + Default clean-up entries are NOT in here (see `ActiveStyle`).
     @Published private(set) var styles: [Style] = []
 
+    /// Notes/tasks/stickies, in position order (creation order; dense, like the
+    /// dictionary). The Notes tab, sticky panels, and reminder scheduler all
+    /// bind to this.
+    @Published private(set) var notes: [Note] = []
+
     /// Styles in case-insensitive alphabetical order — the display order for the
     /// picker, the Styles list, and the menu-bar quick-pick. (Ordering is purely a
     /// display choice; the stored array is unordered as far as the UI is concerned.)
@@ -103,6 +153,7 @@ final class TranscriptStore: ObservableObject {
         reload()
         reloadDictionary()
         reloadStyles()
+        reloadNotesTable()
     }
 
     /// Production store at Application Support/Shhhcribble/transcripts.sqlite,
@@ -111,6 +162,7 @@ final class TranscriptStore: ObservableObject {
         let store = TranscriptStore(path: defaultDatabaseURL().path)
         store.migrateLegacyHistoryIfNeeded()
         store.migrateLegacyDictionaryIfNeeded()
+        store.migrateTranscriptNotesIfNeeded()
         store.seedExampleDictionaryIfNeeded()
         store.seedBuiltInStylesIfNeeded()
         store.refreshBuiltInStylePromptsIfNeeded()
@@ -419,16 +471,158 @@ final class TranscriptStore: ObservableObject {
         if updated > 0 { log.notice("Refreshed \(updated) built-in style prompts.") }
     }
 
+    // MARK: - Notes / Tasks / Stickies
+    //
+    // Mirrors the dictionary/styles CRUD template: guard the SQL write, then
+    // mutate the `@Published notes` array; `position` == array index (0-based,
+    // dense); `reloadNotesTable`'s `ORDER BY position ASC` reproduces the array.
+    // Dates are stored as epoch REALs, matching the transcripts table.
+
+    /// Append a new note at the end of the list.
+    func addNote(_ note: Note) {
+        let position = notes.count
+        guard exec("""
+        INSERT INTO notes
+        (id, createdAt, modifiedAt, text, richText,
+         pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem, position)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, bind: { stmt in
+            sqlite3_bind_text(stmt, 1, note.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_double(stmt, 2, note.createdAt.timeIntervalSince1970)
+            sqlite3_bind_double(stmt, 3, note.modifiedAt.timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 4, note.text, -1, Self.SQLITE_TRANSIENT)
+            self.bindOptionalBlob(stmt, 5, note.richText)
+            sqlite3_bind_int(stmt, 6, note.pinned ? 1 : 0)
+            self.bindOptionalDouble(stmt, 7, note.pinX)
+            self.bindOptionalDouble(stmt, 8, note.pinY)
+            self.bindOptionalDouble(stmt, 9, note.pinW)
+            self.bindOptionalDouble(stmt, 10, note.pinH)
+            self.bindOptionalText(stmt, 11, note.sourceTranscriptID?.uuidString)
+            self.bindOptionalText(stmt, 12, note.sourceActionItem)
+            sqlite3_bind_int(stmt, 13, Int32(position))
+        }) else { return }
+        notes.append(note)
+    }
+
+    /// Persist every mutable field of an existing note (id, createdAt, position
+    /// unchanged) and stamp `modifiedAt`. The one write path for edits from the
+    /// Notes tab, stickies, check-offs, and the reminder scheduler — a whole-row
+    /// update is simpler and safer here than per-field variants, because callers
+    /// hold a full `Note` value anyway.
+    func updateNote(_ note: Note, modifiedAt: Date = Date()) {
+        guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return }
+        var updated = note
+        updated.modifiedAt = modifiedAt
+        // Guarded like `addNote`: if the write fails (full disk, locked DB) the
+        // in-memory row must NOT change, or the editor would keep showing text
+        // that is already gone from disk and the loss would only surface at the
+        // next launch.
+        guard exec("""
+        UPDATE notes SET modifiedAt = ?, text = ?, richText = ?,
+        pinned = ?, pinX = ?, pinY = ?, pinW = ?, pinH = ?,
+        sourceTranscriptID = ?, sourceActionItem = ? WHERE id = ?;
+        """, bind: { stmt in
+            sqlite3_bind_double(stmt, 1, updated.modifiedAt.timeIntervalSince1970)
+            sqlite3_bind_text(stmt, 2, updated.text, -1, Self.SQLITE_TRANSIENT)
+            self.bindOptionalBlob(stmt, 3, updated.richText)
+            sqlite3_bind_int(stmt, 4, updated.pinned ? 1 : 0)
+            self.bindOptionalDouble(stmt, 5, updated.pinX)
+            self.bindOptionalDouble(stmt, 6, updated.pinY)
+            self.bindOptionalDouble(stmt, 7, updated.pinW)
+            self.bindOptionalDouble(stmt, 8, updated.pinH)
+            self.bindOptionalText(stmt, 9, updated.sourceTranscriptID?.uuidString)
+            self.bindOptionalText(stmt, 10, updated.sourceActionItem)
+            sqlite3_bind_text(stmt, 11, updated.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }) else { return }
+        notes[idx] = updated
+    }
+
+    /// Delete a note, then renumber remaining rows so positions stay dense.
+    func deleteNote(id: UUID) {
+        guard let idx = notes.firstIndex(where: { $0.id == id }) else { return }
+        exec("DELETE FROM notes WHERE id = ?;") { stmt in
+            sqlite3_bind_text(stmt, 1, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+        notes.remove(at: idx)
+        renumberNotePositions(from: idx)
+    }
+
+    /// Pin/unpin a note to the screen. Pinning may carry an initial origin
+    /// (bottom-left screen coords); unpinning keeps the last origin so re-pinning
+    /// restores the old spot.
+    ///
+    /// `modifiedAt` is preserved: where a note is displayed is not a change to
+    /// what it says, and bumping it would label an untouched note "Edited" just
+    /// for being pinned (`updateNotePinFrame` preserves it for the same reason).
+    func setNotePinned(id: UUID, pinned: Bool, origin: CGPoint? = nil) {
+        guard var note = notes.first(where: { $0.id == id }) else { return }
+        note.pinned = pinned
+        if let origin {
+            note.pinX = origin.x
+            note.pinY = origin.y
+        }
+        updateNote(note, modifiedAt: note.modifiedAt)
+    }
+
+    /// Persist a sticky's dragged/resized frame without touching `modifiedAt`
+    /// semantics elsewhere (it's still an update; frame moves aren't edits
+    /// worth surfacing, but the single write path keeps the code simple).
+    func updateNotePinFrame(id: UUID, frame: CGRect) {
+        guard var note = notes.first(where: { $0.id == id }) else { return }
+        note.pinX = frame.origin.x
+        note.pinY = frame.origin.y
+        note.pinW = frame.size.width
+        note.pinH = frame.size.height
+        updateNote(note, modifiedAt: note.modifiedAt)
+    }
+
+    /// The note previously added from this transcript action item, if any.
+    /// Matches on the *verbatim* item string captured at the time, so the link
+    /// survives later edits of the note's own `text`.
+    func noteForActionItem(transcriptID: UUID, item: String) -> Note? {
+        notes.first { $0.sourceTranscriptID == transcriptID && $0.sourceActionItem == item }
+    }
+
+    /// Add a transcript action item to Notes. Idempotent: if the item was
+    /// already added, returns the existing note untouched.
+    @discardableResult
+    func promoteActionItem(transcriptID: UUID, item: String) -> Note {
+        if let existing = noteForActionItem(transcriptID: transcriptID, item: item) {
+            return existing
+        }
+        var note = Note(text: item)
+        note.sourceTranscriptID = transcriptID
+        note.sourceActionItem = item
+        addNote(note)
+        return note
+    }
+
+    private func persistNotePosition(at index: Int) {
+        guard notes.indices.contains(index) else { return }
+        let note = notes[index]
+        exec("UPDATE notes SET position = ? WHERE id = ?;") { stmt in
+            sqlite3_bind_int(stmt, 1, Int32(index))
+            sqlite3_bind_text(stmt, 2, note.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }
+    }
+
+    private func renumberNotePositions(from start: Int) {
+        guard start < notes.count else { return }
+        for i in start..<notes.count { persistNotePosition(at: i) }
+    }
+
     /// Case-insensitive substring match over title + text, newest first.
     /// Empty query returns everything (already newest-first in `transcripts`).
+    ///
+    /// `notes` is deliberately **not** searched: per-transcript notes moved out
+    /// into the Notes module (which has its own search), so matching a
+    /// transcript on text the reader no longer shows would be a dead end.
     func matching(_ query: String) -> [Transcript] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return transcripts }
         let needle = q.lowercased()
         return transcripts.filter {
-            $0.title.lowercased().contains(needle)
-                || $0.text.lowercased().contains(needle)
-                || $0.notes.lowercased().contains(needle)
+            $0.title.lowercased().contains(needle) || $0.text.lowercased().contains(needle)
         }
     }
 
@@ -475,6 +669,43 @@ final class TranscriptStore: ObservableObject {
     private struct LegacyEntry: Codable {
         let text: String
         let date: Date
+    }
+
+    private static let transcriptNotesMigrationFlagKey = "didMigrateTranscriptNotesToNotes"
+
+    /// One-shot: lift any per-transcript notes (the retired third tab in the
+    /// transcript reader) out into standalone `Note` rows, linked back by
+    /// `sourceTranscriptID`. Notes became their own module 2026-07-23, so
+    /// leaving this text reachable only through a tab that no longer exists
+    /// would silently hide it.
+    ///
+    /// The `transcripts.notes` column is **not** cleared — same rollback
+    /// discipline as the legacy UserDefaults keys, and it's what makes a
+    /// re-run harmless: the flag plus the `sourceActionItem` sentinel below
+    /// keep an interrupted-then-retried migration from duplicating rows.
+    func migrateTranscriptNotesIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.transcriptNotesMigrationFlagKey) else { return }
+        guard db != nil else { return }   // DB not open — retry next launch
+        defer { defaults.set(true, forKey: Self.transcriptNotesMigrationFlagKey) }
+
+        let withNotes = transcripts.filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !withNotes.isEmpty else { return }
+
+        // Oldest first so the resulting notes read in the same order as the
+        // transcripts they came from.
+        for transcript in withNotes.reversed() {
+            // Sentinel marks "this came from the transcript notes tab", and
+            // doubles as the idempotency key if this ever runs twice.
+            let sentinel = "__transcriptNotes__"
+            guard noteForActionItem(transcriptID: transcript.id, item: sentinel) == nil else { continue }
+            var note = Note(createdAt: transcript.createdAt, modifiedAt: transcript.createdAt,
+                            text: transcript.notes)
+            note.sourceTranscriptID = transcript.id
+            note.sourceActionItem = sentinel
+            addNote(note)
+        }
+        log.notice("Migrated \(withNotes.count) transcript notes into standalone notes.")
     }
 
     private static let dictionaryMigrationFlagKey = "didMigrateDictionaryToSQLite"
@@ -563,6 +794,35 @@ final class TranscriptStore: ObservableObject {
         );
         """, bind: nil)
         exec("CREATE INDEX IF NOT EXISTS idx_styles_position ON styles(position ASC);", bind: nil)
+
+        // Notes/tasks/stickies live in their own table (position-ordered),
+        // created idempotently here like dictionary_entries and styles; the v7
+        // `migrateSchema` step only records the version bump. Dates are epoch
+        // REALs; every column beyond the PK is optional or defaulted (CloudKit-
+        // migration friendly — see ROADMAP Phase B).
+        exec("""
+        CREATE TABLE IF NOT EXISTS notes (
+            id TEXT PRIMARY KEY,
+            createdAt REAL NOT NULL,
+            modifiedAt REAL NOT NULL,
+            text TEXT NOT NULL,
+            isTask INTEGER NOT NULL DEFAULT 0,
+            done INTEGER NOT NULL DEFAULT 0,
+            completedAt REAL,
+            dueAt REAL,
+            reminderFiredAt REAL,
+            richText BLOB,
+            pinned INTEGER NOT NULL DEFAULT 0,
+            pinX REAL,
+            pinY REAL,
+            pinW REAL,
+            pinH REAL,
+            sourceTranscriptID TEXT,
+            sourceActionItem TEXT,
+            position INTEGER NOT NULL
+        );
+        """, bind: nil)
+        exec("CREATE INDEX IF NOT EXISTS idx_notes_position ON notes(position ASC);", bind: nil)
     }
 
     /// Additive schema migrations, versioned via `PRAGMA user_version`. Runs on
@@ -652,17 +912,49 @@ final class TranscriptStore: ObservableObject {
             log.notice("Migrated schema to v6 (styleID column).")
             version = 6
         }
+
+        if version < 7 {
+            // No DDL: `notes` is created idempotently in `createSchema`. Like
+            // v3/v4, this step only records the version bump.
+            exec("PRAGMA user_version = 7;", bind: nil)
+            log.notice("Migrated schema to v7 (notes table).")
+            version = 7
+        }
+
+        if version < 8 {
+            // Sticky size columns. A fresh DB already has them from
+            // `createSchema`; a v7 DB (the notes table's first cut) gets them
+            // ALTERed in here.
+            guard addColumns([("pinW", "REAL"), ("pinH", "REAL")], to: "notes") else {
+                log.error("Schema v8 migration incomplete; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            exec("PRAGMA user_version = 8;", bind: nil)
+            log.notice("Migrated schema to v8 (sticky size columns).")
+            version = 8
+        }
+
+        if version < 9 {
+            // Rich-text blob for notes (bold/italic/underline + link runs).
+            guard addColumns([("richText", "BLOB")], to: "notes") else {
+                log.error("Schema v9 migration incomplete; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            exec("PRAGMA user_version = 9;", bind: nil)
+            log.notice("Migrated schema to v9 (note rich text).")
+            version = 9
+        }
     }
 
-    /// Add each column to `transcripts` only if it's missing (idempotent, so a
+    /// Add each column to `table` only if it's missing (idempotent, so a
     /// retried migration doesn't fail on "duplicate column name"). Returns true
     /// only when every requested column is present afterward. Names/types are
     /// code literals, not user input — safe to inline.
-    private func addColumns(_ columns: [(name: String, type: String)]) -> Bool {
-        let existing = existingColumns(of: "transcripts")
+    private func addColumns(_ columns: [(name: String, type: String)], to table: String = "transcripts") -> Bool {
+        let existing = existingColumns(of: table)
         var allAdded = true
         for column in columns where !existing.contains(column.name) {
-            if !exec("ALTER TABLE transcripts ADD COLUMN \(column.name) \(column.type);", bind: nil) {
+            if !exec("ALTER TABLE \(table) ADD COLUMN \(column.name) \(column.type);", bind: nil) {
                 allAdded = false
             }
         }
@@ -763,6 +1055,37 @@ final class TranscriptStore: ObservableObject {
         dictionaryEntries = rows
     }
 
+    /// Hydrate `notes` from the `notes` table in position order. (Named
+    /// `reloadNotesTable` to avoid colliding with the transcript-notes column
+    /// vocabulary — `updateNotes(id:notes:)` writes a transcript's free-text
+    /// notes, an unrelated concept.)
+    private func reloadNotesTable() {
+        var rows: [Note] = []
+        forEachRow("""
+        SELECT id, createdAt, modifiedAt, text, richText,
+               pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem
+        FROM notes ORDER BY position ASC;
+        """) { stmt in
+            guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
+            var note = Note(
+                id: id,
+                createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
+                modifiedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 2)),
+                text: Self.columnText(stmt, 3) ?? ""
+            )
+            note.richText = Self.columnBlob(stmt, 4)
+            note.pinned = sqlite3_column_int(stmt, 5) != 0
+            note.pinX = Self.columnDouble(stmt, 6)
+            note.pinY = Self.columnDouble(stmt, 7)
+            note.pinW = Self.columnDouble(stmt, 8)
+            note.pinH = Self.columnDouble(stmt, 9)
+            note.sourceTranscriptID = Self.columnText(stmt, 10).flatMap(UUID.init(uuidString:))
+            note.sourceActionItem = Self.columnText(stmt, 11)
+            rows.append(note)
+        }
+        notes = rows
+    }
+
     /// Hydrate `styles` from the `styles` table in display order.
     private func reloadStyles() {
         var rows: [Style] = []
@@ -817,6 +1140,34 @@ final class TranscriptStore: ObservableObject {
     private func bindOptionalText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String?) {
         if let value { sqlite3_bind_text(stmt, index, value, -1, Self.SQLITE_TRANSIENT) }
         else { sqlite3_bind_null(stmt, index) }
+    }
+
+    private func bindOptionalDouble(_ stmt: OpaquePointer?, _ index: Int32, _ value: Double?) {
+        if let value { sqlite3_bind_double(stmt, index, value) }
+        else { sqlite3_bind_null(stmt, index) }
+    }
+
+    private func bindOptionalBlob(_ stmt: OpaquePointer?, _ index: Int32, _ value: Data?) {
+        if let value, !value.isEmpty {
+            _ = value.withUnsafeBytes { raw in
+                sqlite3_bind_blob(stmt, index, raw.baseAddress, Int32(value.count), Self.SQLITE_TRANSIENT)
+            }
+        } else {
+            sqlite3_bind_null(stmt, index)
+        }
+    }
+
+    private static func columnBlob(_ stmt: OpaquePointer?, _ index: Int32) -> Data? {
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL,
+              let bytes = sqlite3_column_blob(stmt, index) else { return nil }
+        let count = Int(sqlite3_column_bytes(stmt, index))
+        guard count > 0 else { return nil }
+        return Data(bytes: bytes, count: count)
+    }
+
+    private static func columnDouble(_ stmt: OpaquePointer?, _ index: Int32) -> Double? {
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else { return nil }
+        return sqlite3_column_double(stmt, index)
     }
 
     private static func columnText(_ stmt: OpaquePointer?, _ index: Int32) -> String? {

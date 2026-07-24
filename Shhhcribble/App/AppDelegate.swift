@@ -37,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var fileTranscriber: FileTranscriber!
     private var cancellables = Set<AnyCancellable>()
 
+    /// Floating stickies for pinned notes (Notes module, 2026-07-23).
+    private var stickyPanelManager: StickyPanelManager!
+
     #if canImport(Sparkle)
     /// Sparkle auto-updater. `startingUpdater: true` enables automatic
     /// background checks; the menu's "Check for Updates…" triggers a manual
@@ -162,6 +165,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         callOfferPanel = CallOfferPanel()
 
         menuBarController = MenuBarController(delegate: self)
+
+        // Notes: restore any pinned stickies from the store.
+        stickyPanelManager = StickyPanelManager(store: transcriptStore)
 
         // Call detection: when a known call app starts using the mic, offer to
         // transcribe via our own in-app banner (CallOfferPanel), NOT a macOS
@@ -984,6 +990,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
+        // **No Format menu here — deliberately.** ⌘B/⌘I/⌘U for the note editor
+        // are handled by `RichTextView.performKeyEquivalent`, and a menu item
+        // carrying those key equivalents actively BREAKS them: `NSApplication`
+        // offers a key equivalent to the main menu *before* the key window, and
+        // a Format item claimed ⌘B while its action never reached the text view
+        // — so the shortcut was swallowed and the view's handler never ran
+        // (reproduced by `RichTextTests.testMainMenuDoesNotSwallowStylingKeys`).
+        //
+        // Nothing is lost by omitting it: an LSUIElement app shows no menu bar,
+        // so this menu exists only to carry key equivalents. The Edit menu above
+        // stays because its actions (`copy:`/`paste:`/…) are ones NSTextView
+        // genuinely implements, and without it those shortcuts have no home.
+
         NSApp.mainMenu = mainMenu
     }
 }
@@ -1080,6 +1099,10 @@ extension AppDelegate: MenuBarControllerDelegate {
 
     func menuBarControllerDidRequestTranscribeFile(_ controller: MenuBarController) {
         presentFilePicker()
+    }
+
+    func menuBarControllerDidRequestNewNote(_ controller: MenuBarController) {
+        stickyPanelManager.createStickyAtCursor()
     }
 
     func menuBarControllerDidRequestOpenTranscriptions(_ controller: MenuBarController) {

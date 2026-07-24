@@ -138,11 +138,13 @@ struct StylesView: View {
             }
             .buttonStyle(.borderless)
             .help("Edit")
+            .accessibilityLabel("Edit style")
             Button { deletingStyle = style } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
             .help("Delete")
+            .accessibilityLabel("Delete style")
         }
     }
 
@@ -239,7 +241,7 @@ private struct StyleEditor: View {
                 TextEditor(text: $prompt)
                     .font(.body)
                     .frame(height: 150)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                    .overlay(RoundedRectangle(cornerRadius: DesignSystem.radiusControl).stroke(.quaternary))
                 Text("Describe how the transcript should be rewritten. It's applied as data-framed instructions the model reformats your words with — never obeyed literally.")
                     .font(.caption).foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -296,9 +298,10 @@ private struct StyleEditor: View {
             }
             .buttonStyle(.borderless)
             .help("Remove")
+            .accessibilityLabel("Remove app")
         }
         .padding(.vertical, 3).padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))
+        .background(RoundedRectangle(cornerRadius: DesignSystem.radiusControl).fill(Color.primary.opacity(DesignSystem.fillHover)))
     }
 
     /// Pick an application and add its bundle ID.

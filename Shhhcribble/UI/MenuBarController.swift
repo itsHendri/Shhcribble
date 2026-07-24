@@ -26,6 +26,9 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarControllerPendingCallOffer(_ controller: MenuBarController) -> String?
     /// The user accepted a pending call offer from the right-click menu.
     func menuBarControllerDidAcceptCallOffer(_ controller: MenuBarController)
+    /// The user chose "New Note" from the right-click menu — create a blank
+    /// sticky ready for typing.
+    func menuBarControllerDidRequestNewNote(_ controller: MenuBarController)
 }
 
 /// Owns the NSStatusItem (menu-bar icon). **Left-click** opens the main
@@ -54,7 +57,7 @@ final class MenuBarController: NSObject {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        updateButtonImage(recording: false)
+        applyTint()
         if let button = statusItem.button {
             button.action = #selector(iconClicked)
             button.target = self
@@ -98,6 +101,11 @@ final class MenuBarController: NSObject {
                                 action: #selector(uploadAudioClicked), keyEquivalent: "")
         upload.target = self
         menu.addItem(upload)
+
+        let newNote = NSMenuItem(title: "New Note",
+                                 action: #selector(newNoteClicked), keyEquivalent: "")
+        newNote.target = self
+        menu.addItem(newNote)
 
         if let styleItem = makeStyleMenuItem() {
             menu.addItem(styleItem)
@@ -174,6 +182,10 @@ final class MenuBarController: NSObject {
         delegate?.menuBarControllerDidRequestTranscribeFile(self)
     }
 
+    @objc private func newNoteClicked() {
+        delegate?.menuBarControllerDidRequestNewNote(self)
+    }
+
     @objc private func quitClicked() {
         delegate?.menuBarControllerDidRequestQuit(self)
     }
@@ -192,7 +204,7 @@ final class MenuBarController: NSObject {
 
     func setRecordingIndicator(active: Bool) {
         isRecording = active
-        updateButtonImage(recording: active)
+        applyTint()
     }
 
     // MARK: - Update badge (Sparkle gentle reminder)
@@ -207,31 +219,81 @@ final class MenuBarController: NSObject {
         applyTint()
     }
 
-    /// Recording red > pending call-offer blue > update-pending amber > default.
+    /// The status the icon currently reflects. Priority: recording > pending
+    /// call offer > update waiting > idle.
+    private enum IconStatus {
+        case idle, recording, callOffer, updateWaiting
+
+        /// A distinct glyph for the states that aren't about the microphone,
+        /// so they don't rely on telling red from amber. Nil means "keep the
+        /// app's own icon".
+        ///
+        /// **Recording deliberately keeps the brand icon** (tinted red) rather
+        /// than swapping to `mic.fill`: our icon is already a mic, so swapping
+        /// gains nothing and costs the brand mark — and on a menu bar that
+        /// often holds other dictation apps, a generic mic makes ours
+        /// indistinguishable from theirs.
+        var symbol: String? {
+            switch self {
+            case .idle, .recording: return nil       // the app's own icon
+            case .callOffer:        return "phone.fill"
+            case .updateWaiting:    return "arrow.down.circle.fill"
+            }
+        }
+
+        var tint: NSColor? {
+            switch self {
+            case .idle:          return nil
+            case .recording:     return .systemRed
+            case .callOffer:     return .systemBlue
+            case .updateWaiting: return .systemOrange
+            }
+        }
+
+        var describedAs: String {
+            switch self {
+            case .idle:          return "Shhhcribble"
+            case .recording:     return "Shhhcribble — recording"
+            case .callOffer:     return "Shhhcribble — call detected, transcript offered"
+            case .updateWaiting: return "Shhhcribble — update available"
+            }
+        }
+    }
+
+    private var currentStatus: IconStatus {
+        if isRecording { return .recording }
+        if callOfferAppName != nil { return .callOffer }
+        if updateBadged { return .updateWaiting }
+        return .idle
+    }
+
     private func applyTint() {
         guard let button = statusItem.button else { return }
-        if isRecording { button.contentTintColor = .systemRed }
-        else if callOfferAppName != nil { button.contentTintColor = .systemBlue }
-        else if updateBadged { button.contentTintColor = .systemOrange }
-        else { button.contentTintColor = nil }
+        let status = currentStatus
+        button.contentTintColor = status.tint
+        button.image = image(for: status)
+        // The icon is the app's only always-visible surface; without this
+        // VoiceOver announces nothing useful about what state it's in.
+        button.setAccessibilityLabel(status.describedAs)
     }
 
-    private func updateButtonImage(recording: Bool) {
-        guard let button = statusItem.button else { return }
-
-        // Use custom asset if provided, otherwise fall back to the system mic symbol.
-        // The asset must be a black-on-transparent PNG/PDF named "MenuBarIcon" in
-        // Assets.xcassets — macOS tints template images automatically for light/dark bars.
-        let image: NSImage?
-        if let custom = NSImage(named: "MenuBarIcon") {
-            custom.size = NSSize(width: 18, height: 18)
-            image = custom
-        } else {
-            image = NSImage(systemSymbolName: "mic.fill",
-                            accessibilityDescription: "Shhhcribble")
+    /// The glyph for a status — the status symbol when there is one, otherwise
+    /// the app's own menu-bar icon (or the system mic as a fallback).
+    private func image(for status: IconStatus) -> NSImage? {
+        if let symbol = status.symbol {
+            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: status.describedAs)
+            // Status symbols are tinted, so they must NOT be templates —
+            // a template image is recoloured by the menu bar, not by us.
+            image?.isTemplate = false
+            return image
         }
-        image?.isTemplate = !recording   // template = macOS handles dark/light tinting
-        button.image = image
-        applyTint()
+        let image = NSImage(named: "MenuBarIcon") ?? NSImage(
+            systemSymbolName: "mic.fill", accessibilityDescription: status.describedAs)
+        image?.size = NSSize(width: 18, height: 18)
+        // Template lets macOS tint for light/dark; a status tint needs it off
+        // so our own colour shows through instead.
+        image?.isTemplate = (status.tint == nil)
+        return image
     }
+
 }
