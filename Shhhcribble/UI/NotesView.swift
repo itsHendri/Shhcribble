@@ -242,6 +242,10 @@ private struct NoteRow: View {
 /// `TranscriptDetail` — icon + title + meta line on the left, Copy / Save /
 /// Delete on the right — over an auto-saving editor (700 ms debounce, flush on
 /// disappear and on focus loss).
+///
+/// A pinned note has **two live editors** (this pane and its sticky), so both
+/// sides re-read the row when it changes elsewhere and neither writes while it
+/// holds focus. See `syncFromStore` and `StickyNotePanel.update(with:)`.
 private struct NoteDetail: View {
     let note: Note
     @ObservedObject var store: TranscriptStore
@@ -250,6 +254,12 @@ private struct NoteDetail: View {
     @State private var attributed = NSAttributedString(string: "")
     @State private var saveTask: Task<Void, Never>?
     @State private var showingDeleteConfirm = false
+    @State private var isEditing = false
+    /// The stored values this pane last read from (or wrote to) the store —
+    /// see the matching note on `StickyNotePanel`, which uses the same scheme
+    /// to tell a real external edit from the store echoing our own write back.
+    @State private var lastSyncedText: String?
+    @State private var lastSyncedRich: Data?
 
     private static let editorFont = NSFont.systemFont(ofSize: 13)
 
@@ -260,17 +270,28 @@ private struct NoteDetail: View {
             RichTextEditor(
                 attributed: $attributed,
                 font: Self.editorFont,
-                onFocusChange: { focused in if !focused { saveNow() } }
+                onFocusChange: { focused in
+                    isEditing = focused
+                    if !focused { saveNow() }
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        // Seed once; the view is keyed by note id, so a different note builds a
-        // fresh instance. `saveNow` guards on an actual change, which also
-        // breaks the feedback loop when the store re-publishes the row.
-        .onAppear {
-            attributed = RichText.attributed(from: note.richText, plain: note.text, font: Self.editorFont)
+        .onAppear { syncFromStore(note) }
+        // Keep in step with the same note edited elsewhere — a floating sticky
+        // is a second live editor for this row, so a styling change made there
+        // has to land here too. Skipped while this editor has focus (the store
+        // lags typing by the debounce).
+        .onChange(of: note) { _, updated in
+            guard !isEditing else { return }
+            syncFromStore(updated)
         }
-        .onChange(of: attributed) { _, _ in scheduleSave() }
+        // Only the user's own typing schedules a save; a sync-in must not echo
+        // straight back out as a write.
+        .onChange(of: attributed) { _, _ in
+            guard isEditing else { return }
+            scheduleSave()
+        }
         .onDisappear {
             saveTask?.cancel()
             saveNow()
@@ -350,6 +371,15 @@ private struct NoteDetail: View {
 
     // MARK: - Saving
 
+    /// Load the editor from a store row, unless it already shows exactly that.
+    private func syncFromStore(_ source: Note) {
+        guard source.text != lastSyncedText || source.richText != lastSyncedRich else { return }
+        lastSyncedText = source.text
+        lastSyncedRich = source.richText
+        attributed = RichText.attributed(from: source.richText, plain: source.text,
+                                         font: Self.editorFont)
+    }
+
     private func scheduleSave() {
         saveTask?.cancel()
         saveTask = Task { @MainActor in
@@ -368,6 +398,8 @@ private struct NoteDetail: View {
         guard plain != current.text || rich != current.richText else { return }
         current.text = plain
         current.richText = rich
+        lastSyncedText = plain
+        lastSyncedRich = rich
         store.updateNote(current)
     }
 

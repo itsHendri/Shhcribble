@@ -105,6 +105,22 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(again.notes.map { $0.text }, ["b", "c", "d"])
     }
 
+    /// A styling-only edit (same words, now bold) must be visible as a change,
+    /// or the second live editor for a note — a pinned sticky — silently keeps
+    /// showing the old formatting. Both surfaces diff on the stored fields, so
+    /// `richText` changing alone has to be enough.
+    func testStylingOnlyEditIsADetectableChange() {
+        let store = makeStore()
+        store.addNote(Note(text: "same words"))
+
+        var styled = store.notes[0]
+        styled.richText = Data("pretend-rtf-with-bold".utf8)
+        store.updateNote(styled)
+
+        XCTAssertEqual(store.notes[0].text, "same words")        // unchanged
+        XCTAssertEqual(store.notes[0].richText, styled.richText) // but the row did change
+    }
+
     // MARK: - Pinning
 
     func testSetPinnedKeepsLastOriginAcrossUnpin() {

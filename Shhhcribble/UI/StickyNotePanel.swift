@@ -36,6 +36,14 @@ final class StickyNotePanel: NSPanel {
     private var framePersist: DispatchWorkItem?
     private var frameObservers: [NSObjectProtocol] = []
 
+    /// The stored values this panel last read from (or wrote to) the store.
+    /// `update(with:)` compares against these rather than against the live
+    /// editor contents: an `NSAttributedString` round-tripped through RTF is
+    /// not reliably `==` to its original, so comparing the *stored bytes* is
+    /// what makes "did this row actually change?" answerable.
+    private var lastAppliedText: String?
+    private var lastAppliedRich: Data?
+
     /// Callbacks into the manager (which owns the store writes).
     var onTextCommit: ((UUID, NSAttributedString) -> Void)?
     var onUnpin: ((UUID) -> Void)?
@@ -76,11 +84,17 @@ final class StickyNotePanel: NSPanel {
         isReleasedWhenClosed = false
 
         model.apply(note)
+        lastAppliedText = note.text
+        lastAppliedRich = note.richText
 
         let content = FirstMouseHostingView(rootView: StickyView(
             model: model,
             onCommitText: { [weak self] text in
                 guard let self else { return }
+                // Record what's about to be written so the store's echo back
+                // through `update(with:)` isn't mistaken for an external edit.
+                self.lastAppliedText = text.string
+                self.lastAppliedRich = RichText.data(from: text)
                 self.onTextCommit?(self.noteID, text)
             },
             onUnpin: { [weak self] in
@@ -116,11 +130,19 @@ final class StickyNotePanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
 
-    /// Refresh the panel from a changed store row. Text is only pushed in while
-    /// the editor is *not* focused — the store lags live typing by the save
+    /// Refresh the panel from a changed store row — this is what keeps a sticky
+    /// in step with edits made in the Notes tab. Content is only pushed in while
+    /// the editor is *not* focused: the store lags live typing by the save
     /// debounce, so overwriting mid-edit would eat keystrokes.
+    ///
+    /// The change check covers `richText` as well as `text`, so a **styling-only**
+    /// edit (same words, now bold) still lands — comparing plain text alone made
+    /// styling silently fail to propagate.
     func update(with note: Note) {
-        guard !model.isEditing, model.attributed.string != note.text else { return }
+        guard !model.isEditing else { return }
+        guard note.text != lastAppliedText || note.richText != lastAppliedRich else { return }
+        lastAppliedText = note.text
+        lastAppliedRich = note.richText
         model.attributed = RichText.attributed(from: note.richText, plain: note.text,
                                                font: StickyModel.font)
     }

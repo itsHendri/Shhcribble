@@ -306,6 +306,45 @@ final class RichTextTests: XCTestCase {
         return nil
     }
 
+    // MARK: - Line height stability
+
+    /// Bold/italic faces have different ascender+descender than regular, so
+    /// without a pinned minimum the line height changes the instant you press
+    /// ⌘B and surrounding text jumps.
+    func testLineHeightCoversTheBoldestVariant() {
+        let style = RichText.paragraphStyle(for: font)
+        let bold = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        let boldHeight = ceil(bold.ascender - bold.descender + bold.leading)
+
+        XCTAssertGreaterThanOrEqual(style.minimumLineHeight, boldHeight,
+                                    "bold text would be taller than the pinned line, so it would still jump")
+    }
+
+    /// Only a minimum is pinned — a maximum would clip text pasted in at a
+    /// larger size, the one case where the line *should* grow.
+    func testLineHeightIsNotCapped() {
+        XCTAssertEqual(RichText.paragraphStyle(for: font).maximumLineHeight, 0)
+    }
+
+    func testLoadedTextCarriesTheLineHeight() throws {
+        let result = RichText.attributed(from: nil, plain: "hello", font: font)
+        let style = try XCTUnwrap(
+            result.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertGreaterThan(style.minimumLineHeight, 0)
+    }
+
+    /// Line height is display-only, re-applied on load — baking it into the
+    /// stored RTF would freeze today's metric into every existing note.
+    func testParagraphStyleIsStrippedOnSave() throws {
+        let styled = RichText.attributed(from: nil, plain: "hello", font: font)
+        let data = try XCTUnwrap(RichText.data(from: styled))
+        let decoded = try XCTUnwrap(NSAttributedString(rtf: data, documentAttributes: nil))
+        let style = decoded.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        // RTF always yields *some* paragraph style; what matters is that our
+        // pinned minimum isn't among what got written.
+        XCTAssertEqual(style?.minimumLineHeight ?? 0, 0)
+    }
+
     /// Styling must survive the store round-trip, or bold would vanish the
     /// moment a note is reopened.
     @MainActor

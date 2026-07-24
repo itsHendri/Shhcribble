@@ -23,7 +23,37 @@ enum RichText {
         let full = NSRange(location: 0, length: clean.length)
         clean.removeAttribute(.foregroundColor, range: full)
         clean.removeAttribute(.backgroundColor, range: full)
+        // Line height is a display concern, re-applied on load — same treatment
+        // as colour. Baking it in would freeze today's metric into every old
+        // note and bloat the RTF with paragraph tables.
+        clean.removeAttribute(.paragraphStyle, range: full)
         return clean.rtf(from: full, documentAttributes: documentType)
+    }
+
+    /// Paragraph style that keeps the baseline grid steady as text is styled.
+    ///
+    /// **Why:** bold and italic variants of a face don't share the regular
+    /// one's ascender/descender, so line height changes the moment you press
+    /// ⌘B and the surrounding text visibly jumps. Pinning
+    /// `minimumLineHeight` to the *tallest* variant we can produce means every
+    /// weight already fits within it, so nothing moves.
+    ///
+    /// Deliberately only a **minimum**, never `maximumLineHeight`: pinning both
+    /// would clip text pasted in at a larger size, which is the one case where
+    /// growing the line is correct.
+    static func paragraphStyle(for font: NSFont) -> NSParagraphStyle {
+        let manager = NSFontManager.shared
+        let bold = manager.convert(font, toHaveTrait: .boldFontMask)
+        let italic = manager.convert(font, toHaveTrait: .italicFontMask)
+        let boldItalic = manager.convert(bold, toHaveTrait: .italicFontMask)
+
+        let tallest = [font, bold, italic, boldItalic]
+            .map { ceil($0.ascender - $0.descender + $0.leading) }
+            .max() ?? ceil(font.ascender - font.descender + font.leading)
+
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = tallest
+        return style
     }
 
     /// Decode a stored blob, falling back to `plain` when there's no RTF yet
@@ -48,6 +78,7 @@ enum RichText {
         // Dynamic colour, resolved per appearance at draw time. Links still
         // render blue: `linkTextAttributes` overrides this for `.link` ranges.
         base.addAttribute(.foregroundColor, value: NSColor.labelColor, range: full)
+        base.addAttribute(.paragraphStyle, value: paragraphStyle(for: font), range: full)
         addDetectedLinks(to: base)
         return base
     }
@@ -236,7 +267,16 @@ struct RichTextEditor: NSViewRepresentable {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .cursor: NSCursor.pointingHand,
         ]
-        textView.typingAttributes = [.font: font, .foregroundColor: NSColor.labelColor]
+        // `defaultParagraphStyle` covers text that carries none (freshly loaded
+        // plain text); `typingAttributes` covers what the user types next. Both
+        // are needed for the line height to hold everywhere.
+        let paragraph = RichText.paragraphStyle(for: font)
+        textView.defaultParagraphStyle = paragraph
+        textView.typingAttributes = [
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph,
+        ]
         textView.textStorage?.setAttributedString(attributed)
 
         scroll.documentView = textView
