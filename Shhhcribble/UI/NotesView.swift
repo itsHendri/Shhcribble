@@ -65,8 +65,8 @@ struct NotesView: View {
                         .onHover { hoveredID = $0 ? note.id : (hoveredID == note.id ? nil : hoveredID) }
                         .listRowSeparator(.hidden)
                         .listRowBackground(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(selectedID == note.id || hoveredID == note.id ? Color.primary.opacity(0.04) : Color.clear)
+                            RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous)
+                                .fill(selectedID == note.id || hoveredID == note.id ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                         )
@@ -92,7 +92,7 @@ struct NotesView: View {
                         .padding(.horizontal, 16).padding(.vertical, 9)
                         .background(.regularMaterial, in: Capsule())
                         .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                        .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 14)
@@ -117,7 +117,7 @@ struct NotesView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(DesignSystem.strokeStrong), lineWidth: 1))
         .padding(10)
     }
 
@@ -143,7 +143,7 @@ struct NotesView: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
                 .background(.regularMaterial, in: Capsule())
                 .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
                 .padding(.bottom, 18)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -165,11 +165,11 @@ struct NotesView: View {
         pb.clearContents()
         pb.setString(note.text, forType: .string)
         copiedToastTask?.cancel()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
         copiedToastTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.4))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+            withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
         }
     }
 
@@ -204,7 +204,7 @@ private struct NoteRow: View {
                     .truncationMode(.tail)
                 if note.pinned {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: 9))
+                        .font(.system(size: DesignSystem.ChromeText.micro))
                         .foregroundStyle(.tertiary)
                         .help("Pinned to your screen")
                 }
@@ -228,6 +228,7 @@ private struct NoteRow: View {
             }
             .buttonStyle(.borderless)
             .help("Copy note")
+            .accessibilityLabel("Copy note")
         } else {
             Text(note.createdAt.formatted(date: .abbreviated, time: .omitted))
                 .font(.footnote)
@@ -324,12 +325,15 @@ private struct NoteDetail: View {
                 Button(action: { saveNow(); onCopy() }) { Image(systemName: "doc.on.doc") }
                     .buttonStyle(.borderless)
                     .help("Copy note")
+                    .accessibilityLabel("Copy note")
                 Button(action: saveTxt) { Image(systemName: "square.and.arrow.down") }
                     .buttonStyle(.borderless)
                     .help("Save as .txt")
+                    .accessibilityLabel("Save note as plain text file")
                 Button(role: .destructive) { showingDeleteConfirm = true } label: { Image(systemName: "trash") }
                     .buttonStyle(.borderless)
                     .help("Delete note")
+                    .accessibilityLabel("Delete note")
             }
         }
         .padding(12)
@@ -358,7 +362,7 @@ private struct NoteDetail: View {
             .font(.caption2).fontWeight(.semibold)
             .lineLimit(1)
             .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(Color.primary.opacity(0.08)))
+            .background(Capsule().fill(Color.primary.opacity(DesignSystem.strokeSubtle)))
             .foregroundStyle(.secondary)
             .fixedSize()
     }

@@ -427,12 +427,43 @@ final class RichTextTests: XCTestCase {
         XCTAssertEqual(NoteTextStyle.allCases.map(\.shortcutKey), ["1", "2", "3", "4", "5"])
     }
 
+    /// No two adjacent steps may be close enough to look the same in running
+    /// text — the earlier 13/11 pairing was 2pt apart and effectively invisible.
+    func testAdjacentStepsAreVisiblyDifferent() {
+        let sizes = NoteTextStyle.allCases.map(\.size)
+        for (larger, smaller) in zip(sizes, sizes.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(larger / smaller, 1.2,
+                                        "\(larger)pt and \(smaller)pt are too close to distinguish")
+        }
+    }
+
+    /// The Style menu ticks the active step by matching the paragraph's size,
+    /// so every step must be identifiable from its size alone.
+    func testEveryStepIsIdentifiableFromItsSize() {
+        for style in NoteTextStyle.allCases {
+            XCTAssertEqual(NoteTextStyle.matching(size: style.size), style)
+        }
+        XCTAssertNil(NoteTextStyle.matching(size: 19), "an off-ramp size must not claim a step")
+    }
+
+    @MainActor
+    func testCurrentStyleReportsWhatWasApplied() {
+        let view = makeView("Heading line\nBody line")
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        view.applyTextStyle(.title)
+        XCTAssertEqual(view.currentTextStyle, .title)
+
+        // Caret in the second paragraph — still the untouched default.
+        view.setSelectedRange(NSRange(location: 15, length: 0))
+        XCTAssertEqual(view.currentTextStyle, .paragraph)
+    }
+
     func testRatioMapsOntoTheRamp() {
         XCTAssertEqual(NoteTextStyle.step(forRatio: 1.0), .paragraph)
         XCTAssertEqual(NoteTextStyle.step(forRatio: 2.2), .display)
         XCTAssertEqual(NoteTextStyle.step(forRatio: 1.6), .title)
         XCTAssertEqual(NoteTextStyle.step(forRatio: 1.25), .subtitle)
-        XCTAssertEqual(NoteTextStyle.step(forRatio: 0.8), .note)
+        XCTAssertEqual(NoteTextStyle.step(forRatio: 0.8), .caption)
     }
 
     // MARK: - Paste normalisation

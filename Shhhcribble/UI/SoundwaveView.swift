@@ -265,6 +265,12 @@ struct AnimatedDot: View {
     }
 
     private func startShimmer() {
+        // A forever-repeating sweep is exactly what Reduce Motion is for —
+        // park it mid-travel and leave it still rather than animating.
+        guard !DesignSystem.prefersReducedMotion else {
+            shimmerX = 0.5
+            return
+        }
         shimmerX = -0.6
         withAnimation(.linear(duration: 2.8).repeatForever(autoreverses: false)) {
             shimmerX = 1.6

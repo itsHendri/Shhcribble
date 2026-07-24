@@ -104,15 +104,16 @@ private struct TitlebarBar: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary)
                 .frame(width: 30, height: 23)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous)
                         .stroke(.quaternary, lineWidth: 0.5)
                 )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Show or hide the sidebar")
+        .accessibilityLabel("Show or hide the sidebar")
     }
 
     @ViewBuilder private var icon: some View {

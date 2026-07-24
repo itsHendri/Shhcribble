@@ -2,74 +2,6 @@ import SwiftUI
 import AppKit
 
 
-/// The note type ramp — one scale, largest to smallest, applied per paragraph.
-///
-/// All five are the **system font (San Francisco)**, which is what the rest of
-/// the app uses; only size and weight change. Keeping one family is the point:
-/// a note assembled from several sources should still read as one document.
-///
-/// The three heading steps carry weight as well as size — a "title" that is
-/// only larger, not heavier, doesn't read as a title next to body text.
-enum NoteTextStyle: String, CaseIterable, Identifiable {
-    case display, title, subtitle, paragraph, note
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .display:   return "Display"
-        case .title:     return "Title"
-        case .subtitle:  return "Subtitle"
-        case .paragraph: return "Paragraph"
-        case .note:      return "Note"
-        }
-    }
-
-    var size: CGFloat {
-        switch self {
-        case .display:   return 28
-        case .title:     return 21
-        case .subtitle:  return 16
-        case .paragraph: return 13
-        case .note:      return 11
-        }
-    }
-
-    var weight: NSFont.Weight {
-        switch self {
-        case .display, .title: return .bold
-        case .subtitle:        return .semibold
-        case .paragraph, .note: return .regular
-        }
-    }
-
-    var font: NSFont { .systemFont(ofSize: size, weight: weight) }
-
-    /// ⌘1 … ⌘5, largest to smallest.
-    var shortcutKey: String { String(NoteTextStyle.allCases.firstIndex(of: self)! + 1) }
-
-    /// The step for text that is `ratio` times the size of its document's own
-    /// body text.
-    ///
-    /// **Relative, not absolute, on purpose.** Mapping a pasted size straight
-    /// to the nearest step breaks on the most common case there is: browser
-    /// body text is typically 16px, which is nearest to `.subtitle`, so an
-    /// ordinary paste would arrive as a page of semibold subtitles. What makes
-    /// something a heading is that it is larger *than the surrounding text*.
-    ///
-    /// Thresholds are the midpoints between this ramp's own ratios against
-    /// `.paragraph` (2.15, 1.62, 1.23, 1.0, 0.85).
-    static func step(forRatio ratio: CGFloat) -> NoteTextStyle {
-        switch ratio {
-        case 1.88...: return .display
-        case 1.42...: return .title
-        case 1.11...: return .subtitle
-        case 0.92...: return .paragraph
-        default:      return .note
-        }
-    }
-}
-
 /// Conversion between an `NSAttributedString` and the RTF blob we persist,
 /// plus the link-detection pass. Kept separate from the view so the encoding
 /// rules are testable and shared by the store.
@@ -406,6 +338,7 @@ final class RichTextView: NSTextView {
 
         let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
         let styleMenu = NSMenu()
+        let current = currentTextStyle
         for style in NoteTextStyle.allCases {
             let item = NSMenuItem(title: style.label,
                                   action: #selector(applyStyleFromMenu(_:)),
@@ -413,6 +346,9 @@ final class RichTextView: NSTextView {
             item.keyEquivalentModifierMask = .command
             item.representedObject = style.rawValue
             item.target = self
+            // Tick the step the caret is currently in — without it the menu is
+            // write-only: you can't tell what a paragraph is or whether ⌘2 took.
+            item.state = (style == current) ? .on : .off
             styleMenu.addItem(item)
         }
         styleItem.submenu = styleMenu
@@ -494,6 +430,20 @@ final class RichTextView: NSTextView {
         didChangeText()
         // Keep typing in the style just applied.
         typingAttributes[.font] = style.font
+    }
+
+    /// The ramp step the caret's paragraph is in, or nil when its size matches
+    /// no step (mid-edit, or pasted text that hasn't been restyled).
+    var currentTextStyle: NoteTextStyle? {
+        guard let storage = textStorage, storage.length > 0 else {
+            return NoteTextStyle.matching(size: (font ?? RichText.baseFont).pointSize)
+        }
+        let paragraph = (string as NSString).paragraphRange(for: selectedRange())
+        let probe = min(paragraph.location, storage.length - 1)
+        guard let font = storage.attribute(.font, at: probe, effectiveRange: nil) as? NSFont else {
+            return nil
+        }
+        return NoteTextStyle.matching(size: font.pointSize)
     }
 
     @objc private func applyStyleFromMenu(_ sender: NSMenuItem) {

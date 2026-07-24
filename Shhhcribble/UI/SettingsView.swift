@@ -350,7 +350,7 @@ struct DictionarySettingsView: View {
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(.regularMaterial, in: Capsule())
                     .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -405,7 +405,7 @@ struct DictionarySettingsView: View {
                 Text("Aa")
                     .font(.caption2).foregroundColor(.secondary)
                     .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.15)))
+                    .background(RoundedRectangle(cornerRadius: DesignSystem.radiusBadge).fill(Color.secondary.opacity(0.15)))
                     .help("Matches case exactly")
             }
             Spacer(minLength: 8)
@@ -415,22 +415,26 @@ struct DictionarySettingsView: View {
             .buttonStyle(.borderless)
             .disabled(index == 0)
             .help("Move up")
+            .accessibilityLabel("Move up")
             Button { store.moveDictionaryEntry(at: index, by: 1) } label: {
                 Image(systemName: "chevron.down")
             }
             .buttonStyle(.borderless)
             .disabled(index == store.dictionaryEntries.count - 1)
             .help("Move down")
+            .accessibilityLabel("Move down")
             Button { editingEntry = entry } label: {
                 Image(systemName: "pencil")
             }
             .buttonStyle(.borderless)
             .help("Edit")
+            .accessibilityLabel("Edit entry")
             Button { deletingEntry = entry } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
             .help("Delete")
+            .accessibilityLabel("Delete entry")
         }
     }
 
@@ -438,11 +442,11 @@ struct DictionarySettingsView: View {
     /// universal rule that any copy action gives visible confirmation.
     private func flashCopied() {
         copiedToastTask?.cancel()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
         copiedToastTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.4))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+            withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
         }
     }
 
@@ -539,7 +543,7 @@ private struct DictionaryBulkImportView: View {
             TextEditor(text: $text)
                 .font(.body.monospaced())
                 .frame(height: 200)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                .overlay(RoundedRectangle(cornerRadius: DesignSystem.radiusControl).stroke(.quaternary))
 
             HStack {
                 Text(parsed.isEmpty ? "No entries detected yet" : countLabel)
@@ -613,11 +617,11 @@ struct InlineWarning: View {
         .padding(.vertical, 9)
         .padding(.horizontal, 11)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesignSystem.radiusControl)
                 .fill(Color(red: 0.95, green: 0.66, blue: 0.10).opacity(0.12))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesignSystem.radiusControl)
                 .stroke(Color(red: 0.95, green: 0.66, blue: 0.10).opacity(0.28), lineWidth: 0.6)
         )
     }

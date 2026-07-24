@@ -293,7 +293,7 @@ struct FeedbackView: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
                 .background(.regularMaterial, in: Capsule())
                 .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
                 .padding(.bottom, 18)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -301,11 +301,11 @@ struct FeedbackView: View {
 
     private func flashCopied() {
         copiedToastTask?.cancel()
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { copiedToast = true }
+        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
         copiedToastTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.4))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { copiedToast = false }
+            withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
         }
     }
 }

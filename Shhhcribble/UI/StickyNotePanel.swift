@@ -347,12 +347,12 @@ private struct StickyView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
                 .fill(.regularMaterial)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
+                .strokeBorder(.white.opacity(DesignSystem.strokeSubtle), lineWidth: 1)
         )
         .overlay { closeConfirmOverlay }
         .onChange(of: model.attributed) { _, _ in
@@ -369,14 +369,20 @@ private struct StickyView: View {
         HStack(spacing: 6) {
             Spacer(minLength: 0)
             Button {
-                withAnimation(.easeOut(duration: 0.15)) { model.showingCloseConfirm = true }
+                withAnimation(DesignSystem.motion(.easeOut(duration: 0.15))) { model.showingCloseConfirm = true }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: DesignSystem.ChromeText.micro, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    // The glyph stays small, but the *target* doesn't: this is
+                    // the only way to dismiss a sticky, on a small card the
+                    // user is often nudging around.
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(isEmpty ? "Discard" : "Unpin (keeps the note)")
+            .accessibilityLabel(isEmpty ? "Discard note" : "Unpin note")
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
@@ -403,7 +409,7 @@ private struct StickyView: View {
                 }
                 HStack(spacing: 8) {
                     Button("Cancel") {
-                        withAnimation(.easeOut(duration: 0.15)) { model.showingCloseConfirm = false }
+                        withAnimation(DesignSystem.motion(.easeOut(duration: 0.15))) { model.showingCloseConfirm = false }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -428,7 +434,7 @@ private struct StickyView: View {
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
                     .fill(.regularMaterial)
             )
             .transition(.opacity)

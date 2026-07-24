@@ -15,9 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Transcriptions: a searchable list on the left, the note itself on the right
   with Copy / Save-as-.txt / Delete and a pin control, plus a floating
   **Add Note** button.
-- **Text styles.** Five sizes — **Display, Title, Subtitle, Paragraph, Note** —
+- **Text styles.** Five sizes — **Display, Title, Subtitle, Paragraph, Caption** —
   applied to the current paragraph with **⌘1**–**⌘5** or the right-click Style
-  menu. All use the system font, so a note stays visually consistent.
+  menu, which ticks whichever style the cursor is currently in. All use the
+  system font, so a note stays visually consistent.
 - **Pasted text now adopts the app's font.** Paste from anywhere and it takes
   on the note's typeface, with headings mapped to the matching style based on
   how large they were relative to their own body text. Links, highlights,
@@ -39,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   afterwards.
 
 ### Changed
+- **The menu-bar icon now changes shape, not just colour.** Recording, a
+  detected call and a waiting update each show their own symbol, so they're
+  distinguishable without relying on telling red from amber. The icon also
+  describes its state to VoiceOver.
+- **Reduce Motion is respected** throughout — the recording pill, banners,
+  toasts and the soundwave shimmer all settle instantly when the system
+  setting is on.
+- **Icon-only buttons are now labelled for VoiceOver** across the whole app.
 - **Notes are their own module, not part of a transcript.** The transcript
   reader's third tab is gone — it's now Transcript and Summary. Any notes you'd
   written against a transcript are moved into the Notes tab automatically on
