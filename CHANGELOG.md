@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-24
+
 ### Added
 - **Notes.** A new **Notes** tab in the Studio, laid out exactly like
   Transcriptions: a searchable list on the left, the note itself on the right
