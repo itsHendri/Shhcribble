@@ -91,10 +91,16 @@ final class StickyNotePanel: NSPanel {
             model: model,
             onCommitText: { [weak self] text in
                 guard let self else { return }
+                let plain = text.string
+                let rich = RichText.data(from: text, font: StickyModel.font)
+                // Nothing changed here since we last read or wrote — stay out
+                // of it, or a flush on close would stamp this panel's copy over
+                // an edit made in the Notes pane.
+                guard plain != self.lastAppliedText || rich != self.lastAppliedRich else { return }
                 // Record what's about to be written so the store's echo back
                 // through `update(with:)` isn't mistaken for an external edit.
-                self.lastAppliedText = text.string
-                self.lastAppliedRich = RichText.data(from: text, font: StickyModel.font)
+                self.lastAppliedText = plain
+                self.lastAppliedRich = rich
                 self.onTextCommit?(self.noteID, text)
             },
             onUnpin: { [weak self] in

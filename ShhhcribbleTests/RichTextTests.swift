@@ -384,6 +384,7 @@ final class RichTextTests: XCTestCase {
                               styleMask: [.titled], backing: .buffered, defer: false)
         let view = makeView("hello")
         window.contentView?.addSubview(view)
+        view.windowKeyOverride = true   // the test host is never activated
 
         var reported: [Bool] = []
         view.onFocusChange = { reported.append($0) }
@@ -393,6 +394,35 @@ final class RichTextTests: XCTestCase {
 
         window.makeFirstResponder(nil)
         XCTAssertEqual(reported, [true, false], "focus loss was not reported")
+    }
+
+    /// **The two-editor desync.** Clicking a floating sticky makes that panel
+    /// key while the Studio window keeps its text view as first responder — so
+    /// `resignFirstResponder` never fires there. Focus has to account for window
+    /// key status, or the detail pane believes it is still being edited forever:
+    /// it refuses every store update and later writes its stale copy back.
+    @MainActor
+    func testFocusIsLostWhenAnotherWindowBecomesKey() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let view = makeView("hello")
+        window.contentView?.addSubview(view)
+        view.windowKeyOverride = true
+        window.makeFirstResponder(view)
+
+        var reported: [Bool] = []
+        view.onFocusChange = { reported.append($0) }
+
+        // Another window takes key — as a sticky panel does. The text view is
+        // NOT asked to resign; only the window's key status changes.
+        view.windowKeyOverride = false
+        view.refreshFocusState()
+
+        XCTAssertEqual(reported, [false],
+                       "focus was still held after another window became key")
+        // Still first responder of its own window — which is exactly why
+        // first-responder state alone cannot answer this.
+        XCTAssertTrue(window.firstResponder === view)
     }
 
     @MainActor

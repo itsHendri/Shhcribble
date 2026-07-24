@@ -274,16 +274,76 @@ final class RichTextView: NSTextView {
     /// menu — did nothing until a character had been typed first.
     var onFocusChange: ((Bool) -> Void)?
 
+    /// Focus means "the caret is here **and** this window is the one receiving
+    /// keys" — not merely first-responder status.
+    ///
+    /// **Load-bearing:** first-responder changes alone are not enough. Clicking
+    /// a floating sticky makes *that panel* key while the Studio window keeps
+    /// its text view as first responder, so `resignFirstResponder` never fires
+    /// there. The detail pane then believed it was still being edited forever:
+    /// it refused every store update (leaving it stale next to the sticky) and
+    /// later wrote that stale content back over the sticky's edits.
+    /// Tracked rather than read back from `window?.firstResponder`: AppKit
+    /// updates that property *after* calling these overrides, so reading it
+    /// here always reports the previous responder.
+    private var holdsFirstResponder = false
+
+    /// Test seam. The XCTest host app is never activated, so no window is ever
+    /// key inside it and the focus transition this whole mechanism exists for
+    /// can't otherwise be exercised. Always nil in the app.
+    var windowKeyOverride: Bool?
+
+    private var windowIsKey: Bool { windowKeyOverride ?? (window?.isKeyWindow == true) }
+
+    private var isFocused: Bool { holdsFirstResponder && windowIsKey }
+
+    private var lastReportedFocus = false
+    private var focusObservers: [NSObjectProtocol] = []
+
+    /// Re-evaluate and report focus. Called by the overrides and the window-key
+    /// notifications; exposed so a test can drive it after flipping
+    /// `windowKeyOverride`.
+    func refreshFocusState() { reportFocusIfChanged() }
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { onFocusChange?(true) }
+        if accepted {
+            holdsFirstResponder = true
+            reportFocusIfChanged()
+        }
         return accepted
     }
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned { onFocusChange?(false) }
+        if resigned {
+            holdsFirstResponder = false
+            reportFocusIfChanged()
+        }
         return resigned
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        focusObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        focusObservers.removeAll()
+        if let window {
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+                focusObservers.append(NotificationCenter.default.addObserver(
+                    forName: name, object: window, queue: .main
+                ) { [weak self] _ in self?.reportFocusIfChanged() })
+            }
+        }
+        reportFocusIfChanged()
+    }
+
+    /// Report only on an actual edge — `resignFirstResponder` and the window
+    /// notifications can both fire for one logical focus change.
+    private func reportFocusIfChanged() {
+        let focused = isFocused
+        guard focused != lastReportedFocus else { return }
+        lastReportedFocus = focused
+        onFocusChange?(focused)
     }
 
     /// The highlighter colour. **Translucent on purpose:** a solid yellow with
@@ -450,6 +510,10 @@ final class RichTextView: NSTextView {
         guard let raw = sender.representedObject as? String,
               let style = NoteTextStyle(rawValue: raw) else { return }
         applyTextStyle(style)
+    }
+
+    deinit {
+        focusObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     /// Toggle the highlighter over the selection (⌘⇧H). Un-highlighting clears

@@ -401,7 +401,12 @@ private struct NoteDetail: View {
         guard var current = store.notes.first(where: { $0.id == note.id }) else { return }
         let plain = attributed.string
         let rich = RichText.data(from: attributed, font: Self.editorFont)
-        guard plain != current.text || rich != current.richText else { return }
+        // Compare against what we last read/wrote, **not** against the store.
+        // If we changed nothing, we have nothing to contribute — and writing
+        // anyway would stamp our (possibly stale) copy over an edit the sticky
+        // made in the meantime. `.onDisappear` flushes unconditionally, so this
+        // is what stops switching notes from clobbering the other editor.
+        guard plain != lastSyncedText || rich != lastSyncedRich else { return }
         current.text = plain
         current.richText = rich
         lastSyncedText = plain
