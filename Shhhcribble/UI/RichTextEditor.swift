@@ -2,10 +2,68 @@ import SwiftUI
 import AppKit
 
 
+/// The note type ramp — one scale, largest to smallest, applied per paragraph.
+///
+/// All five are the **system font (San Francisco)**, which is what the rest of
+/// the app uses; only size and weight change. Keeping one family is the point:
+/// a note assembled from several sources should still read as one document.
+///
+/// The three heading steps carry weight as well as size — a "title" that is
+/// only larger, not heavier, doesn't read as a title next to body text.
+enum NoteTextStyle: String, CaseIterable, Identifiable {
+    case display, title, subtitle, paragraph, note
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .display:   return "Display"
+        case .title:     return "Title"
+        case .subtitle:  return "Subtitle"
+        case .paragraph: return "Paragraph"
+        case .note:      return "Note"
+        }
+    }
+
+    var size: CGFloat {
+        switch self {
+        case .display:   return 28
+        case .title:     return 21
+        case .subtitle:  return 16
+        case .paragraph: return 13
+        case .note:      return 11
+        }
+    }
+
+    var weight: NSFont.Weight {
+        switch self {
+        case .display, .title: return .bold
+        case .subtitle:        return .semibold
+        case .paragraph, .note: return .regular
+        }
+    }
+
+    var font: NSFont { .systemFont(ofSize: size, weight: weight) }
+
+    /// ⌘1 … ⌘5, largest to smallest.
+    var shortcutKey: String { String(NoteTextStyle.allCases.firstIndex(of: self)! + 1) }
+
+    /// The step whose size is closest to `size` — used to map a pasted font
+    /// onto the ramp.
+    static func nearest(toSize size: CGFloat) -> NoteTextStyle {
+        allCases.min { abs($0.size - size) < abs($1.size - size) } ?? .paragraph
+    }
+}
+
 /// Conversion between an `NSAttributedString` and the RTF blob we persist,
 /// plus the link-detection pass. Kept separate from the view so the encoding
 /// rules are testable and shared by the store.
 enum RichText {
+
+    /// The editor's default body font — one base for the Notes pane and the
+    /// stickies alike, so the same note doesn't get a different line-height
+    /// floor depending on which editor last saved it.
+    static let baseFont = NoteTextStyle.paragraph.font
 
     /// Classes allowed when decoding a stored note. Explicit (rather than
     /// switching secure coding off) so a corrupt or tampered blob can't
@@ -247,6 +305,10 @@ final class RichTextView: NSTextView {
               let key = event.charactersIgnoringModifiers?.lowercased() else {
             return super.performKeyEquivalent(with: event)
         }
+        if flags == .command, let style = NoteTextStyle.allCases.first(where: { $0.shortcutKey == key }) {
+            applyTextStyle(style)
+            return true
+        }
         switch (flags, key) {
         case (.command, "b"):          toggleBoldTrait(nil);      return true
         case (.command, "i"):          toggleItalicTrait(nil);    return true
@@ -275,14 +337,30 @@ final class RichTextView: NSTextView {
             item.target = self
             menu.insertItem(item, at: index)
         }
-        menu.insertItem(.separator(), at: commands.count)
+
+        let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
+        let styleMenu = NSMenu()
+        for style in NoteTextStyle.allCases {
+            let item = NSMenuItem(title: style.label,
+                                  action: #selector(applyStyleFromMenu(_:)),
+                                  keyEquivalent: style.shortcutKey)
+            item.keyEquivalentModifierMask = .command
+            item.representedObject = style.rawValue
+            item.target = self
+            styleMenu.addItem(item)
+        }
+        styleItem.submenu = styleMenu
+        menu.insertItem(styleItem, at: commands.count)
+
+        menu.insertItem(.separator(), at: commands.count + 1)
         return menu
     }
 
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(toggleBoldTrait(_:)), #selector(toggleItalicTrait(_:)),
-             #selector(toggleUnderlineTrait(_:)), #selector(toggleHighlight(_:)):
+             #selector(toggleUnderlineTrait(_:)), #selector(toggleHighlight(_:)),
+             #selector(applyStyleFromMenu(_:)):
             return isEditable
         default:
             return super.validateMenuItem(item)
@@ -297,6 +375,40 @@ final class RichTextView: NSTextView {
     @objc func toggleBoldTrait(_ sender: Any?) { toggleTrait(.boldFontMask) }
 
     @objc func toggleItalicTrait(_ sender: Any?) { toggleTrait(.italicFontMask) }
+
+    /// Apply a ramp step to every paragraph the selection touches (⌘1–⌘5).
+    ///
+    /// Paragraph-scoped on purpose: a heading is a property of the line, not of
+    /// whichever characters happened to be selected. Italic is carried over —
+    /// the step's own weight wins, so applying Title to bold text isn't a
+    /// double-bold.
+    func applyTextStyle(_ style: NoteTextStyle) {
+        guard let storage = textStorage else { return }
+        let paragraph = (string as NSString).paragraphRange(for: selectedRange())
+        guard paragraph.length > 0,
+              shouldChangeText(in: paragraph, replacementString: nil) else { return }
+
+        let manager = NSFontManager.shared
+        storage.beginEditing()
+        storage.enumerateAttribute(.font, in: paragraph) { value, subrange, _ in
+            var replacement = style.font
+            if let existing = value as? NSFont,
+               manager.traits(of: existing).contains(.italicFontMask) {
+                replacement = manager.convert(replacement, toHaveTrait: .italicFontMask)
+            }
+            storage.addAttribute(.font, value: replacement, range: subrange)
+        }
+        storage.endEditing()
+        didChangeText()
+        // Keep typing in the style just applied.
+        typingAttributes[.font] = style.font
+    }
+
+    @objc private func applyStyleFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let style = NoteTextStyle(rawValue: raw) else { return }
+        applyTextStyle(style)
+    }
 
     /// Toggle the highlighter over the selection (⌘⇧H). Un-highlighting clears
     /// any background colour on the run, including one that arrived by paste —
@@ -383,7 +495,7 @@ final class RichTextView: NSTextView {
 struct RichTextEditor: NSViewRepresentable {
 
     @Binding var attributed: NSAttributedString
-    var font: NSFont = .systemFont(ofSize: 13)
+    var font: NSFont = RichText.baseFont
     var insets: NSSize = NSSize(width: 12, height: 10)
     /// Called when the editor gains or loses focus — the sticky panel uses it
     /// to activate the app and to flush its debounced save.

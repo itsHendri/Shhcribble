@@ -262,7 +262,7 @@ private struct NoteDetail: View {
     @State private var lastSyncedText: String?
     @State private var lastSyncedRich: Data?
 
-    private static let editorFont = NSFont.systemFont(ofSize: 13)
+    private static let editorFont = RichText.baseFont
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

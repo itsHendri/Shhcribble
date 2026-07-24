@@ -296,7 +296,7 @@ final class StickyPanelManager {
 
 @MainActor
 final class StickyModel: ObservableObject {
-    static let font = NSFont.systemFont(ofSize: 12.5)
+    static let font = RichText.baseFont
 
     @Published var attributed = NSAttributedString(string: "")
     /// True while the text editor has focus — blocks store→view text pushes.

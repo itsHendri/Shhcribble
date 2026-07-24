@@ -404,6 +404,72 @@ final class RichTextTests: XCTestCase {
         return nil
     }
 
+    // MARK: - Text style ramp
+
+    /// The ramp must be strictly descending, or "scaling from large to small"
+    /// isn't true and ⌘1…⌘5 stop being predictable.
+    func testRampSizesDescendStrictly() {
+        let sizes = NoteTextStyle.allCases.map(\.size)
+        XCTAssertEqual(sizes, sizes.sorted(by: >))
+        XCTAssertEqual(Set(sizes).count, sizes.count, "two steps share a size")
+    }
+
+    /// One family throughout — the whole point is that a note assembled from
+    /// several sources still reads as one document.
+    func testEveryRampStepUsesTheSystemFont() {
+        let system = NSFont.systemFont(ofSize: 13).familyName
+        for style in NoteTextStyle.allCases {
+            XCTAssertEqual(style.font.familyName, system, "\(style.label) is off-family")
+        }
+    }
+
+    func testRampShortcutsAreCommandOneToFive() {
+        XCTAssertEqual(NoteTextStyle.allCases.map(\.shortcutKey), ["1", "2", "3", "4", "5"])
+    }
+
+    func testNearestStepMapsAPastedSize() {
+        XCTAssertEqual(NoteTextStyle.nearest(toSize: 30), .display)
+        XCTAssertEqual(NoteTextStyle.nearest(toSize: 14), .paragraph)
+        XCTAssertEqual(NoteTextStyle.nearest(toSize: 1), .note)
+    }
+
+    /// A heading applies to the whole line, not just the selected characters —
+    /// otherwise half a title ends up styled.
+    @MainActor
+    func testStyleAppliesToTheWholeParagraph() throws {
+        let view = makeView("Heading line\nBody line")
+        view.setSelectedRange(NSRange(location: 2, length: 3))   // inside the first line
+        view.applyTextStyle(.title)
+
+        let first = try XCTUnwrap(view.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(first.pointSize, NoteTextStyle.title.size)
+        let second = try XCTUnwrap(view.textStorage?.attribute(.font, at: 15, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(second.pointSize, NoteTextStyle.paragraph.size, "the next paragraph was restyled too")
+    }
+
+    @MainActor
+    func testStyleCarriesItalicOver() throws {
+        let view = makeView("slanted")
+        view.setSelectedRange(NSRange(location: 0, length: 7))
+        view.toggleItalicTrait(nil)
+        view.applyTextStyle(.subtitle)
+
+        let f = try XCTUnwrap(view.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(f.pointSize, NoteTextStyle.subtitle.size)
+        XCTAssertTrue(f.fontDescriptor.symbolicTraits.contains(.italic))
+    }
+
+    @MainActor
+    func testStyleSurvivesTheRoundTrip() throws {
+        let view = makeView("Heading")
+        view.setSelectedRange(NSRange(location: 0, length: 7))
+        view.applyTextStyle(.display)
+
+        let back = roundTrip(view.attributedString())
+        let f = try XCTUnwrap(back.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(f.pointSize, NoteTextStyle.display.size)
+    }
+
     // MARK: - Line height stability
 
     /// Bold/italic faces have different ascender+descender than regular, so
