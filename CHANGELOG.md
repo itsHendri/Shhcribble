@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Transcriptions: a searchable list on the left, the note itself on the right
   with Copy / Save-as-.txt / Delete and a pin control, plus a floating
   **Add Note** button.
+- **Text styles.** Five sizes — **Display, Title, Subtitle, Paragraph, Note** —
+  applied to the current paragraph with **⌘1**–**⌘5** or the right-click Style
+  menu. All use the system font, so a note stays visually consistent.
+- **Pasted text now adopts the app's font.** Paste from anywhere and it takes
+  on the note's typeface, with headings mapped to the matching style based on
+  how large they were relative to their own body text. Links, highlights,
+  colours, bullet and numbered lists and indentation all come through
+  unchanged; ⌥⇧⌘V still pastes as plain text.
 - **Rich text in notes.** Select text and press **⌘B**, **⌘I**, **⌘U** or
   **⌘⇧H** to highlight it — or right-click for the same four commands — and any
   web or email address you type becomes a clickable blue

@@ -48,10 +48,25 @@ enum NoteTextStyle: String, CaseIterable, Identifiable {
     /// ⌘1 … ⌘5, largest to smallest.
     var shortcutKey: String { String(NoteTextStyle.allCases.firstIndex(of: self)! + 1) }
 
-    /// The step whose size is closest to `size` — used to map a pasted font
-    /// onto the ramp.
-    static func nearest(toSize size: CGFloat) -> NoteTextStyle {
-        allCases.min { abs($0.size - size) < abs($1.size - size) } ?? .paragraph
+    /// The step for text that is `ratio` times the size of its document's own
+    /// body text.
+    ///
+    /// **Relative, not absolute, on purpose.** Mapping a pasted size straight
+    /// to the nearest step breaks on the most common case there is: browser
+    /// body text is typically 16px, which is nearest to `.subtitle`, so an
+    /// ordinary paste would arrive as a page of semibold subtitles. What makes
+    /// something a heading is that it is larger *than the surrounding text*.
+    ///
+    /// Thresholds are the midpoints between this ramp's own ratios against
+    /// `.paragraph` (2.15, 1.62, 1.23, 1.0, 0.85).
+    static func step(forRatio ratio: CGFloat) -> NoteTextStyle {
+        switch ratio {
+        case 1.88...: return .display
+        case 1.42...: return .title
+        case 1.11...: return .subtitle
+        case 0.92...: return .paragraph
+        default:      return .note
+        }
     }
 }
 
@@ -228,6 +243,57 @@ enum RichText {
         return base
     }
 
+    /// Convert every font in `string` onto the app's ramp: the system family,
+    /// with each run's size mapped by how large it is relative to the pasted
+    /// content's *own* body text. Bold and italic are carried over; everything
+    /// that isn't a font — links, highlights, colours, lists, indentation,
+    /// alignment — is left untouched.
+    ///
+    /// This is what keeps a note reading as one document instead of a
+    /// patchwork of whatever fonts its sources happened to use.
+    static func normalizingFonts(in string: NSAttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: string)
+        let full = NSRange(location: 0, length: result.length)
+        guard full.length > 0 else { return result }
+
+        let body = dominantFontSize(in: result) ?? NoteTextStyle.paragraph.size
+        let manager = NSFontManager.shared
+        var updates: [(NSRange, NSFont)] = []
+
+        result.enumerateAttribute(.font, in: full) { value, range, _ in
+            guard let incoming = value as? NSFont else {
+                updates.append((range, NoteTextStyle.paragraph.font))
+                return
+            }
+            let step = NoteTextStyle.step(forRatio: incoming.pointSize / body)
+            var replacement = step.font
+            let traits = manager.traits(of: incoming)
+            // Heading steps supply their own weight — only carry bold across
+            // when the step wouldn't already be bold, or body text that was
+            // emphasised loses its emphasis.
+            if traits.contains(.boldFontMask), step.weight == .regular {
+                replacement = manager.convert(replacement, toHaveTrait: .boldFontMask)
+            }
+            if traits.contains(.italicFontMask) {
+                replacement = manager.convert(replacement, toHaveTrait: .italicFontMask)
+            }
+            updates.append((range, replacement))
+        }
+        for (range, font) in updates { result.addAttribute(.font, value: font, range: range) }
+        return result
+    }
+
+    /// The font size covering the most characters — the document's body size,
+    /// which anchors the relative mapping above.
+    private static func dominantFontSize(in string: NSAttributedString) -> CGFloat? {
+        var coverage: [CGFloat: Int] = [:]
+        string.enumerateAttribute(.font, in: NSRange(location: 0, length: string.length)) { value, range, _ in
+            guard let font = value as? NSFont else { return }
+            coverage[font.pointSize, default: 0] += range.length
+        }
+        return coverage.max { $0.value < $1.value }?.key
+    }
+
     /// Add `.link` attributes for any URL-shaped text that doesn't already
     /// carry one. NSTextView's automatic detection only fires while typing or
     /// pasting, so loaded text needs this explicit pass.
@@ -375,6 +441,32 @@ final class RichTextView: NSTextView {
     @objc func toggleBoldTrait(_ sender: Any?) { toggleTrait(.boldFontMask) }
 
     @objc func toggleItalicTrait(_ sender: Any?) { toggleTrait(.italicFontMask) }
+
+    /// Paste, converting the incoming fonts onto the app's ramp so a note stays
+    /// typographically consistent no matter where its content came from.
+    /// Structure, links, colours and highlights come through untouched — see
+    /// `RichText.normalizingFonts`.
+    ///
+    /// `pasteAsPlainText(_:)` (⌥⇧⌘V) is deliberately left to `super`: it
+    /// already discards all formatting, so there is nothing to normalise.
+    override func paste(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        guard let incoming = pasteboard.readObjects(
+                forClasses: [NSAttributedString.self], options: nil)?.first as? NSAttributedString,
+              incoming.length > 0 else {
+            super.paste(sender)
+            return
+        }
+        let normalized = RichText.normalizingFonts(in: incoming)
+        let range = rangeForUserTextChange
+        guard range.location != NSNotFound,
+              shouldChangeText(in: range, replacementString: normalized.string) else {
+            super.paste(sender)
+            return
+        }
+        textStorage?.replaceCharacters(in: range, with: normalized)
+        didChangeText()
+    }
 
     /// Apply a ramp step to every paragraph the selection touches (⌘1–⌘5).
     ///

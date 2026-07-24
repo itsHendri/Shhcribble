@@ -427,10 +427,86 @@ final class RichTextTests: XCTestCase {
         XCTAssertEqual(NoteTextStyle.allCases.map(\.shortcutKey), ["1", "2", "3", "4", "5"])
     }
 
-    func testNearestStepMapsAPastedSize() {
-        XCTAssertEqual(NoteTextStyle.nearest(toSize: 30), .display)
-        XCTAssertEqual(NoteTextStyle.nearest(toSize: 14), .paragraph)
-        XCTAssertEqual(NoteTextStyle.nearest(toSize: 1), .note)
+    func testRatioMapsOntoTheRamp() {
+        XCTAssertEqual(NoteTextStyle.step(forRatio: 1.0), .paragraph)
+        XCTAssertEqual(NoteTextStyle.step(forRatio: 2.2), .display)
+        XCTAssertEqual(NoteTextStyle.step(forRatio: 1.6), .title)
+        XCTAssertEqual(NoteTextStyle.step(forRatio: 1.25), .subtitle)
+        XCTAssertEqual(NoteTextStyle.step(forRatio: 0.8), .note)
+    }
+
+    // MARK: - Paste normalisation
+
+    /// Build the shape a browser paste has: a body size with a larger heading.
+    private func pasted(bodySize: CGFloat, headingSize: CGFloat) -> NSAttributedString {
+        let s = NSMutableAttributedString()
+        s.append(NSAttributedString(string: "A Heading\n", attributes: [
+            .font: NSFont.boldSystemFont(ofSize: headingSize)]))
+        s.append(NSAttributedString(string: "Body text that runs on for a while so it dominates.",
+                                    attributes: [.font: NSFont(name: "Times New Roman", size: bodySize)
+                                                 ?? NSFont.systemFont(ofSize: bodySize)]))
+        return s
+    }
+
+    /// **The case a nearest-size mapping gets wrong.** Browser body text is
+    /// typically 16px, which is nearest to Subtitle (16) — mapping absolutely
+    /// would turn an ordinary paste into a page of semibold subtitles.
+    func testBrowserBodyTextBecomesParagraphNotSubtitle() throws {
+        let normalized = RichText.normalizingFonts(in: pasted(bodySize: 16, headingSize: 32))
+        let bodyIndex = (normalized.string as NSString).range(of: "Body text").location
+        let body = try XCTUnwrap(normalized.attribute(.font, at: bodyIndex, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(body.pointSize, NoteTextStyle.paragraph.size)
+    }
+
+    func testPastedHeadingBecomesAHeadingStep() throws {
+        let normalized = RichText.normalizingFonts(in: pasted(bodySize: 16, headingSize: 32))
+        let heading = try XCTUnwrap(normalized.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(heading.pointSize, NoteTextStyle.display.size)   // 32/16 = 2.0
+    }
+
+    func testNormalisingConvertsEverythingToTheSystemFamily() {
+        let normalized = RichText.normalizingFonts(in: pasted(bodySize: 16, headingSize: 32))
+        let system = NSFont.systemFont(ofSize: 13).familyName
+        normalized.enumerateAttribute(.font, in: NSRange(location: 0, length: normalized.length)) { value, _, _ in
+            XCTAssertEqual((value as? NSFont)?.familyName, system)
+        }
+    }
+
+    /// Emphasis inside body text must survive — the heading steps supply their
+    /// own weight, but bold body text would otherwise be flattened.
+    func testNormalisingKeepsBoldAndItalicInBodyText() throws {
+        let s = NSMutableAttributedString(string: "plain and ",
+                                          attributes: [.font: NSFont.systemFont(ofSize: 16)])
+        s.append(NSAttributedString(string: "bold",
+                                    attributes: [.font: NSFont.boldSystemFont(ofSize: 16)]))
+        let normalized = RichText.normalizingFonts(in: s)
+        let boldIndex = (normalized.string as NSString).range(of: "bold").location
+        let bold = try XCTUnwrap(normalized.attribute(.font, at: boldIndex, effectiveRange: nil) as? NSFont)
+        XCTAssertTrue(bold.fontDescriptor.symbolicTraits.contains(.bold))
+        XCTAssertEqual(bold.pointSize, NoteTextStyle.paragraph.size)
+    }
+
+    /// Normalisation touches fonts only — links, highlights and list structure
+    /// are the user's content and must come through untouched.
+    func testNormalisingPreservesLinksHighlightsAndLists() throws {
+        let para = NSMutableParagraphStyle()
+        para.textLists = [NSTextList(markerFormat: .disc, options: 0)]
+        let s = NSMutableAttributedString(string: "linked item", attributes: [
+            .font: NSFont.systemFont(ofSize: 16),
+            .link: URL(string: "https://example.com")!,
+            .backgroundColor: NSColor.systemYellow,
+            .paragraphStyle: para,
+        ])
+        let normalized = RichText.normalizingFonts(in: s)
+        XCTAssertNotNil(normalized.attribute(.link, at: 0, effectiveRange: nil))
+        XCTAssertEqual(normalized.attribute(.backgroundColor, at: 0, effectiveRange: nil) as? NSColor,
+                       .systemYellow)
+        let style = normalized.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(style?.textLists.count, 1)
+    }
+
+    func testNormalisingEmptyStringIsSafe() {
+        XCTAssertEqual(RichText.normalizingFonts(in: NSAttributedString(string: "")).length, 0)
     }
 
     /// A heading applies to the whole line, not just the selected characters —
