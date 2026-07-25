@@ -911,7 +911,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 transcriptStore.add(Transcript(
                     id: UUID(),
                     createdAt: Date(),
-                    source: .dictation,
+                    source: .call,
                     title: "Call — \(appName), \(df.string(from: Date()))",
                     text: cleaned.isEmpty ? trimmed : cleaned,
                     rawText: trimmed,

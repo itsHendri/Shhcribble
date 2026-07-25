@@ -122,10 +122,11 @@ Today's `Note.pinned` conflated two lifecycles. Split:
    verbs renamed, Pinned groups atop both lists. **This phase also delivered
    phase 6's board** — adding pin without a surface that shows pinned items
    would have left the Pinned tab lying — so 6 below is reduced to polish.
-3. **Documents vs dictations** — a real source distinction. Call captures are
-   currently stored as `source: .dictation` with a "Call —" title (v1 gap in
-   CLAUDE.md); this phase gives them and file imports a proper document
-   category. Documents tab + pared actions.
+3. ~~**Documents vs dictations**~~ — **DONE 2026-07-25.** `TranscriptSource`
+   gained `.call`; schema v12 reclassifies the call captures that shipped as
+   `.dictation`, keyed on `durationSec` rather than the title. `isDocument` is
+   the one predicate dividing the app's two halves. Action rows pared to
+   pin · copy · delete (download and reveal dropped).
 4. **Today timeline** — the feed replacing the transcripts master-detail:
    day stream, two weights, hover actions, chevrons + month popover.
 5. **Search everything** — cross-category results view on Today.

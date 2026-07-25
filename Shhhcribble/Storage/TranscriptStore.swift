@@ -5,9 +5,20 @@ import os
 /// Where a transcript came from — a live hotkey dictation, or a file the user
 /// dropped/opened. Drives the icon in the Transcriptions list and whether a
 /// source file exists on disk.
+/// Where a transcript came from — and, since the redesign, which half of the app
+/// it belongs to. **`.dictation` is the quick, semi-throwaway half** (kept for
+/// recovery and reuse, never a document); `.file` and `.call` are long-form
+/// material you keep, and are what `TranscriptStore.documents(matching:)`
+/// returns. Add a new case on the document side of that predicate deliberately.
 enum TranscriptSource: String, Codable, Equatable {
     case dictation
     case file
+    /// Your side of a detected call, captured to the library. Stored as
+    /// `.dictation` before schema v12 — see the migration there.
+    case call
+
+    /// True for the long-form sources that live in the Documents tab.
+    var isDocument: Bool { self != .dictation }
 }
 
 /// One stored transcript. `text` is the cleaned/final version (what Copy and
@@ -676,15 +687,12 @@ final class TranscriptStore: ObservableObject {
     }
 
     /// Transcripts that belong in the **Documents** tab — long-form material you
-    /// keep, as opposed to the quick dictations that pass through Today.
-    ///
-    /// Today that means file imports only. Call captures still store as
-    /// `.dictation` with a "Call —" title (the v1 gap), so they don't qualify
-    /// yet; **redesign phase 3 gives them a real source category, and this
-    /// method is where that change lands** — one tested place, rather than a
-    /// predicate spread across the views.
+    /// keep (file and video imports, call captures), as opposed to the quick
+    /// dictations that pass through Today. One tested place, rather than a
+    /// predicate spread across the views: a new long-form source joins Documents
+    /// by flipping `TranscriptSource.isDocument`.
     func documents(matching query: String) -> [Transcript] {
-        matching(query).filter { $0.source == .file }
+        matching(query).filter(\.source.isDocument)
     }
 
     /// Notes marked important, newest-touched first.
@@ -942,7 +950,7 @@ final class TranscriptStore: ObservableObject {
     /// The version `migrateSchema` brings a DB up to. The loaders name columns
     /// from this version, so anything short of it means the loaded arrays can't
     /// be trusted — see `schemaIsCurrent`.
-    static let latestSchemaVersion: Int32 = 11
+    static let latestSchemaVersion: Int32 = 12
 
     /// False when a migration step failed and the DB is behind
     /// `latestSchemaVersion`. **Every one-shot migration guards on this**: they
@@ -1097,6 +1105,34 @@ final class TranscriptStore: ObservableObject {
             }
             log.notice("Migrated schema to v11 (pinned transcripts).")
             version = 11
+        }
+
+        if version < 12 {
+            // Call captures shipped before there was a source for them: they
+            // were stored as `.dictation` with a "Call — App, time" title (the
+            // v1 gap). Reclassify them so they land in Documents with the rest
+            // of the long-form material.
+            //
+            // The predicate is deliberately narrow. `addDictation` never sets
+            // `durationSec` (it's nil on every dictation ever written), while a
+            // call capture always does — so the duration, not the title, is the
+            // real discriminator; the title prefix is a second lock. A user
+            // whose dictation happens to start "Call — " is left alone because
+            // it has no duration.
+            let migrated = withTransaction {
+                guard exec("""
+                UPDATE transcripts SET source = 'call'
+                WHERE source = 'dictation' AND durationSec IS NOT NULL
+                  AND fileName IS NULL AND title LIKE 'Call — %';
+                """, bind: nil) else { return false }
+                return exec("PRAGMA user_version = 12;", bind: nil)
+            }
+            guard migrated else {
+                log.error("Schema v12 migration rolled back; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            log.notice("Migrated schema to v12 (call transcripts get their own source).")
+            version = 12
         }
 
         schemaIsCurrent = version == Self.latestSchemaVersion

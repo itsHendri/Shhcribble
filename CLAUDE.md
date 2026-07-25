@@ -282,6 +282,25 @@ is always the floating sticky. Never call a sticky "pinned to screen" in UI copy
   sidecar is already written at transcription time, and a source file is often
   ephemeral while the transcript is the durable artifact.
 
+### Documents vs dictations — a real source category (redesign phase 3)
+`TranscriptSource` gained **`.call`**, and the split it encodes is the one the
+redesign is built on: **`.dictation` is the quick, semi-throwaway half** (kept
+for recovery and reuse), while **`.file` and `.call` are long-form material you
+keep**. `TranscriptSource.isDocument` is that line, `TranscriptStore.documents(matching:)`
+is the single place it's applied, and the Documents tab is what it feeds. A new
+long-form source joins Documents by flipping `isDocument` — don't re-inline
+`source == .file` in a view.
+
+- **Schema v12 reclassifies the call captures that shipped before the case
+  existed.** They were stored as `.dictation` with a "Call — App, time" title.
+  The migration keys on **`durationSec`, not the title**: `addDictation` has
+  never set one and a call capture always does, so a dictation that merely
+  *starts* with "Call — " is left alone (the title prefix is a second lock, and
+  `fileName IS NULL` a third). Transactional like v10. Pinned by
+  `testV11CallCapturesAreReclassifiedButDictationsAreNot`.
+- Summaries stay a **Documents-only** affordance per the design contract; the
+  reader is still shared with Today until phase 4 takes it out of the timeline.
+
 ### Universal UI conventions (apply to every new affordance)
 Two rules established 2026-07-08, expected everywhere going forward:
 - **Any copy action shows the "Copied" toast.** The capsule toast (`.regularMaterial` in a `Capsule`, ~1.4 s auto-dismiss, cancellable task) is duplicated in `TranscriptDetail` (transcript + summary copy), `TranscriptionsView` (hover-to-copy on rows), and `DictionarySettingsView` (`flashCopied()`, prompt copy). New copy affordances must flash it too (candidate for extraction into one shared modifier later).
@@ -372,7 +391,7 @@ Load-bearing details:
 - **Mutual exclusion is a three-phase state, not a bool** (adversarial-review catch): `callCapturePhase = idle | recording | finishing`. `.finishing` holds `isCallCapturing` and `transcriptionEngine.isBusy` **through the final transcribe** — the shared `AsrManager` isn't re-entrant, and releasing the gates at mic-stop would let a dictation/file job/model swap interleave with the capture's own transcription. `FileTranscriber.isDictationActive` includes `isCallCapturing`; `resetCallCaptureState()` kicks `drainIfIdle()` so files queued mid-call run afterwards. `beginRecording` rejects during capture with an info pill.
 - **Stale notifications can't record junk**: `beginCallCapture` guards `CallDetector.anyKnownCallAppRunningInput()` — clicking an hours-old banner gets "That call has ended", not a room-noise capture.
 - **Auto-stop** polls (3 s) whether any known call app still runs mic input — the device-level idle signal is useless during capture because WE hold the mic; two consecutive idle polls end it. 60-min hard cap. Menu-bar right-click gains **Stop Call Transcript** while `.recording` (the capture deliberately shows no pill; the menu-bar tint is the indicator).
-- **Accepted v1 gaps:** a call starting *mid-dictation* is never detected (the device is already running from our IO); a >6 s mic-release while muted auto-stops the capture (app-dependent — verify per app on hardware); call transcripts store as `source: .dictation` with a "Call — App, time" title (no dedicated source enum case; schema untouched); quit mid-capture discards silently.
+- **Accepted v1 gaps:** a call starting *mid-dictation* is never detected (the device is already running from our IO); a >6 s mic-release while muted auto-stops the capture (app-dependent — verify per app on hardware); quit mid-capture discards silently. *(The "call transcripts store as `.dictation`" gap is **closed** — see Documents vs dictations below.)*
 - **Captures only the user's side.** Both-sides capture is the separate, design-gated part B (Core Audio process taps, macOS 14.4+) — see ROADMAP item 6.
 
 ### Notes — a standalone module (notes + stickies), NOT part of a transcript
@@ -538,6 +557,8 @@ This project runs a **largely-autonomous research→build→verify loop** over t
 8. **Backlog re-evaluation** (added 2026-07-08): after a feature ships, re-scan [docs/ROADMAP.md](docs/ROADMAP.md) and the backlog against any new signal (user feedback, competitive finds, what the feature unlocked) and re-prioritize; record the shift in the loop-progress note. New feedback often converges or reshuffles items — don't just march the old order.
 
 Iterate implement→review→fix up to ~3 rounds; if still failing or low-confidence, **stop and escalate** rather than loop. Use the **Workflow tool** for each sprint's implement→parallel-review→verify pipeline; keep a short loop-progress note here (current sprint / last done / next / blocker).
+
+**Loop progress (2026-07-25d):** **Redesign Phase 3 (documents vs dictations) BUILT** on the same `shhhcribble/pin-stick-split` branch (phases 2+3 now share it; not merged/pushed). `TranscriptSource` gained **`.call`**, `isDocument` is the single line between the app's two halves, and **schema v12** reclassifies the call captures that shipped as `.dictation` — keyed on `durationSec` (which `addDictation` never sets) rather than the title, so a dictation starting "Call — " is left alone. **This closes the v1 call-source gap** recorded in the call-detection decision. UI follows the source: reader icon + meta line (Dictated/Imported/Call), Pinned card type, Documents empty state. QC: build green, **245 tests** (+3). `TranscriptStoreTests` now reads `TranscriptStore.latestSchemaVersion` instead of a literal — that literal produced a false failure on each of the last two migrations. No audio-path touch (the AppDelegate change is one enum value on the call-capture store write) → **no hardware smoke test triggered**. **⚠ PENDING: human visual pass** — still not run this session; also worth confirming the two behaviour removals flagged in 2026-07-25c. **Next: Phase 4 (the Today timeline)** — the last stand-in, and the biggest UI piece. Prior progress ↓.
 
 **Loop progress (2026-07-25c):** **Redesign Phase 2 (pin/stick split) BUILT** on branch `shhhcribble/pin-stick-split` (not merged/pushed). Splits the conflated `Note.pinned` into **pinned** (importance) + **stuck** (urgency) with sticking auto-pinning — see the new **Pin vs stick** decision above. **Schema v10** (`notes.stuck`, seeded `= pinned`) + **v11** (`transcripts.pinned`); the seeding is what makes the upgrade need no hand-fixing. Ships: pin toggles on notes *and* transcripts, "Pinned" groups atop both lists, stick capsule over the note editor, stick/unstick rename through the sticky panel, and a **real Pinned board** (stuck strip + cross-type pinned grid) — which **absorbs most of phase 6**, since adding pin without showing pinned items would have left the Pinned tab lying. Also **removed** Save-as-.txt (notes + transcripts) and reveal-in-Finder per the locked action row — **flag this to the human, it's a feature removal, not just a move**. QC: build green, **242 tests** (+10: auto-pin, unstick-keeps-pin, unpin-leaves-stuck, accessors, v9→v10 sticky seeding, pre-pin-column transcripts, interrupted-v10 non-clobber, insert-keeps-pin). **Two adversarial reviews run (migration + UI), both found real defects, all fixed**: the v10 backfill wasn't idempotent across launches (now transactional — my original "harmless re-run" comment was simply wrong); one-shot migrations could burn their flags against an empty store (now gated on `schemaIsCurrent`); `insert()` silently dropped `pinned`; the stick capsule occluded the end of a long note and stole its clicks (editor now has a bottom scroll inset); pin/stick didn't flush the pending edit, so sticking mid-typing could lose the last keystrokes; a pinned dictation was labelled "Document" and jumped to a tab that doesn't list it. No `AudioRecorder`/routing/`MusicPauser`/`TextInserter`/pref-table touch → **no hardware smoke test triggered**. **⚠ PENDING: human visual pass** (still not run — the installed v1.13.0 is running) and adversarial review. **Next: Phase 3 (documents vs dictations — a real source category for call captures + file imports).** Prior progress ↓.
 

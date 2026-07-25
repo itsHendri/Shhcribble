@@ -434,6 +434,69 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(store.pinnedTranscripts.map(\.id), [t.id])
     }
 
+    // MARK: - Call transcripts get their own source (v12)
+
+    /// Call captures shipped before there was a source for them. The migration
+    /// has to find them by shape, and the shape it keys on is `durationSec`:
+    /// `addDictation` never sets one, a call capture always does. A dictation
+    /// that merely *starts* with "Call — " must be left alone.
+    func testV11CallCapturesAreReclassifiedButDictationsAreNot() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        let ddl = """
+        CREATE TABLE transcripts (
+            id TEXT PRIMARY KEY, createdAt REAL NOT NULL, source TEXT NOT NULL,
+            title TEXT NOT NULL, text TEXT NOT NULL, rawText TEXT NOT NULL,
+            fileName TEXT, sourcePath TEXT, durationSec REAL
+        );
+        """
+        XCTAssertEqual(sqlite3_exec(db, ddl, nil, nil, nil), SQLITE_OK)
+        let call = UUID().uuidString
+        let lookalike = UUID().uuidString
+        let plain = UUID().uuidString
+        let insert = """
+        INSERT INTO transcripts (id, createdAt, source, title, text, rawText, durationSec) VALUES
+          ('\(call)', 300, 'dictation', 'Call — WhatsApp, 14:02', 'call body', 'raw', 240.0),
+          ('\(lookalike)', 200, 'dictation', 'Call — remind me to ring Ben', 'dictated body', 'raw', NULL),
+          ('\(plain)', 100, 'dictation', 'ordinary note', 'body', 'raw', NULL);
+        """
+        XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+
+        let store = TranscriptStore(path: path)
+        XCTAssertEqual(store.transcripts.first { $0.id.uuidString == call }?.source, .call)
+        XCTAssertEqual(store.transcripts.first { $0.id.uuidString == lookalike }?.source, .dictation,
+                       "a dictation that merely starts with the call prefix must not be reclassified")
+        XCTAssertEqual(store.transcripts.first { $0.id.uuidString == plain }?.source, .dictation)
+
+        // And the reclassified call is now a document, so it lists in Documents.
+        XCTAssertEqual(store.documents(matching: "").map(\.id.uuidString), [call])
+    }
+
+    func testDocumentsCoversFilesAndCallsButNotDictations() {
+        let store = makeStore()
+        store.addDictation(text: "quick thought", rawText: "raw")
+        store.add(Transcript(id: UUID(), createdAt: Date(), source: .file,
+                             title: "memo.m4a", text: "imported", rawText: "raw"))
+        store.add(Transcript(id: UUID(), createdAt: Date(), source: .call,
+                             title: "Call — Zoom, 09:00", text: "call", rawText: "raw"))
+
+        XCTAssertEqual(Set(store.documents(matching: "").map(\.source)), [.file, .call])
+    }
+
+    func testCallSourceRoundTripsThroughTheDatabase() {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let store = TranscriptStore(path: path)
+        store.add(Transcript(id: UUID(), createdAt: Date(), source: .call,
+                             title: "Call — Slack, 11:30", text: "body", rawText: "raw"))
+        XCTAssertEqual(TranscriptStore(path: path).transcripts.first?.source, .call)
+    }
+
     // MARK: - Transcript-notes migration
 
     func testTranscriptNotesMigrateIntoStandaloneNotes() {

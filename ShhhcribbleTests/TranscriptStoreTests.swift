@@ -251,10 +251,11 @@ final class TranscriptStoreTests: XCTestCase {
 
     // MARK: - Schema migration (v0 → latest)
 
-    /// Latest schema version — bumped as migrations are added (v1 summary, v2
-    /// notes, v3 dictionary_entries, …, v7 notes table, v8 sticky size,
-    /// v9 note rich text, v10 pin/stick split, v11 pinned transcripts).
-    private let latestSchemaVersion: Int32 = 11
+    /// Read from the store rather than pinned to a literal here: these tests
+    /// assert that `migrateSchema` *reaches* the latest version (an early return
+    /// from a failed step leaves it lower), which is the real invariant — and a
+    /// literal only ever produced a false failure on the next migration.
+    private let latestSchemaVersion = TranscriptStore.latestSchemaVersion
 
     func testMigrationAddsColumnsToOldSchemaAndKeepsRows() throws {
         let path = tempDBPath()

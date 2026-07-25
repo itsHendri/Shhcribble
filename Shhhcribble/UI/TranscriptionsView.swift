@@ -7,11 +7,10 @@ import AppKit
 /// the titlebar always reading "Shhhcribble" (the rail's active state is the
 /// location indicator, so the title never restates it).
 ///
-/// **Two panes are still stand-ins.** Today shows the pre-redesign transcripts
-/// master-detail (the chronological timeline is phase 4), and Documents is that
-/// same reader over file-sourced transcripts (a real source category — call
-/// captures included — is phase 3). Pinned is real. Read the decision record
-/// before changing any of it.
+/// **Today is still a stand-in** — it shows the pre-redesign transcripts
+/// master-detail; the chronological two-weight timeline is phase 4. Notes,
+/// Documents, Pinned and Settings are real. Read the decision record before
+/// changing any of it.
 struct TranscriptionsView: View {
     @ObservedObject var store: TranscriptStore
     @ObservedObject var fileTranscriber: FileTranscriber
@@ -218,7 +217,7 @@ struct TranscriptionsView: View {
             showsProgressBanner: true,
             emptyTitle: "No documents yet",
             emptyIcon: "doc.text",
-            emptyMessage: "Upload an audio or video file and its transcript lands here.",
+            emptyMessage: "Upload an audio or video file, or transcribe a call, and it lands here.",
             onUpload: onTranscribeFile
         )
     }
@@ -245,7 +244,7 @@ struct TranscriptionsView: View {
                 // imports only, so a pinned dictation has to go to Today or it
                 // would land on a reader with no matching row beside it — and,
                 // with no imports at all, next to an "empty" list.
-                if store.transcripts.first(where: { $0.id == id })?.source == .file {
+                if store.transcripts.first(where: { $0.id == id })?.source.isDocument == true {
                     documentID = id
                     section = .documents
                 } else {
@@ -581,9 +580,7 @@ private struct PinnedBoard: View {
     }
 
     private func transcriptCard(_ transcript: Transcript) -> some View {
-        // A quick dictation is not a document — phase 3 gives the two a real
-        // source category; until then the label follows what the row actually is.
-        let type = transcript.source == .file ? "Document" : "Dictation"
+        let type = transcript.source.isDocument ? "Document" : "Dictation"
         return card(title: transcript.menuTitle, type: type, badge: nil, action: nil,
                     open: { onOpenTranscript(transcript.id) })
             .accessibilityLabel("Pinned \(type.lowercased()): \(transcript.menuTitle)")
@@ -767,8 +764,8 @@ private struct TranscriptDetail: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: transcript.source == .file ? "waveform" : "mic")
-                        .foregroundStyle(transcript.source == .file ? Color.accentColor : Color.secondary)
+                    Image(systemName: Self.icon(for: transcript.source))
+                        .foregroundStyle(transcript.source.isDocument ? Color.accentColor : Color.secondary)
                     Text(transcript.menuTitle).font(.headline).lineLimit(1)
                     if let style = currentStyleName, !style.isEmpty {
                         // Shows the transform style a dictation was shaped with;
@@ -955,8 +952,24 @@ private struct TranscriptDetail: View {
         }
     }
 
+    static func icon(for source: TranscriptSource) -> String {
+        switch source {
+        case .dictation: return "mic"
+        case .file:      return "waveform"
+        case .call:      return "phone"
+        }
+    }
+
+    static func label(for source: TranscriptSource) -> String {
+        switch source {
+        case .dictation: return "Dictated"
+        case .file:      return "Imported"
+        case .call:      return "Call"
+        }
+    }
+
     private var metaLine: String {
-        var parts: [String] = [transcript.source == .file ? "Imported" : "Dictated"]
+        var parts: [String] = [Self.label(for: transcript.source)]
         parts.append(transcript.createdAt.formatted(date: .abbreviated, time: .shortened))
         if let d = transcript.durationSec, d > 0 { parts.append(TranscriptRow.durationString(d)) }
         return parts.joined(separator: " · ")
