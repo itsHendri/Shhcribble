@@ -19,6 +19,7 @@ struct TodayView: View {
     /// Opening an anchored card hands it back to the shell, which knows which
     /// tab that kind of item lives in.
     var onOpenNote: (UUID) -> Void
+    var onAddNote: () -> Void
     var onOpenTranscript: (UUID) -> Void
     var onUpload: () -> Void
 
@@ -454,19 +455,30 @@ struct TodayView: View {
             .font(.system(size: DesignSystem.ChromeText.control))
             .foregroundStyle(.secondary)
 
-            Button(action: onUpload) {
-                Label("Upload Audio…", systemImage: "waveform.badge.plus")
-                    .font(.callout).fontWeight(.medium)
-                    .padding(.horizontal, 16).padding(.vertical, 9)
-                    .background(.regularMaterial, in: Capsule())
-                    .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                    .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
+            // Two capsules here, deliberately breaking the one-per-column rule
+            // (human's call, following the wireframe): an empty Today otherwise
+            // offers no way to start a note, and the hotkey line above already
+            // covers dictating.
+            HStack(spacing: 8) {
+                capsule("Add Note", icon: "square.and.pencil", action: onAddNote)
+                capsule("Upload Audio…", icon: "waveform.badge.plus", action: onUpload)
             }
-            .buttonStyle(.plain)
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
+    }
+
+    private func capsule(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.callout).fontWeight(.medium)
+                .padding(.horizontal, 16).padding(.vertical, 9)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
+        }
+        .buttonStyle(.plain)
     }
 
     private func keycap(_ symbol: String) -> some View {

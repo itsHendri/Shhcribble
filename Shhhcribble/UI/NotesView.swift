@@ -76,8 +76,15 @@ struct NotesView: View {
                         Text("Pinned").font(.sectionTitle)
                     }
                 }
-                Section {
-                    ForEach(unpinnedMatches) { row($0) }
+                // Then day groups, per the wireframe: fifty notes in one
+                // undifferentiated column is a list you scroll past rather than
+                // read.
+                ForEach(Timeline.grouped(unpinnedMatches, by: \.createdAt), id: \.group) { bucket in
+                    Section {
+                        ForEach(bucket.items) { row($0) }
+                    } header: {
+                        Text(bucket.group.title).font(.sectionTitle)
+                    }
                 }
             }
             .overlay {

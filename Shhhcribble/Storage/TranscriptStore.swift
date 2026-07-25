@@ -760,9 +760,16 @@ final class TranscriptStore: ObservableObject {
     /// `pinnedNotes` in practice, since sticking auto-pins.
     var stuckNotes: [Note] { Self.byRecency(notes.filter(\.stuck)) }
 
-    /// Transcripts marked important, newest first (`transcripts` is already
+    /// Documents marked important, newest first (`transcripts` is already
     /// ordered by `createdAt DESC`, so this only filters).
-    var pinnedTranscripts: [Transcript] { transcripts.filter(\.pinned) }
+    ///
+    /// **Documents only.** Schema v11 put `pinned` on every transcript, but pin
+    /// is for the durable half — a quick dictation is read in the day stream and
+    /// let go (human's call, 2026-07-25). The `isDocument` filter is what keeps
+    /// a row pinned by an older build from reappearing on the board.
+    var pinnedTranscripts: [Transcript] {
+        transcripts.filter { $0.pinned && $0.source.isDocument }
+    }
 
     /// Tie-break on id: `sorted(by:)` isn't stable, so equal timestamps could
     /// otherwise reorder between renders and churn `ForEach` identity.

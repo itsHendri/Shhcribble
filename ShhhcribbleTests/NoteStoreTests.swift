@@ -229,7 +229,11 @@ final class NoteStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         let store = TranscriptStore(path: path)
-        let t = store.addDictation(text: "worth keeping", rawText: "raw")
+        // A document, since that's what pinning is for — this covers the column
+        // round-trip; `testPinnedDictationsAreKeptOffTheBoard` covers the filter.
+        let t = Transcript(id: UUID(), createdAt: Date(), source: .file,
+                           title: "worth keeping.m4a", text: "body", rawText: "raw")
+        store.add(t)
         XCTAssertFalse(store.transcripts[0].pinned)
         XCTAssertTrue(store.pinnedTranscripts.isEmpty)
 
@@ -460,13 +464,27 @@ final class NoteStoreTests: XCTestCase {
         let note = Note(text: "note")
         store.addNote(note)
         store.setNotePinned(id: note.id, pinned: true)
-        let doc = store.addDictation(text: "not a document", rawText: "raw")
+        let doc = Transcript(id: UUID(), createdAt: Date(), source: .file,
+                             title: "memo.m4a", text: "body", rawText: "raw")
+        store.add(doc)
         store.setTranscriptPinned(id: doc.id, pinned: true)
 
         let board = store.pinnedBoardContents
         XCTAssertEqual(board.documents.map(\.id), [doc.id])
         XCTAssertEqual(board.pinnedCount, 2, "the count spans both types")
         XCTAssertFalse(board.isEmpty)
+    }
+
+    /// Pin is for the durable half. A dictation pinned by an older build (the
+    /// column exists on every transcript since v11) must not reappear on the
+    /// board — human's call, 2026-07-25.
+    func testPinnedDictationsAreKeptOffTheBoard() {
+        let store = makeStore()
+        let dictation = store.addDictation(text: "quick thought", rawText: "raw")
+        store.setTranscriptPinned(id: dictation.id, pinned: true)
+
+        XCTAssertTrue(store.pinnedTranscripts.isEmpty)
+        XCTAssertTrue(store.pinnedBoardContents.isEmpty)
     }
 
     func testPinnedBoardIsEmptyWhenNothingIsPinnedOrStuck() {

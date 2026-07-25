@@ -171,6 +171,57 @@ final class TimelineTests: XCTestCase {
                                          transcripts: [], notes: [], calendar: calendar))
     }
 
+    // MARK: - Recency groups (the list headings)
+
+    /// "This week" is the calendar's week, not the last seven days — on a
+    /// Wednesday, something from six days ago is *last* week, and filing it
+    /// under "Earlier this week" is the kind of small lie that makes a list feel
+    /// untrustworthy. 2026-07-25 is a Saturday; the week started Monday the 20th.
+    func testRecencyGroupUsesTheCalendarWeekNotSevenDays() {
+        let now = date("2026-07-25 12:00")
+        XCTAssertEqual(Timeline.recencyGroup(for: date("2026-07-20 09:00"), now: now, calendar: calendar),
+                       .earlierThisWeek)
+        XCTAssertEqual(Timeline.recencyGroup(for: date("2026-07-19 09:00"), now: now, calendar: calendar),
+                       .earlierThisMonth, "the 19th is last week, six days back or not")
+    }
+
+    func testRecencyGroupCoversEveryStep() {
+        let now = date("2026-07-25 12:00")
+        XCTAssertEqual(Timeline.recencyGroup(for: date("2026-07-25 08:00"), now: now, calendar: calendar), .today)
+        XCTAssertEqual(Timeline.recencyGroup(for: date("2026-07-24 08:00"), now: now, calendar: calendar), .yesterday)
+        XCTAssertEqual(Timeline.recencyGroup(for: date("2026-07-22 08:00"), now: now, calendar: calendar), .earlierThisWeek)
+        XCTAssertEqual(Timeline.recencyGroup(for: date("2026-07-06 08:00"), now: now, calendar: calendar), .earlierThisMonth)
+        XCTAssertEqual(Timeline.recencyGroup(for: date("2026-05-06 08:00"), now: now, calendar: calendar), .older)
+    }
+
+    /// A future-stamped item under "Older" would be plainly wrong.
+    func testFutureDatesGroupWithToday() {
+        XCTAssertEqual(Timeline.recencyGroup(for: date("2026-08-30 08:00"),
+                                             now: date("2026-07-25 12:00"), calendar: calendar), .today)
+    }
+
+    func testGroupedDropsEmptyGroupsAndKeepsNewestFirst() {
+        let now = date("2026-07-25 12:00")
+        let dates = [date("2026-07-25 09:00"), date("2026-07-22 09:00"), date("2026-01-02 09:00")]
+        let groups = Timeline.grouped(dates, by: { $0 }, now: now, calendar: calendar)
+
+        XCTAssertEqual(groups.map(\.group), [.today, .earlierThisWeek, .older])
+        XCTAssertEqual(groups.map(\.items.count), [1, 1, 1])
+    }
+
+    func testGroupedPreservesTheOrderItWasGiven() {
+        let now = date("2026-07-25 12:00")
+        let first = date("2026-07-25 18:00")
+        let second = date("2026-07-25 09:00")
+        let groups = Timeline.grouped([first, second], by: { $0 }, now: now, calendar: calendar)
+        XCTAssertEqual(groups.first?.items, [first, second], "grouping must not re-sort")
+    }
+
+    func testGroupedIsEmptyForNoItems() {
+        XCTAssertTrue(Timeline.grouped([Date](), by: { $0 }, now: date("2026-07-25 12:00"),
+                                       calendar: calendar).isEmpty)
+    }
+
     // MARK: - Stepping and labelling
 
     func testSteppingMovesWholeDaysFromTheStartOfTheDay() {

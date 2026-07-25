@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   your day. Dictations appear **in full — never cut off** — so you can read and
   re-copy one without opening anything. Notes and documents appear as cards you
   click through to. Hovering anything gives you copy, add-to-a-note, and delete.
+- **Day headings in Notes and Documents.** Both lists now group under "Today",
+  "Earlier this week" and so on beneath anything you've pinned, instead of one
+  long undifferentiated column.
 - **Move between days.** Arrows step a day at a time, and clicking the date
   opens a month calendar with a dot on every day that has something on it, plus
   a "Jump to today" button.

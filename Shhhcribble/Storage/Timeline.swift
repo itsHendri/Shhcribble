@@ -44,6 +44,26 @@ enum TimelineItem: Identifiable, Equatable {
     }
 }
 
+/// How recently something happened, coarsened into the headings a list uses.
+///
+/// A list of fifty notes sorted by date reads as one undifferentiated column;
+/// these headings are what turn it back into "this week" and "a while ago".
+enum RecencyGroup: String, CaseIterable, Identifiable {
+    case today, yesterday, earlierThisWeek, earlierThisMonth, older
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .today:            return "Today"
+        case .yesterday:        return "Yesterday"
+        case .earlierThisWeek:  return "Earlier this week"
+        case .earlierThisMonth: return "Earlier this month"
+        case .older:            return "Older"
+        }
+    }
+}
+
 /// Pure day-bucketing for the Today stream. Kept out of the view so the parts
 /// that are easy to get wrong — which day an item lands on, what order a day
 /// reads in, which days are worth offering in the month popover — are testable
@@ -119,6 +139,42 @@ enum Timeline {
             .filter { $0 < endOfDay }
         guard let latest = stamps.max() else { return nil }
         return calendar.startOfDay(for: latest)
+    }
+
+    /// Which heading a date belongs under.
+    ///
+    /// "This week" means the calendar's own week, not the last seven days — on a
+    /// Tuesday, something from six days ago is *last* week, and calling it "this
+    /// week" is the kind of small lie that makes a list feel untrustworthy.
+    static func recencyGroup(for date: Date, now: Date = Date(),
+                             calendar: Calendar = .current) -> RecencyGroup {
+        if calendar.isDate(date, inSameDayAs: now) { return .today }
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: now) ?? now
+        if calendar.isDate(date, inSameDayAs: yesterday) { return .yesterday }
+        // Future dates sit with today rather than under "Older", which would be
+        // plainly wrong for anything stamped ahead.
+        if date > now { return .today }
+        if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) { return .earlierThisWeek }
+        if calendar.isDate(date, equalTo: now, toGranularity: .month) { return .earlierThisMonth }
+        return .older
+    }
+
+    /// Split `items` into their headings, newest group first, dropping the
+    /// groups that would be empty. Generic over the item so the notes list and
+    /// the documents list share one implementation and one set of tests.
+    static func grouped<Item>(_ items: [Item],
+                              by date: (Item) -> Date,
+                              now: Date = Date(),
+                              calendar: Calendar = .current) -> [(group: RecencyGroup, items: [Item])] {
+        var buckets: [RecencyGroup: [Item]] = [:]
+        for item in items {
+            buckets[recencyGroup(for: date(item), now: now, calendar: calendar), default: []].append(item)
+        }
+        // `allCases` is declared newest-first, so this is the display order.
+        return RecencyGroup.allCases.compactMap { group in
+            guard let items = buckets[group], !items.isEmpty else { return nil }
+            return (group, items)
+        }
     }
 
     /// Step one day. Separate from the view so "what does the chevron do" is a

@@ -85,8 +85,12 @@ Today's `Note.pinned` conflated two lifecycles. Split:
 ## Cross-cutting rules
 
 - **The floating capsule is a column's single primary verb** — Add note (notes
-  list), Upload audio… (documents list / Today empty state), Stick/Unstick
-  (note editor). One capsule per column, never more.
+  list), Upload audio… (documents list), Stick/Unstick (note editor). One
+  capsule per column, **except Today's empty state, which carries both Add note
+  and Upload audio…** (ruled 2026-07-25): it has no other verb, and without the
+  first there is no route to a note from an empty app. The wireframe drew this
+  before the rule was written; where the two disagree, **the wireframe wins
+  unless it's technically impossible**.
 - **Search**: only Today's "Search everything" crosses categories — results
   replace the timeline, grouped **Notes → Dictations → Documents** (was written
   as "library order", which is undefined for dictations: they have no rail item)
@@ -105,16 +109,12 @@ Today's `Note.pinned` conflated two lifecycles. Split:
 
 ## Open questions (raised by the 2026-07-25 build; need a ruling)
 
-- **Today's empty state: one capsule or two?** The cross-cutting rule says "one
-  capsule per column, never more", but wireframe screen 7 draws *two* on Today
-  (Add note + Upload audio…). Built with one (Upload Audio…), which follows the
-  rule — but leaves an empty Today with no route to a note, which is probably
-  why the second capsule appeared. Either relax the rule for this pane or accept
-  that a first note is started from the Notes tab.
-- **Can a dictation be pinned?** The prose scopes pin to "notes and documents",
-  but schema v11 put `pinned` on every transcript and the board renders one
-  correctly if it exists. No UI currently offers it (the pin lives in the
-  Documents reader). Decide whether to widen the prose or narrow the data.
+- ~~**Today's empty state: one capsule or two?**~~ **RULED 2026-07-25: two**,
+  per the wireframe. The rule gains an explicit carve-out above.
+- ~~**Can a dictation be pinned?**~~ **RULED 2026-07-25: no.** Pin is for the
+  durable half. `pinnedTranscripts` filters on `isDocument`, the reader's pin
+  control only appears for documents, and a row pinned by an earlier build stays
+  off the board.
 - **Embedded dictation blocks** (2pt left rule, quoted text, "From a dictation,
   <date>" with mic glyph) are specified for Notes but **not built**: the
   add-to-note action copies the text and links the source, and the note header

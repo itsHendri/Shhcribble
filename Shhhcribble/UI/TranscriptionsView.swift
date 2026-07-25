@@ -196,6 +196,12 @@ struct TranscriptionsView: View {
                 noteID = id
                 section = .notes
             },
+            onAddNote: {
+                let note = Note(text: "")
+                store.addNote(note)
+                noteID = note.id
+                section = .notes
+            },
             onOpenTranscript: { id in
                 documentID = id
                 section = .documents
@@ -244,18 +250,8 @@ struct TranscriptionsView: View {
                 section = .notes
             },
             onOpenTranscript: { id in
-                // Open it where it's actually listed. Documents lists long-form
-                // material only, so a pinned dictation goes to Today — and to
-                // *its own day*, or it would arrive on whatever day the stream
-                // happened to be showing and not be there.
-                guard let t = store.transcripts.first(where: { $0.id == id }) else { return }
-                if t.source.isDocument {
-                    documentID = id
-                    section = .documents
-                } else {
-                    todayDay = Calendar.current.startOfDay(for: t.createdAt)
-                    section = .today
-                }
+                documentID = id
+                section = .documents
             }
         )
     }
@@ -394,8 +390,13 @@ private struct TranscriptListPane: View {
                         Text("Pinned").font(.sectionTitle)
                     }
                 }
-                Section {
-                    ForEach(items.filter { !$0.pinned }) { row($0) }
+                ForEach(Timeline.grouped(items.filter { !$0.pinned }, by: \.createdAt),
+                        id: \.group) { bucket in
+                    Section {
+                        ForEach(bucket.items) { row($0) }
+                    } header: {
+                        Text(bucket.group.title).font(.sectionTitle)
+                    }
                 }
             }
             .overlay {
@@ -617,10 +618,10 @@ private struct PinnedBoard: View {
     }
 
     private func transcriptCard(_ transcript: Transcript) -> some View {
-        let type = transcript.source.isDocument ? "Document" : "Dictation"
-        return card(title: transcript.menuTitle, type: type, preview: "", badge: nil, action: nil,
-                    open: { onOpenTranscript(transcript.id) })
-            .accessibilityLabel("Pinned \(type.lowercased()): \(transcript.menuTitle)")
+        // Only documents reach the board — see `pinnedTranscripts`.
+        card(title: transcript.menuTitle, type: "Document", preview: "", badge: nil, action: nil,
+             open: { onOpenTranscript(transcript.id) })
+            .accessibilityLabel("Pinned document: \(transcript.menuTitle)")
     }
 
     private func card(title: String, type: String?, preview: String, badge: String?,
@@ -822,14 +823,18 @@ private struct TranscriptDetail: View {
             // ephemeral (a WhatsApp file, a since-deleted upload) — the
             // transcript is the durable artifact.
             HStack(spacing: 6) {
-                Button {
-                    store.setTranscriptPinned(id: transcript.id, pinned: !transcript.pinned)
-                } label: {
-                    Image(systemName: transcript.pinned ? "pin.fill" : "pin")
-                        .foregroundStyle(transcript.pinned ? Color.accentColor : Color.secondary)
+                // Pin is for documents — the durable half. A quick dictation
+                // is read in the day stream and let go (human's call).
+                if transcript.source.isDocument {
+                    Button {
+                        store.setTranscriptPinned(id: transcript.id, pinned: !transcript.pinned)
+                    } label: {
+                        Image(systemName: transcript.pinned ? "pin.fill" : "pin")
+                            .foregroundStyle(transcript.pinned ? Color.accentColor : Color.secondary)
+                    }
+                    .help(transcript.pinned ? "Unpin" : "Pin")
+                    .accessibilityLabel(transcript.pinned ? "Unpin document" : "Pin document")
                 }
-                .help(transcript.pinned ? "Unpin" : "Pin")
-                .accessibilityLabel(transcript.pinned ? "Unpin transcript" : "Pin transcript")
                 Button(action: copy) { Image(systemName: "doc.on.doc") }
                     .help("Copy transcript")
                     .accessibilityLabel("Copy transcript")
