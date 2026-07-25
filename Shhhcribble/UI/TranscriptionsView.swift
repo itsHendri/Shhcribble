@@ -1,9 +1,18 @@
 import SwiftUI
 import AppKit
 
-/// The Transcription Studio window: a three-pane environment (rail → searchable
-/// list → tabbed detail) unifying dictation and file transcripts. The detail is a
-/// tabbed reader — Transcript, on-device AI Summary, and editable Notes.
+/// The Transcription Studio window. Shell per the locked redesign
+/// ([docs/design/studio-wireframes.md](../../docs/design/studio-wireframes.md)):
+/// a five-item rail — **Today · Notes · Documents · Pinned · Settings** — with
+/// the titlebar always reading "Shhhcribble" (the rail's active state is the
+/// location indicator, so the title never restates it).
+///
+/// **Phase 1 is the shell only.** Today still shows the pre-redesign
+/// transcripts master-detail (the chronological timeline is phase 4), Documents
+/// is that same reader filtered to file-sourced transcripts (a real source
+/// category — including call captures — is phase 3), and Pinned indexes pinned
+/// notes (the cross-type board is phase 6). Read the decision record before
+/// changing any of it.
 struct TranscriptionsView: View {
     @ObservedObject var store: TranscriptStore
     @ObservedObject var fileTranscriber: FileTranscriber
@@ -13,61 +22,86 @@ struct TranscriptionsView: View {
     var onTranscribeFile: () -> Void
     var onQuit: () -> Void
 
-    @State private var section: RailSection? = .transcriptions
+    @State private var section: RailSection? = .today
+    @State private var settingsPage: SettingsPage = .preferences
     @State private var selectedID: UUID?
-    @State private var hoveredID: UUID?
+    /// Documents keeps its own selection — it's a different list, and carrying
+    /// Today's pick across would land on a row that isn't there.
+    @State private var documentID: UUID?
+    /// Owned here rather than inside `NotesView` so the Pinned board can jump
+    /// straight to a note, and so a tab round-trip doesn't lose the selection.
+    @State private var noteID: UUID?
     @State private var searchText = ""
+    @State private var documentSearchText = ""
     @State private var showingQuitConfirm = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var copiedToast = false
-    @State private var copiedToastTask: Task<Void, Never>?
     // Owned here (not inside FeedbackView) so a half-written report survives
     // switching to another rail tab and back — the detail `switch` rebuilds the
     // FeedbackView, but this window and its draft persist.
     @StateObject private var feedbackDraft = FeedbackDraft()
 
-    /// Left-nav tabs. Transcriptions is a master-detail (list + reader); the
-    /// other two fill the pane. Settings + Dictionary moved in here from the
-    /// old separate settings window.
+    /// The five rail destinations. Settings is one item that opens its own
+    /// master-detail environment (see `SettingsPage`) — Styles, Dictionary and
+    /// Feedback were demoted into it, since quick style *switching* lives in the
+    /// menu-bar submenu and per-app auto; the page is for authoring.
     enum RailSection: String, CaseIterable, Identifiable {
-        case transcriptions, notes, dictionary, styles, feedback, settings
+        case today, notes, documents, pinned, settings
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .transcriptions: return "Transcriptions"
-            case .notes:          return "Notes"
-            case .dictionary:     return "Dictionary"
-            case .styles:         return "Styles"
-            case .feedback:       return "Feedback"
-            case .settings:       return "Settings"
+            case .today:     return "Today"
+            case .notes:     return "Notes"
+            case .documents: return "Documents"
+            case .pinned:    return "Pinned"
+            case .settings:  return "Settings"
             }
         }
         var systemImage: String {
             switch self {
-            case .transcriptions: return "text.bubble"
-            case .notes:          return "note.text"
-            case .dictionary:     return "character.book.closed"
-            case .styles:         return "wand.and.stars"
-            case .feedback:       return "exclamationmark.bubble"
-            case .settings:       return "gearshape"
+            case .today:     return "calendar"
+            case .notes:     return "note.text"
+            case .documents: return "doc.text"
+            case .pinned:    return "pin"
+            case .settings:  return "gearshape"
             }
         }
     }
 
-    private var filtered: [Transcript] { store.matching(searchText) }
-    private var selected: Transcript? { store.transcripts.first { $0.id == selectedID } }
+    /// Pages inside the Settings environment's subnav column.
+    enum SettingsPage: String, CaseIterable, Identifiable {
+        case preferences, styles, dictionary, feedback
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .preferences: return "Preferences"
+            case .styles:      return "Styles"
+            case .dictionary:  return "Dictionary"
+            case .feedback:    return "Feedback"
+            }
+        }
+        var systemImage: String {
+            switch self {
+            case .preferences: return "slider.horizontal.3"
+            case .styles:      return "wand.and.stars"
+            case .dictionary:  return "character.book.closed"
+            case .feedback:    return "exclamationmark.bubble"
+            }
+        }
+    }
+
+    /// Everything in the library — Today shows the lot, uncategorised.
+    private var everything: [Transcript] { store.matching(searchText) }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             rail
         } detail: {
-            switch section ?? .transcriptions {
-            case .transcriptions: transcriptionsPane
-            case .notes:          notesPane
-            case .dictionary:     dictionaryPane
-            case .styles:         stylesPane
-            case .feedback:       feedbackPane
-            case .settings:       settingsPane
+            switch section ?? .today {
+            case .today:     todayPane
+            case .notes:     notesPane
+            case .documents: documentsPane
+            case .pinned:    pinnedPane
+            case .settings:  settingsPane
             }
         }
         // Explicit collapse control: the automatic sidebar toggle doesn't render
@@ -81,11 +115,19 @@ struct TranscriptionsView: View {
                 columnVisibility = collapsed ? .detailOnly : .all
             }
         }
-        // The progress banner + Cancel live in the Transcriptions list, so a
-        // file job starting while another tab is up would otherwise run with no
-        // visible progress or way to cancel — jump to where they are.
+        // The progress banner + Cancel live in the Documents list, so a file job
+        // starting while another tab is up would otherwise run with no visible
+        // progress or way to cancel — jump to where they are.
         .onChange(of: fileTranscriber.status) { _, newStatus in
-            if case .running = newStatus { section = .transcriptions }
+            if case .running = newStatus { section = .documents }
+        }
+        // Presented from `body`, not from the rail: the trigger moved into the
+        // Settings subnav, and the rail is the one column that collapses.
+        .alert("Quit Shhhcribble?", isPresented: $showingQuitConfirm) {
+            Button("Quit", role: .destructive) { onQuit() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Shhhcribble will stop running and your hotkey won’t work until you open it again.")
         }
     }
 
@@ -93,36 +135,23 @@ struct TranscriptionsView: View {
 
     private var rail: some View {
         VStack(alignment: .leading, spacing: 2) {
-            railTab(.transcriptions)
+            railTab(.today)
             railTab(.notes)
-            railTab(.dictionary)
-            railTab(.styles)
+            railTab(.documents)
+            railTab(.pinned)
 
             Spacer(minLength: 0)
 
-            // Feedback + Settings sit at the bottom, just above Quit — the two
-            // utility tabs grouped together. Quit reuses the exact same row styling
-            // as the tabs (same icon/text weight and colour) and only differs by
-            // asking for confirmation instead of switching panes.
-            railTab(.feedback)
+            // Settings is the only bottom item now; Quit moved inside it (and
+            // stays on the menu-bar right-click menu, which is what keeps the
+            // "Quit must always be reachable" invariant true when the rail is
+            // collapsed).
             railTab(.settings)
-            railRow(label: "Quit", systemImage: "power", selected: false) {
-                showingQuitConfirm = true
-            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationSplitViewColumnWidth(min: 172, ideal: 196, max: 240)
-        // The native sidebar-collapse toggle stays available now: Quit is also
-        // reachable from the menu-bar icon's right-click menu (Upload Audio +
-        // Quit), so collapsing the rail no longer strands the only quit path.
-        .alert("Quit Shhhcribble?", isPresented: $showingQuitConfirm) {
-            Button("Quit", role: .destructive) { onQuit() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Shhhcribble will stop running and your hotkey won’t work until you open it again.")
-        }
     }
 
     private func railTab(_ s: RailSection) -> some View {
@@ -154,9 +183,159 @@ struct TranscriptionsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Transcriptions pane (list + reader)
+    // MARK: - Today & Documents (list + reader)
 
-    private var transcriptionsPane: some View {
+    /// Today — phase-1 stand-in: the pre-redesign transcripts master-detail over
+    /// everything in the library. Phase 4 replaces it with the chronological
+    /// day stream (which is a different shape, not a variant of this one — so
+    /// this call site is deleted then, not parameterised further).
+    private var todayPane: some View {
+        TranscriptListPane(
+            store: store,
+            fileTranscriber: fileTranscriber,
+            items: everything,
+            selection: $selectedID,
+            search: $searchText,
+            searchPrompt: "Search everything",
+            showsProgressBanner: false,
+            emptyTitle: "No transcripts yet",
+            emptyIcon: "calendar",
+            emptyMessage: "Dictate with your hotkey or upload a file to get started.",
+            onUpload: onTranscribeFile
+        )
+    }
+
+    /// Documents — file imports, with the Transcript | Summary reader. Summaries
+    /// are meant to live only here; the reader is shared with Today until phase
+    /// 4 takes the reader out of the timeline.
+    private var documentsPane: some View {
+        TranscriptListPane(
+            store: store,
+            fileTranscriber: fileTranscriber,
+            items: store.documents(matching: documentSearchText),
+            selection: $documentID,
+            search: $documentSearchText,
+            searchPrompt: "Search documents",
+            showsProgressBanner: true,
+            emptyTitle: "No documents yet",
+            emptyIcon: "doc.text",
+            emptyMessage: "Upload an audio or video file and its transcript lands here.",
+            onUpload: onTranscribeFile
+        )
+    }
+
+    // MARK: - Notes & Pinned panes
+
+    // Full-width like the Today pane (it's the same master-detail template),
+    // not the 620-capped Form panes.
+    private var notesPane: some View {
+        NotesView(store: store, selectedID: $noteID)
+    }
+
+    /// Pinned — phase-1 stand-in for the cross-type board. Pin and stick are
+    /// still one flag (`Note.pinned` == on screen as a sticky), so this is the
+    /// "On your screen" strip only; phase 2 splits the two lifecycles and phase
+    /// 3 lets documents join the board.
+    private var pinnedPane: some View {
+        PinnedBoard(store: store) { id in
+            noteID = id
+            section = .notes
+        }
+    }
+
+    // MARK: - Settings environment
+
+    /// One rail item, its own master-detail: a subnav column (Preferences /
+    /// Styles / Dictionary / Feedback) with Check for updates + Quit anchored at
+    /// its bottom, over the selected page.
+    private var settingsPane: some View {
+        HStack(spacing: 0) {
+            settingsSubnav
+                .frame(width: 180)
+            Divider()
+            settingsContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var settingsSubnav: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(SettingsPage.allCases) { page in
+                railRow(label: page.label, systemImage: page.systemImage,
+                        selected: settingsPage == page) {
+                    settingsPage = page
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            // The two app-level actions, deliberately below the pages: neither
+            // opens a page, both act immediately.
+            if appDelegate.updaterAvailable {
+                railRow(label: "Check for updates", systemImage: "arrow.triangle.2.circlepath",
+                        selected: false) {
+                    appDelegate.checkForUpdates()
+                }
+            }
+            railRow(label: "Quit", systemImage: "power", selected: false) {
+                showingQuitConfirm = true
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var settingsContent: some View {
+        Group {
+            switch settingsPage {
+            case .preferences:
+                SettingsView(transcriptionEngine: engine, appDelegate: appDelegate, transcriptStore: store)
+            case .styles:
+                StylesView(store: store)
+            case .dictionary:
+                DictionarySettingsView(store: store)
+            case .feedback:
+                FeedbackView(draft: feedbackDraft)
+            }
+        }
+        .frame(maxWidth: 620, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+}
+
+/// A searchable transcript list beside its reader — the master-detail shape
+/// Today and Documents both wear.
+///
+/// It's a component rather than a pair of helper functions on the shell for one
+/// reason: a `func` can't own state, so sharing it that way forces every list's
+/// hover and toast state up into the window. Here, the genuinely transient state
+/// (hover, the "Copied" toast) stays local, and only what has to survive a rail
+/// round-trip — the selection and the query — is passed in.
+private struct TranscriptListPane: View {
+    @ObservedObject var store: TranscriptStore
+    @ObservedObject var fileTranscriber: FileTranscriber
+    let items: [Transcript]
+    @Binding var selection: UUID?
+    @Binding var search: String
+    let searchPrompt: String
+    /// Documents owns the file-job banner; Today would only show it in a column
+    /// the user didn't start the job from.
+    let showsProgressBanner: Bool
+    let emptyTitle: String
+    let emptyIcon: String
+    let emptyMessage: String
+    var onUpload: () -> Void
+
+    @State private var hoveredID: UUID?
+    @State private var copiedToast = false
+    @State private var copiedToastTask: Task<Void, Never>?
+
+    private var selected: Transcript? { store.transcripts.first { $0.id == selection } }
+
+    var body: some View {
         HStack(spacing: 0) {
             listColumn
                 .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
@@ -166,30 +345,30 @@ struct TranscriptionsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottom) { copiedToastView }
-        // Preselect the newest transcript the first time the list is shown; the
-        // `== nil` guard means a later visit keeps whatever the user last picked.
+        // Preselect the newest row the first time the list is shown; the `== nil`
+        // guard means a later visit keeps whatever the user last picked.
         .onAppear {
-            if selectedID == nil { selectedID = filtered.first?.id }
+            if selection == nil { selection = items.first?.id }
         }
         .onDisappear { copiedToastTask?.cancel() }
     }
 
     private var listColumn: some View {
         VStack(spacing: 0) {
-            searchField
-            // Custom row selection (tap → `selectedID`, subtle rounded fill)
+            SearchPill(text: $search, prompt: searchPrompt)
+            // Custom row selection (tap → `selection`, subtle rounded fill)
             // instead of `List(selection:)` — the native focused selection turns
             // a prominent accent blue; a quiet, consistent highlight reads better
             // whether the row was auto-selected or clicked.
             List {
-                if case .running = fileTranscriber.status {
+                if showsProgressBanner, case .running = fileTranscriber.status {
                     progressBanner
                         .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
                 }
-                ForEach(filtered) { t in
-                    TranscriptRow(transcript: t, hovered: hoveredID == t.id, onCopy: { copyTranscript(t) })
+                ForEach(items) { t in
+                    TranscriptRow(transcript: t, hovered: hoveredID == t.id, onCopy: { copy(t) })
                         .contentShape(Rectangle())
-                        .onTapGesture { selectedID = t.id }
+                        .onTapGesture { selection = t.id }
                         .onHover { hoveredID = $0 ? t.id : (hoveredID == t.id ? nil : hoveredID) }
                         .listRowSeparator(.hidden)
                         .listRowBackground(
@@ -197,26 +376,27 @@ struct TranscriptionsView: View {
                                 // Selected OR hovered rows get the same quiet grey
                                 // (lighter than the rail-tab selection at 0.09) so
                                 // hover and selection read as one affordance.
-                                .fill(selectedID == t.id || hoveredID == t.id ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
+                                .fill(selection == t.id || hoveredID == t.id ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                         )
                 }
             }
             .overlay {
-                if filtered.isEmpty && searchText.isEmpty {
+                if items.isEmpty && search.isEmpty {
                     ContentUnavailableView(
-                        "No transcripts yet",
-                        systemImage: "text.bubble",
-                        description: Text("Dictate with your hotkey or transcribe a file to get started.")
+                        emptyTitle,
+                        systemImage: emptyIcon,
+                        description: Text(emptyMessage)
                     )
-                } else if filtered.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
+                } else if items.isEmpty {
+                    ContentUnavailableView.search(text: search)
                 }
             }
-            // Floating glass action hovering over the bottom of the list.
+            // Floating glass action hovering over the bottom of the list — one
+            // primary verb per column.
             .overlay(alignment: .bottom) {
-                Button(action: onTranscribeFile) {
+                Button(action: onUpload) {
                     Label("Upload Audio…", systemImage: "waveform.badge.plus")
                         .font(.callout).fontWeight(.medium)
                         .padding(.horizontal, 16).padding(.vertical, 9)
@@ -232,71 +412,17 @@ struct TranscriptionsView: View {
     }
 
     @ViewBuilder
-    private var copiedToastView: some View {
-        if copiedToast {
-            Label("Copied", systemImage: "checkmark.circle.fill")
-                .font(.callout).fontWeight(.medium)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
-                .padding(.bottom, 18)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+    private var detailColumn: some View {
+        if let t = selected {
+            TranscriptDetail(transcript: t, store: store)
+                .id(t.id)
+        } else {
+            ContentUnavailableView(
+                "Select a transcript",
+                systemImage: "text.cursor",
+                description: Text("Pick a transcript from the list to read it.")
+            )
         }
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 12))
-            TextField("Search transcripts", text: $searchText)
-                .textFieldStyle(.plain)
-            if !searchText.isEmpty {
-                Button { searchText = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        // Outlined pill (no fill) so the search reads as a distinct affordance
-        // rather than sharing the neutral grey of the selection highlights.
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(DesignSystem.strokeStrong), lineWidth: 1))
-        .padding(10)
-    }
-
-    // MARK: - Dictionary & Settings panes
-
-    // Full-width like the Transcriptions pane (it's the same master-detail
-    // template), not the 620-capped Form panes.
-    private var notesPane: some View {
-        NotesView(store: store)
-    }
-
-    private var dictionaryPane: some View {
-        DictionarySettingsView(store: store)
-            .frame(maxWidth: 620, alignment: .topLeading)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var stylesPane: some View {
-        StylesView(store: store)
-            .frame(maxWidth: 620, alignment: .topLeading)   // match the Dictionary pane width
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var settingsPane: some View {
-        SettingsView(transcriptionEngine: engine, appDelegate: appDelegate, transcriptStore: store)
-            .frame(maxWidth: 620, alignment: .topLeading)   // match the Dictionary pane width
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var feedbackPane: some View {
-        FeedbackView(draft: feedbackDraft)
-            .frame(maxWidth: 620, alignment: .topLeading)   // match the Settings pane width
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -318,26 +444,24 @@ struct TranscriptionsView: View {
         }
     }
 
-    // MARK: - Detail
-
     @ViewBuilder
-    private var detailColumn: some View {
-        if let t = selected {
-            TranscriptDetail(transcript: t, store: store)
-                .id(t.id)
-        } else {
-            ContentUnavailableView(
-                "Select a transcript",
-                systemImage: "text.cursor",
-                description: Text("Pick a transcript from the list to read it.")
-            )
+    private var copiedToastView: some View {
+        if copiedToast {
+            Label("Copied", systemImage: "checkmark.circle.fill")
+                .font(.callout).fontWeight(.medium)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
+                .padding(.bottom, 18)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
     /// Copy a row's text straight to the clipboard — the hover affordance so a
     /// transcript can be grabbed without selecting it first — and flash the same
     /// "Copied" toast the detail pane uses.
-    private func copyTranscript(_ t: Transcript) {
+    private func copy(_ t: Transcript) {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(t.text, forType: .string)
@@ -348,6 +472,84 @@ struct TranscriptionsView: View {
             guard !Task.isCancelled else { return }
             withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
         }
+    }
+}
+
+/// The Pinned board — a cross-type index of what matters, and the one place to
+/// manage stickies without hunting for them across desktops.
+///
+/// **Phase 1 shows the "On your screen" section only.** Pin (importance) and
+/// stick (urgency) are still the same `Note.pinned` flag, and documents can't be
+/// pinned at all yet — phase 2 splits the lifecycles and phase 3 lets documents
+/// join, at which point the grid of pinned items lands below this strip.
+private struct PinnedBoard: View {
+    @ObservedObject var store: TranscriptStore
+    /// Clicking a card jumps to the item in its home tab, per the wireframes.
+    var onOpen: (UUID) -> Void
+
+    private let columns = [GridItem(.adaptive(minimum: 200, maximum: 320), spacing: 10)]
+
+    var body: some View {
+        // Read once per pass — the property filters and sorts.
+        let pinned = store.pinnedNotes
+        return Group {
+            if pinned.isEmpty {
+                ContentUnavailableView(
+                    "Nothing on your screen",
+                    systemImage: "pin",
+                    description: Text("Pin a note to float it above your other windows as a sticky. It stays there until you unpin it.")
+                )
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("On your screen · \(pinned.count)", systemImage: "macwindow")
+                            .font(.sectionTitle)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                            ForEach(pinned) { note in
+                                card(note)
+                            }
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func card(_ note: Note) -> some View {
+        let title = NotesView.preview(note.text)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: DesignSystem.ChromeText.body, weight: .medium))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                TagCapsule("Note")
+                Spacer(minLength: 0)
+                Button("Unpin") { store.setNotePinned(id: note.id, pinned: false) }
+                    .controlSize(.small)
+                    // Same promise as the note editor's own unpin control.
+                    .help("Remove the floating sticky (the note stays here)")
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
+                .fill(DesignSystem.boxFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
+                .stroke(DesignSystem.boxStroke, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        // The whole card opens the note; the Unpin button keeps its own hit area
+        // because it sits above this gesture in the layered button.
+        .onTapGesture { onOpen(note.id) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Pinned note: \(title)")
     }
 }
 
@@ -483,7 +685,9 @@ private struct TranscriptDetail: View {
                         .foregroundStyle(transcript.source == .file ? Color.accentColor : Color.secondary)
                     Text(transcript.menuTitle).font(.headline).lineLimit(1)
                     if let style = currentStyleName, !style.isEmpty {
-                        styleTag(style)
+                        // Shows the transform style a dictation was shaped with;
+                        // Default clean-up / Off / file transcripts leave it nil.
+                        TagCapsule(style)
                     }
                 }
                 Text(metaLine).font(.caption).foregroundStyle(.secondary)
@@ -518,18 +722,6 @@ private struct TranscriptDetail: View {
             return s.name
         }
         return transcript.styleName
-    }
-
-    /// Small capsule showing the transform style a dictation was shaped with.
-    /// Only rendered for real styles (Default clean-up / Off / file leave it nil).
-    private func styleTag(_ name: String) -> some View {
-        Text(name)
-            .font(.caption2).fontWeight(.semibold)
-            .lineLimit(1)
-            .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(Color.primary.opacity(DesignSystem.strokeSubtle)))
-            .foregroundStyle(.secondary)
-            .fixedSize()
     }
 
     private var transcriptBody: some View {

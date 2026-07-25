@@ -12,8 +12,11 @@ import AppKit
 /// plain note-taking for now.
 struct NotesView: View {
     @ObservedObject var store: TranscriptStore
+    /// Owned by the Studio shell, not by this view: the Pinned board opens a
+    /// note by writing here and switching tabs, and a tab round-trip keeps the
+    /// selection instead of snapping back to the newest note.
+    @Binding var selectedID: UUID?
 
-    @State private var selectedID: UUID?
     @State private var hoveredID: UUID?
     @State private var searchText = ""
     @State private var copiedToast = false
@@ -54,7 +57,7 @@ struct NotesView: View {
 
     private var listColumn: some View {
         VStack(spacing: 0) {
-            searchField
+            SearchPill(text: $searchText, prompt: "Search notes")
             List {
                 ForEach(filtered) { note in
                     NoteRow(note: note,
@@ -99,26 +102,6 @@ struct NotesView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 12))
-            TextField("Search notes", text: $searchText)
-                .textFieldStyle(.plain)
-            if !searchText.isEmpty {
-                Button { searchText = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(DesignSystem.strokeStrong), lineWidth: 1))
-        .padding(10)
     }
 
     @ViewBuilder
@@ -173,9 +156,12 @@ struct NotesView: View {
         }
     }
 
-    /// First line, capped, for row display and confirms.
+    /// First line, capped, for row display and confirms. Takes the prefix rather
+    /// than `split`ting — this runs per visible row, and a note holding a pasted
+    /// transcript would otherwise allocate an array of every one of its lines
+    /// just to read the first.
     static func preview(_ text: String) -> String {
-        let firstLine = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
+        let firstLine = text.prefix { !$0.isNewline }
         let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return "New note" }
         let prefix = String(trimmed.prefix(80))
@@ -310,8 +296,8 @@ private struct NoteDetail: View {
                     Image(systemName: "note.text")
                         .foregroundStyle(.secondary)
                     Text(NotesView.preview(attributed.string)).font(.headline).lineLimit(1)
-                    if note.pinned { tag("Pinned") }
-                    if note.sourceTranscriptID != nil { tag("From transcript") }
+                    if note.pinned { TagCapsule("Pinned") }
+                    if note.sourceTranscriptID != nil { TagCapsule("From transcript") }
                 }
                 Text(metaLine).font(.caption).foregroundStyle(.secondary)
             }
@@ -350,17 +336,6 @@ private struct NoteDetail: View {
         .controlSize(.small)
         .help(note.pinned ? "Remove the floating sticky (the note stays here)"
                           : "Show this note as a floating sticky")
-    }
-
-    /// Small neutral capsule, same shape as the transcript style tag.
-    private func tag(_ label: String) -> some View {
-        Text(label)
-            .font(.caption2).fontWeight(.semibold)
-            .lineLimit(1)
-            .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(Color.primary.opacity(DesignSystem.strokeSubtle)))
-            .foregroundStyle(.secondary)
-            .fixedSize()
     }
 
     private var metaLine: String {

@@ -121,6 +121,61 @@ extension Font {
     static let sectionTitle = DesignSystem.sectionTitleFont
 }
 
+// MARK: - Shared chrome components
+//
+// Small views that are *the same affordance* wherever they appear. They live
+// beside the tokens because that is what they are: a token you can't express as
+// a single value. Reach for these instead of re-stacking the modifiers.
+
+/// The outlined search pill used at the head of every list column. Outlined
+/// rather than filled on purpose — a neutral fill would read as a selection,
+/// which is what the row highlights use.
+struct SearchPill: View {
+    @Binding var text: String
+    let prompt: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.system(size: DesignSystem.ChromeText.control))
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+            if !text.isEmpty {
+                Button { text = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(DesignSystem.strokeStrong), lineWidth: 1))
+        .padding(10)
+    }
+}
+
+/// The small neutral capsule that labels an item — a transcript's style, a
+/// note's state, a card's type. Always quiet: neutral fill, secondary text, and
+/// sized to its content so it never stretches inside a flexible row.
+struct TagCapsule: View {
+    let label: String
+
+    init(_ label: String) { self.label = label }
+
+    var body: some View {
+        Text(label)
+            .font(.caption2).fontWeight(.semibold)
+            .lineLimit(1)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(DesignSystem.strokeSubtle)))
+            .foregroundStyle(.secondary)
+            .fixedSize()
+    }
+}
+
 /// The app's type scale, used for the content *inside* a note — one ramp,
 /// largest to smallest, applied per paragraph.
 ///
