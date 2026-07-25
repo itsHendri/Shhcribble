@@ -133,6 +133,8 @@ extension Font {
 struct SearchPill: View {
     @Binding var text: String
     let prompt: String
+    /// Optional read-only text before the clear button — a result count, say.
+    var trailing: String? = nil
 
     var body: some View {
         HStack(spacing: 6) {
@@ -141,6 +143,12 @@ struct SearchPill: View {
                 .font(.system(size: DesignSystem.ChromeText.control))
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
+            if let trailing {
+                Text(trailing)
+                    .font(.system(size: DesignSystem.ChromeText.secondary))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
+            }
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)

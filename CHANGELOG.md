@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Search everything.** The search box on Today now searches your whole
+  library at once — notes, dictations and documents — grouped by kind with the
+  matching words highlighted in place, so you can see why each result matched.
+  Esc or the ✕ puts your day back.
 - **Today is a stream now.** The main screen is a single chronological feed of
   your day. Dictations appear **in full — never cut off** — so you can read and
   re-copy one without opening anything. Notes and documents appear as cards you

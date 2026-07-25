@@ -735,6 +735,24 @@ final class TranscriptStore: ObservableObject {
         matching(query).filter(\.source.isDocument)
     }
 
+    /// What the Pinned board shows: urgency on top, importance below.
+    ///
+    /// A stuck note appears in **both** sections on purpose — the strip is for
+    /// managing what's on your screen, the grid is the index of what matters,
+    /// and a stuck note is by definition both.
+    struct PinnedBoardContents: Equatable {
+        var onScreen: [Note]
+        var notes: [Note]
+        var documents: [Transcript]
+
+        var isEmpty: Bool { onScreen.isEmpty && notes.isEmpty && documents.isEmpty }
+        var pinnedCount: Int { notes.count + documents.count }
+    }
+
+    var pinnedBoardContents: PinnedBoardContents {
+        PinnedBoardContents(onScreen: stuckNotes, notes: pinnedNotes, documents: pinnedTranscripts)
+    }
+
     /// Notes marked important, newest-touched first.
     var pinnedNotes: [Note] { Self.byRecency(notes.filter(\.pinned)) }
 

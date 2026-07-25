@@ -85,7 +85,7 @@ struct NotesView: View {
                     ContentUnavailableView(
                         "No notes yet",
                         systemImage: "note.text",
-                        description: Text("Add a note here, or send an action item over from a transcript's Summary tab.")
+                        description: Text("Keep what's worth keeping. Start one from scratch, or send a dictation here from Today.")
                     )
                 } else if filtered.isEmpty {
                     ContentUnavailableView.search(text: searchText)

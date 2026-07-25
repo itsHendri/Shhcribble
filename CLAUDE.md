@@ -34,7 +34,8 @@ Shhhcribble/
 │   └── FillerWordFilter.swift    ← Regex strip of "um", "uh", etc.
 ├── Storage/
 │   ├── TranscriptStore.swift     ← SQLite transcript library (dictation + file + call); replaces cap-10 history
-│   └── Timeline.swift            ← Pure day-bucketing for the Today stream (testable)
+│   ├── Timeline.swift            ← Pure day-bucketing for the Today stream (testable)
+│   └── Search.swift              ← Pure cross-category search + snippet windowing (testable)
 ├── TextInsertion/
 │   └── TextInserter.swift        ← AX direct insert → Cmd+V fallback → clipboard fallback
 ├── UI/
@@ -329,6 +330,27 @@ line limit to the dictation line without re-reading the decision record.
   dictation can legitimately seed two notes.
 - The empty state teaches the hotkey with a keycap rather than apologising for
   being empty.
+
+### Search: only Today crosses categories (redesign phase 5)
+[Storage/Search.swift](Shhhcribble/Storage/Search.swift) is pure and tested;
+`TodayView` renders it. A query **replaces** the day stream with results grouped
+**Notes → Dictations → Documents**, dated within each, the match picked out in
+the accent — the one place accent lands on content, which is what makes it read
+as "this is why you're seeing this". Esc or the pill's ✕ restores the day, and
+the date navigator steps aside while searching (it's meaningless against results
+spanning every day).
+
+- **The Notes and Documents pills stay inline filters.** Cross-category results
+  only make sense where the category *is* the structure; in a single-type list a
+  result you can't see the category of is just a missing row.
+- **Snippets window around the match**, not from the head — a hit 400 characters
+  into a transcript is invisible otherwise. Ellipses appear only on the side
+  actually cut. Case- and diacritic-insensitive; newlines flattened so a snippet
+  is one readable line. `SearchTests` pins all of that.
+- **A dictation result is trimmed**, unlike in the stream. Full expansion is the
+  *timeline's* rule, where the line is the record of what you said; a list of
+  matches is a different job. Opening one returns to its day rather than to a
+  reader, because that's where it can be read in full, copied, or sent to a note.
 
 ### Universal UI conventions (apply to every new affordance)
 Two rules established 2026-07-08, expected everywhere going forward:

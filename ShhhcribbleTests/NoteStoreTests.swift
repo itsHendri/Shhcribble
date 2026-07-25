@@ -434,6 +434,48 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(store.pinnedTranscripts.map(\.id), [t.id])
     }
 
+    // MARK: - Pinned board
+
+    /// The board's two sections and the deliberate overlap between them: a
+    /// stuck note is on your screen *and* something you marked as mattering, so
+    /// it belongs in both. The strip manages the screen; the grid indexes
+    /// importance.
+    func testPinnedBoardPutsStuckNotesInBothSections() {
+        let store = makeStore()
+        let stuck = Note(text: "on screen")
+        let favourite = Note(text: "important")
+        let ordinary = Note(text: "neither")
+        [stuck, favourite, ordinary].forEach { store.addNote($0) }
+        store.setNoteStuck(id: stuck.id, stuck: true)
+        store.setNotePinned(id: favourite.id, pinned: true)
+
+        let board = store.pinnedBoardContents
+        XCTAssertEqual(board.onScreen.map(\.id), [stuck.id])
+        XCTAssertEqual(Set(board.notes.map(\.id)), [stuck.id, favourite.id])
+        XCTAssertFalse(board.notes.contains { $0.id == ordinary.id })
+    }
+
+    func testPinnedBoardIncludesPinnedDocumentsAndCounts() {
+        let store = makeStore()
+        let note = Note(text: "note")
+        store.addNote(note)
+        store.setNotePinned(id: note.id, pinned: true)
+        let doc = store.addDictation(text: "not a document", rawText: "raw")
+        store.setTranscriptPinned(id: doc.id, pinned: true)
+
+        let board = store.pinnedBoardContents
+        XCTAssertEqual(board.documents.map(\.id), [doc.id])
+        XCTAssertEqual(board.pinnedCount, 2, "the count spans both types")
+        XCTAssertFalse(board.isEmpty)
+    }
+
+    func testPinnedBoardIsEmptyWhenNothingIsPinnedOrStuck() {
+        let store = makeStore()
+        store.addNote(Note(text: "plain"))
+        store.addDictation(text: "plain", rawText: "raw")
+        XCTAssertTrue(store.pinnedBoardContents.isEmpty)
+    }
+
     // MARK: - Call transcripts get their own source (v12)
 
     /// Call captures shipped before there was a source for them. The migration

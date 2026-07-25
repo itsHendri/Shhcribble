@@ -130,10 +130,13 @@ Today's `Note.pinned` conflated two lifecycles. Split:
 4. ~~**Today timeline**~~ — **DONE 2026-07-25.** The feed replacing the
    transcripts master-detail: day stream, two weights, hover actions, chevrons +
    month popover. Day logic is pure and tested (`Storage/Timeline.swift`).
-5. **Search everything** — cross-category results view on Today.
-6. **Pinned board** — strip + grid. **Largely delivered in phase 2**; what's
-   left is whatever polish the wireframe implies once documents have a real
-   source category (phase 3).
+5. ~~**Search everything**~~ — **DONE 2026-07-25.** Cross-category results on
+   Today: grouped Notes → Dictations → Documents, dated within each, matches
+   highlighted, Esc/✕ restores the day. Pure and tested (`Storage/Search.swift`).
+6. ~~**Pinned board**~~ — **DONE 2026-07-25.** Strip + grid (the bulk landed
+   with phase 2); this pass added the board's tested content model, the
+   pin-vs-stick empty state with its Browse-notes CTA, and the contract's empty
+   -state copy across Today, Notes and Documents.
 
 Phases 2–3 touch schema (versioned per-step migrations per the TranscriptStore
 pattern); none touch `AudioRecorder`/routing/`MusicPauser`/`TextInserter`, so

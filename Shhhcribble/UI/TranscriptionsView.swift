@@ -216,7 +216,7 @@ struct TranscriptionsView: View {
             showsProgressBanner: true,
             emptyTitle: "No documents yet",
             emptyIcon: "doc.text",
-            emptyMessage: "Upload an audio or video file, or transcribe a call, and it lands here.",
+            emptyMessage: "Audio files, videos and call recordings you transcribe end up here — with a summary a tap away.",
             onUpload: onTranscribeFile
         )
     }
@@ -234,6 +234,7 @@ struct TranscriptionsView: View {
     private var pinnedPane: some View {
         PinnedBoard(
             store: store,
+            onBrowseNotes: { section = .notes },
             onOpenNote: { id in
                 noteID = id
                 section = .notes
@@ -511,6 +512,9 @@ private struct TranscriptListPane: View {
 /// both: the strip manages the screen, the grid indexes what matters.
 private struct PinnedBoard: View {
     @ObservedObject var store: TranscriptStore
+    /// The empty state's CTA — the pane teaches its own verb by sending you
+    /// where you'd do it, rather than describing it and leaving you there.
+    var onBrowseNotes: () -> Void
     /// Clicking a card jumps to the item in its home tab, per the wireframes.
     var onOpenNote: (UUID) -> Void
     var onOpenTranscript: (UUID) -> Void
@@ -518,29 +522,23 @@ private struct PinnedBoard: View {
     private let columns = [GridItem(.adaptive(minimum: 200, maximum: 320), spacing: 10)]
 
     var body: some View {
-        // Read once per pass — each property filters and sorts.
-        let stuck = store.stuckNotes
-        let notes = store.pinnedNotes
-        let transcripts = store.pinnedTranscripts
+        // Read once per pass — every field filters and sorts.
+        let board = store.pinnedBoardContents
         return Group {
-            if stuck.isEmpty && notes.isEmpty && transcripts.isEmpty {
-                ContentUnavailableView(
-                    "Nothing pinned yet",
-                    systemImage: "pin",
-                    description: Text("Pin a note or a document to keep it here. Stick a note to float it above your other windows until you're done with it.")
-                )
+            if board.isEmpty {
+                emptyState
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        if !stuck.isEmpty {
-                            section("On your screen · \(stuck.count)", icon: "macwindow") {
-                                ForEach(stuck) { noteCard($0, showsUnstick: true) }
+                        if !board.onScreen.isEmpty {
+                            section("On your screen · \(board.onScreen.count)", icon: "macwindow") {
+                                ForEach(board.onScreen) { noteCard($0, showsUnstick: true) }
                             }
                         }
-                        if !notes.isEmpty || !transcripts.isEmpty {
-                            section("Pinned · \(notes.count + transcripts.count)", icon: "pin") {
-                                ForEach(notes) { noteCard($0, showsUnstick: false) }
-                                ForEach(transcripts) { transcriptCard($0) }
+                        if board.pinnedCount > 0 {
+                            section("Pinned · \(board.pinnedCount)", icon: "pin") {
+                                ForEach(board.notes) { noteCard($0, showsUnstick: false) }
+                                ForEach(board.documents) { transcriptCard($0) }
                             }
                         }
                     }
@@ -549,6 +547,36 @@ private struct PinnedBoard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Carries the one-sentence pin-vs-stick explainer — this is the surface
+    /// where the difference between the two finally has to land.
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "pin")
+                .font(.system(size: DesignSystem.ChromeText.icon))
+                .foregroundStyle(.tertiary)
+            Text("Nothing pinned yet")
+                .font(.headline)
+            Text("Pin a note or document to keep it here and at the top of its list. "
+                 + "Stick a note to float it on your screen — stuck notes are pinned automatically.")
+                .font(.system(size: DesignSystem.ChromeText.control))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+            Button(action: onBrowseNotes) {
+                Label("Browse notes", systemImage: "note.text")
+                    .font(.callout).fontWeight(.medium)
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                    .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
     }
 
     private func section<Content: View>(_ title: String, icon: String,

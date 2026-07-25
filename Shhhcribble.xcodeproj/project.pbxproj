@@ -19,6 +19,8 @@
 		CF000102000000000000001A /* FirstMouseHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000101000000000000001A /* FirstMouseHostingView.swift */; };
 		CF000202000000000000001A /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000201000000000000001A /* TodayView.swift */; };
 		CF000204000000000000001A /* Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000203000000000000001A /* Timeline.swift */; };
+		CF000208000000000000001A /* Search.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000207000000000000001A /* Search.swift */; };
+		CF00020A000000000000001A /* SearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000209000000000000001A /* SearchTests.swift */; };
 		CF000106000000000000001A /* StickyNotePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000105000000000000001A /* StickyNotePanel.swift */; };
 		CF000116000000000000001A /* RichTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000115000000000000001A /* RichTextEditor.swift */; };
 		CF000108000000000000001A /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000107000000000000001A /* NotesView.swift */; };
@@ -89,6 +91,8 @@
 		CF000101000000000000001A /* FirstMouseHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMouseHostingView.swift; sourceTree = "<group>"; };
 		CF000201000000000000001A /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		CF000203000000000000001A /* Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Timeline.swift; sourceTree = "<group>"; };
+		CF000207000000000000001A /* Search.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search.swift; sourceTree = "<group>"; };
+		CF000209000000000000001A /* SearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTests.swift; sourceTree = "<group>"; };
 		CF000105000000000000001A /* StickyNotePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyNotePanel.swift; sourceTree = "<group>"; };
 		CF000115000000000000001A /* RichTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichTextEditor.swift; sourceTree = "<group>"; };
 		CF000107000000000000001A /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
@@ -176,6 +180,7 @@
 			children = (
 				CFE00001000000000000001A /* TranscriptStore.swift */,
 				CF000203000000000000001A /* Timeline.swift */,
+				CF000207000000000000001A /* Search.swift */,
 			);
 			path = Storage;
 			sourceTree = "<group>";
@@ -198,6 +203,7 @@
 				CFE00032000000000000001A /* SkillFileParserTests.swift */,
 				CFE00030000000000000001A /* StyleResolverTests.swift */,
 				CF000205000000000000001A /* TimelineTests.swift */,
+				CF000209000000000000001A /* SearchTests.swift */,
 				CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */,
 				CFE00060000000000000001A /* ActivationModeTests.swift */,
 				CFE00080000000000000001A /* CallDetectorTests.swift */,
@@ -431,6 +437,7 @@
 				CF000102000000000000001A /* FirstMouseHostingView.swift in Sources */,
 				CF000202000000000000001A /* TodayView.swift in Sources */,
 				CF000204000000000000001A /* Timeline.swift in Sources */,
+				CF000208000000000000001A /* Search.swift in Sources */,
 				CF000106000000000000001A /* StickyNotePanel.swift in Sources */,
 				CF000116000000000000001A /* RichTextEditor.swift in Sources */,
 				CF000108000000000000001A /* NotesView.swift in Sources */,
@@ -467,6 +474,7 @@
 				CFE00033000000000000001A /* SkillFileParserTests.swift in Sources */,
 				CFE00031000000000000001A /* StyleResolverTests.swift in Sources */,
 				CF000206000000000000001A /* TimelineTests.swift in Sources */,
+				CF00020A000000000000001A /* SearchTests.swift in Sources */,
 				CFE00051000000000000001A /* AudioRecorderWarmUpTests.swift in Sources */,
 				CFE00061000000000000001A /* ActivationModeTests.swift in Sources */,
 				CFE00081000000000000001A /* CallDetectorTests.swift in Sources */,

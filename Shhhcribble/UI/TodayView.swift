@@ -36,17 +36,28 @@ struct TodayView: View {
         Timeline.items(on: day, transcripts: store.transcripts, notes: store.notes)
     }
 
+    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var isSearching: Bool { !query.isEmpty }
+    private var results: [SearchCategory: [SearchResult]] {
+        Search.results(for: query, transcripts: store.transcripts, notes: store.notes)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            if items.isEmpty {
+            if isSearching {
+                resultsView
+            } else if items.isEmpty {
                 emptyState
             } else {
                 stream
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Esc clears the search and puts the day back — the other half of the
+        // ✕ in the pill, and what anyone who has used a search field expects.
+        .onExitCommand { if isSearching { search = "" } }
         .overlay(alignment: .bottom) { copiedToastView }
         .onAppear {
             // Open on the last day that actually has something — a blank page on
@@ -75,11 +86,21 @@ struct TodayView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            SearchPill(text: $search, prompt: "Search everything")
+            SearchPill(text: $search, prompt: "Search everything", trailing: resultCount)
             Spacer(minLength: 0)
-            dateNav
-                .padding(.trailing, 12)
+            // The date navigator is meaningless against results that span every
+            // day, so it steps aside until the search is cleared.
+            if !isSearching {
+                dateNav
+                    .padding(.trailing, 12)
+            }
         }
+    }
+
+    private var resultCount: String? {
+        guard isSearching else { return nil }
+        let n = Search.total(results)
+        return "\(n) result\(n == 1 ? "" : "s")"
     }
 
     private var dateNav: some View {
@@ -282,6 +303,97 @@ struct TodayView: View {
         .font(.system(size: DesignSystem.ChromeText.control))
     }
 
+    // MARK: - Search results
+
+    /// Results replace the timeline, grouped by category and dated within each.
+    /// Same two weights as the stream, so a result reads like the thing it is.
+    @ViewBuilder
+    private var resultsView: some View {
+        let grouped = results
+        if Search.total(grouped) == 0 {
+            ContentUnavailableView.search(text: query)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
+                    ForEach(SearchCategory.allCases) { category in
+                        if let rows = grouped[category], !rows.isEmpty {
+                            Section {
+                                ForEach(rows) { resultRow($0) }
+                            } header: {
+                                Label("\(category.title) · \(rows.count)", systemImage: category.icon)
+                                    .font(.sectionTitle)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.vertical, 4)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(.background)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
+            }
+        }
+    }
+
+    private func resultRow(_ result: SearchResult) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(Timeline.dayLabel(for: result.date))
+                .font(.system(size: DesignSystem.ChromeText.secondary))
+                .foregroundStyle(.tertiary)
+                .frame(width: 62, alignment: .trailing)
+                .padding(.top, result.isAnchored ? 9 : 1)
+
+            Group {
+                if result.isAnchored {
+                    card(open: { open(result) }) {
+                        highlighted(result.title)
+                            .font(.system(size: DesignSystem.ChromeText.body, weight: .medium))
+                            .lineLimit(1)
+                        highlighted(result.body)
+                            .font(.system(size: DesignSystem.ChromeText.secondary))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                } else {
+                    // A dictation has no title of its own, so the body is the
+                    // whole row — and here it *is* trimmed: the full-expansion
+                    // rule belongs to the day stream, where it's the record of
+                    // what you said, not to a list of matches.
+                    highlighted(result.body)
+                        .font(.system(size: DesignSystem.ChromeText.body))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture { open(result) }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// The match picked out with the accent — the only place accent is used on
+    /// content, which is what makes it read as "this is why you're seeing this".
+    private func highlighted(_ snippet: SearchSnippet) -> Text {
+        Text(snippet.leading)
+            + Text(snippet.match).foregroundColor(.accentColor).fontWeight(.semibold)
+            + Text(snippet.trailing)
+    }
+
+    /// Jump to the result in its home surface. A dictation has no reader, so it
+    /// goes back to the day it happened on — which is where it can be read in
+    /// full, copied, or sent to a note.
+    private func open(_ result: SearchResult) {
+        switch result.category {
+        case .notes:      onOpenNote(result.id)
+        case .documents:  onOpenTranscript(result.id)
+        case .dictations:
+            day = Calendar.current.startOfDay(for: result.date)
+            search = ""
+        }
+    }
+
     // MARK: - Empty state
 
     /// Teaches the hotkey rather than apologising for being empty — on a day
@@ -291,7 +403,7 @@ struct TodayView: View {
             Image(systemName: "calendar")
                 .font(.system(size: DesignSystem.ChromeText.icon))
                 .foregroundStyle(.tertiary)
-            Text(Timeline.dayLabel(for: day) == "Today" ? "Nothing yet today" : "Nothing on this day")
+            Text(Timeline.dayLabel(for: day) == "Today" ? "Nothing captured yet" : "Nothing on this day")
                 .font(.headline)
             HStack(spacing: 6) {
                 Text("Hold")
