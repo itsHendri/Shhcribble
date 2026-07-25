@@ -10,7 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Pin what matters.** Notes *and* documents can now be pinned. Pinned items
+  rise to a **Pinned** group at the top of their list and collect on the
+  **Pinned** tab, so the things you keep coming back to are one click away.
+
 ### Changed
+- **Pinning and sticking are now two different things.** *Pin* marks something
+  important and keeps it handy. *Stick* puts a note on your screen as a floating
+  sticky until you're done with it — its button now says **Stick to screen** /
+  **Unstick** and sits over the note itself. Sticking a note pins it too.
+  Anything currently stuck to your screen stays exactly where it is.
+- The **Pinned** tab shows what's on your screen above everything you've pinned,
+  and clicking any card jumps straight to it.
 - **New Studio navigation.** The sidebar is now five places — **Today · Notes ·
   Documents · Pinned · Settings** — and the window title always reads
   "Shhhcribble", so the sidebar alone tells you where you are. This is the first
@@ -25,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Check for updates** and **Quit** at the bottom. Styles, Dictionary and
   Feedback moved in from the main sidebar; Quit is still on the menu-bar icon's
   right-click menu too.
+
+### Removed
+- **Save as .txt** on notes and transcripts, and **Reveal source in Finder** on
+  transcripts. Copy covers the same ground, and every file you transcribe
+  already gets a .txt written beside it automatically.
 
 ## [1.13.0] - 2026-07-24
 

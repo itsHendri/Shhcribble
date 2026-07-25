@@ -25,7 +25,7 @@ import os
 /// rounded rect + thin stroke), not yellow paper. Dragging/resizing persists
 /// the frame (`pinX/pinY/pinW/pinH`) via the manager; text edits save on the
 /// 700 ms debounce precedent and flush when focus leaves. The close button
-/// always confirms — unpin for a note with content, discard for an empty one.
+/// always confirms — unstick for a note with content, discard for an empty one.
 @MainActor
 final class StickyNotePanel: NSPanel {
 
@@ -46,7 +46,7 @@ final class StickyNotePanel: NSPanel {
 
     /// Callbacks into the manager (which owns the store writes).
     var onTextCommit: ((UUID, NSAttributedString) -> Void)?
-    var onUnpin: ((UUID) -> Void)?
+    var onUnstick: ((UUID) -> Void)?
     var onFrameChange: ((UUID, CGRect) -> Void)?
     var onDelete: ((UUID) -> Void)?
 
@@ -103,9 +103,9 @@ final class StickyNotePanel: NSPanel {
                 self.lastAppliedRich = rich
                 self.onTextCommit?(self.noteID, text)
             },
-            onUnpin: { [weak self] in
+            onUnstick: { [weak self] in
                 guard let self else { return }
-                self.onUnpin?(self.noteID)
+                self.onUnstick?(self.noteID)
             },
             onDelete: { [weak self] in
                 guard let self else { return }
@@ -203,7 +203,7 @@ final class StickyNotePanel: NSPanel {
 // MARK: - Manager
 
 /// Owns one `StickyNotePanel` per pinned note. Observes the store and diffs:
-/// newly-pinned notes get a panel, unpinned/deleted ones lose theirs, changed
+/// newly-stuck notes get a panel, unstuck/deleted ones lose theirs, changed
 /// rows refresh in place. All store writes funnel through here so the panels
 /// stay dumb views.
 @MainActor
@@ -229,14 +229,15 @@ final class StickyPanelManager {
         sync()
     }
 
-    /// Create a fresh, empty, pinned note near the mouse cursor and open its
-    /// sticky ready for typing.
+    /// Create a fresh, empty note stuck near the mouse cursor and open its
+    /// sticky ready for typing. Stuck implies pinned — see `Note`.
     func createStickyAtCursor() {
         var origin = NSEvent.mouseLocation
         origin.x -= StickyNotePanel.defaultSize.width / 2
         origin.y -= StickyNotePanel.defaultSize.height + 24   // just below the cursor/menu bar
         var note = Note(text: "")
-        note.pinned = true
+        note.stuck = true
+        note.pinned = true   // sticking auto-pins
         note.pinX = origin.x
         note.pinY = origin.y
         pendingEditID = note.id
@@ -244,15 +245,17 @@ final class StickyPanelManager {
     }
 
     private func sync() {
-        let pinned = store.notes.filter { $0.pinned }
-        let pinnedIDs = Set(pinned.map { $0.id })
+        // Stuck, not pinned: a pinned note is merely important, and putting
+        // every favourite on screen is exactly what the split exists to stop.
+        let stuck = store.stuckNotes
+        let stuckIDs = Set(stuck.map { $0.id })
 
-        for (id, panel) in panels where !pinnedIDs.contains(id) {
+        for (id, panel) in panels where !stuckIDs.contains(id) {
             panel.orderOut(nil)
             panels.removeValue(forKey: id)
         }
 
-        for note in pinned {
+        for note in stuck {
             if let panel = panels[note.id] {
                 panel.update(with: note)
             } else {
@@ -282,15 +285,15 @@ final class StickyPanelManager {
             current.richText = rich
             self.store.updateNote(current)
         }
-        panel.onUnpin = { [weak self] id in
-            self?.store.setNotePinned(id: id, pinned: false)
+        panel.onUnstick = { [weak self] id in
+            self?.store.setNoteStuck(id: id, stuck: false)
         }
         panel.onFrameChange = { [weak self] id, frame in
             self?.store.updateNotePinFrame(id: id, frame: frame)
         }
         panel.onDelete = { [weak self] id in
             // Only reachable through the confirmed "Discard" path for an empty
-            // note — a sticky with content is unpinned instead, keeping the
+            // note — a sticky with content is unstuck instead, keeping the
             // note in the Notes tab.
             self?.store.deleteNote(id: id)
         }
@@ -322,7 +325,7 @@ final class StickyModel: ObservableObject {
 private struct StickyView: View {
     @ObservedObject var model: StickyModel
     let onCommitText: (NSAttributedString) -> Void
-    let onUnpin: () -> Void
+    let onUnstick: () -> Void
     let onDelete: () -> Void
 
     @State private var saveTask: Task<Void, Never>?
@@ -385,8 +388,8 @@ private struct StickyView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(isEmpty ? "Discard" : "Unpin (keeps the note)")
-            .accessibilityLabel(isEmpty ? "Discard note" : "Unpin note")
+            .help(isEmpty ? "Discard" : "Unstick (keeps the note)")
+            .accessibilityLabel(isEmpty ? "Discard note" : "Unstick note")
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
@@ -398,7 +401,7 @@ private struct StickyView: View {
 
     /// In-card confirmation for the close button — always asked, per the
     /// universal destructive-confirm convention. Empty note → Discard
-    /// (deletes); note with content → Unpin (keeps it in the Notes tab).
+    /// (deletes); note with content → Unstick (keeps it in the Notes tab).
     @ViewBuilder
     private var closeConfirmOverlay: some View {
         if model.showingCloseConfirm {
@@ -426,9 +429,9 @@ private struct StickyView: View {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                     } else {
-                        Button("Unpin") {
+                        Button("Unstick") {
                             model.showingCloseConfirm = false
-                            onUnpin()
+                            onUnstick()
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)

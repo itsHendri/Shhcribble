@@ -114,12 +114,14 @@ Today's `Note.pinned` conflated two lifecycles. Split:
 
 ## Implementation phasing (recommended; one branch per phase)
 
-1. **Shell** — five-item rail, Settings environment (subnav master-detail),
-   constant titlebar, Quit/updates relocation. Pure UI; autonomy-safe.
-2. **Pin/stick split** — schema bump: notes get a favourite flag alongside the
-   sticky flag (migration: existing `pinned` stickies become stuck AND pinned,
-   which the auto-pin rule makes exactly right); `transcripts` gains a pinned
-   column. Rename sticky verbs in UI. Pinned groups atop both lists.
+1. ~~**Shell**~~ — **DONE 2026-07-25.** Five-item rail, Settings environment
+   (subnav master-detail), constant titlebar, Quit/updates relocation.
+2. ~~**Pin/stick split**~~ — **DONE 2026-07-25.** Schema v10 adds `notes.stuck`
+   seeded from `pinned` (so existing stickies come out stuck AND pinned, which
+   the auto-pin rule makes exactly right); v11 adds `transcripts.pinned`. Sticky
+   verbs renamed, Pinned groups atop both lists. **This phase also delivered
+   phase 6's board** — adding pin without a surface that shows pinned items
+   would have left the Pinned tab lying — so 6 below is reduced to polish.
 3. **Documents vs dictations** — a real source distinction. Call captures are
    currently stored as `source: .dictation` with a "Call —" title (v1 gap in
    CLAUDE.md); this phase gives them and file imports a proper document
@@ -127,7 +129,9 @@ Today's `Note.pinned` conflated two lifecycles. Split:
 4. **Today timeline** — the feed replacing the transcripts master-detail:
    day stream, two weights, hover actions, chevrons + month popover.
 5. **Search everything** — cross-category results view on Today.
-6. **Pinned board** — strip + grid.
+6. **Pinned board** — strip + grid. **Largely delivered in phase 2**; what's
+   left is whatever polish the wireframe implies once documents have a real
+   source category (phase 3).
 
 Phases 2–3 touch schema (versioned per-step migrations per the TranscriptStore
 pattern); none touch `AudioRecorder`/routing/`MusicPauser`/`TextInserter`, so

@@ -214,15 +214,13 @@ it in the title).
 - **Quit left the rail.** The "Quit must stay reachable" invariant now rests on
   the menu-bar right-click menu (which is also why collapsing the rail is safe).
   Don't remove it from there.
-- **Phase 1 is the shell only** — three panes are deliberate stand-ins, each
-  replaced by its owning phase, and each marked in code: **Today** = the
-  pre-redesign transcripts master-detail (the chronological two-weight timeline
-  is phase 4); **Documents** = that same reader filtered to `source == .file`
-  (call captures still store as `.dictation`, so they stay in Today until phase 3
-  gives documents a real source category); **Pinned** = the "On your screen"
-  strip only, since pin (importance) and stick (urgency) are still the one
-  `Note.pinned` flag until phase 2 splits them, and documents can't be pinned at
-  all yet. Don't "finish" a stand-in without doing its phase properly.
+- **Two panes are still stand-ins**, each replaced by its owning phase and each
+  marked in code: **Today** = the pre-redesign transcripts master-detail (the
+  chronological two-weight timeline is phase 4); **Documents** = that same reader
+  over `store.documents(matching:)`, which today means file imports only (call
+  captures still store as `.dictation`, so they stay in Today until phase 3 gives
+  documents a real source category). Don't "finish" a stand-in without doing its
+  phase properly. **Pinned is real** as of phase 2 (below).
 - `NotesView`'s selection is now a `@Binding` owned by `TranscriptionsView` —
   that's what lets the Pinned board open a note in its home tab, and it keeps the
   selection across a rail round-trip.
@@ -238,6 +236,35 @@ it in the title).
   in. `SearchPill` and `TagCapsule` in [DesignSystem.swift](Shhhcribble/UI/DesignSystem.swift)
   are the shared chrome for the search field and the little neutral label —
   reach for them instead of re-stacking the modifiers.
+
+### Pin vs stick — two lifecycles, one auto-coupling (redesign phase 2)
+`Note.pinned` used to mean "on screen as a sticky". It now means **importance**,
+and the new `Note.stuck` carries the sticky. They are different lifecycles and
+the words are reserved: **pin** is always the durable favourite, **stick/unstick**
+is always the floating sticky. Never call a sticky "pinned to screen" in UI copy.
+
+- **Sticking auto-pins** (`setNoteStuck` sets `pinned = true`) — urgency is a
+  subset of importance, so anything worth putting on screen is worth finding on
+  the Pinned board later. **Unsticking leaves the pin**; unpinning a stuck note
+  is a deliberate override and does *not* take it off screen. Pinned by
+  `NoteStoreTests`.
+- **Schema v10** adds `notes.stuck` and seeds it `= pinned`. That's what makes
+  the upgrade correct with no row to fix by hand: every existing sticky comes out
+  stuck *and* pinned, which is exactly what auto-pin says it should be. **Schema
+  v11** adds `transcripts.pinned` — transcripts join the pin lifecycle only;
+  a document isn't something you put on your screen, so there's no `stuck`
+  counterpart.
+- **`StickyPanelManager` diffs on `store.stuckNotes`, never `pinnedNotes`** —
+  diffing on pinned would throw every favourite onto the screen, which is the
+  exact thing the split exists to stop.
+- **Controls follow the split:** pin is a quiet glyph toggle in the header action
+  row (filled when on); stick is the **floating capsule over the editor** whose
+  label *is* the state ("Stick to screen" ↔ "Unstick") — which is why there's no
+  separate "on screen" tag to keep in sync.
+- **Action rows are pin · copy · delete.** Save-as-.txt (notes + transcripts) and
+  reveal-in-Finder (transcripts) were **removed**: copy covers export, a `.txt`
+  sidecar is already written at transcription time, and a source file is often
+  ephemeral while the transcript is the durable artifact.
 
 ### Universal UI conventions (apply to every new affordance)
 Two rules established 2026-07-08, expected everywhere going forward:
@@ -495,6 +522,8 @@ This project runs a **largely-autonomous research→build→verify loop** over t
 8. **Backlog re-evaluation** (added 2026-07-08): after a feature ships, re-scan [docs/ROADMAP.md](docs/ROADMAP.md) and the backlog against any new signal (user feedback, competitive finds, what the feature unlocked) and re-prioritize; record the shift in the loop-progress note. New feedback often converges or reshuffles items — don't just march the old order.
 
 Iterate implement→review→fix up to ~3 rounds; if still failing or low-confidence, **stop and escalate** rather than loop. Use the **Workflow tool** for each sprint's implement→parallel-review→verify pipeline; keep a short loop-progress note here (current sprint / last done / next / blocker).
+
+**Loop progress (2026-07-25c):** **Redesign Phase 2 (pin/stick split) BUILT** on branch `shhhcribble/pin-stick-split` (not merged/pushed). Splits the conflated `Note.pinned` into **pinned** (importance) + **stuck** (urgency) with sticking auto-pinning — see the new **Pin vs stick** decision above. **Schema v10** (`notes.stuck`, seeded `= pinned`) + **v11** (`transcripts.pinned`); the seeding is what makes the upgrade need no hand-fixing. Ships: pin toggles on notes *and* transcripts, "Pinned" groups atop both lists, stick capsule over the note editor, stick/unstick rename through the sticky panel, and a **real Pinned board** (stuck strip + cross-type pinned grid) — which **absorbs most of phase 6**, since adding pin without showing pinned items would have left the Pinned tab lying. Also **removed** Save-as-.txt (notes + transcripts) and reveal-in-Finder per the locked action row — **flag this to the human, it's a feature removal, not just a move**. QC: build green, **240 tests** (+8: auto-pin, unstick-keeps-pin, unpin-leaves-stuck, accessors, v9→v10 sticky seeding, pre-pin-column transcripts). No `AudioRecorder`/routing/`MusicPauser`/`TextInserter`/pref-table touch → **no hardware smoke test triggered**. **⚠ PENDING: human visual pass** (still not run — the installed v1.13.0 is running) and adversarial review. **Next: Phase 3 (documents vs dictations — a real source category for call captures + file imports).** Prior progress ↓.
 
 **Loop progress (2026-07-25b):** **Redesign Phase 1 ("shell") BUILT** on branch `shhhcribble/studio-shell` (not merged/pushed). Ships the five-item rail (Today · Notes · Documents · Pinned · Settings), **Settings as its own master-detail environment** (subnav Preferences/Styles/Dictionary/Feedback + Check-for-updates/Quit at the bottom; Styles/Dictionary/Feedback demoted from the rail, Quit out of the rail and now resting on the menu-bar right-click menu), and the constant titlebar (already true — no change needed). See the new **Studio shell** decision above. **Human call this session:** the three not-yet-built panes ship as **functional-lite stand-ins**, not placeholders — Today = the old transcripts master-detail, Documents = the same reader filtered to `.file`, Pinned = an "On your screen" board of pinned notes that jumps into Notes — so no rail item is a dead end. QC: **build green, 232 tests green** (no test change — pure view layer), no `AudioRecorder`/routing/`MusicPauser`/`TextInserter`/pipeline/pref-table/schema touch → **no hardware smoke test triggered**. **⚠ PENDING: human visual pass** (the dev build wasn't launched — the installed v1.13.0 was running and swapping instances is the human's call) and the adversarial `/code-review` round before merge. **Next: Phase 2 (pin/stick split, schema bump).** Prior progress ↓.
 

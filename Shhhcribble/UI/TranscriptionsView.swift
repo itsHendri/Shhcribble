@@ -232,15 +232,22 @@ struct TranscriptionsView: View {
         NotesView(store: store, selectedID: $noteID)
     }
 
-    /// Pinned — phase-1 stand-in for the cross-type board. Pin and stick are
-    /// still one flag (`Note.pinned` == on screen as a sticky), so this is the
-    /// "On your screen" strip only; phase 2 splits the two lifecycles and phase
-    /// 3 lets documents join the board.
+    /// Pinned — the cross-type board: what's on your screen right now above what
+    /// you've marked as mattering. Clicking anything jumps to it in its home tab.
     private var pinnedPane: some View {
-        PinnedBoard(store: store) { id in
-            noteID = id
-            section = .notes
-        }
+        PinnedBoard(
+            store: store,
+            onOpenNote: { id in
+                noteID = id
+                section = .notes
+            },
+            onOpenTranscript: { id in
+                // Documents is where a pinned transcript reads; Today would show
+                // it too, but the board is a library surface, not a timeline one.
+                documentID = id
+                section = .documents
+            }
+        )
     }
 
     // MARK: - Settings environment
@@ -365,21 +372,21 @@ private struct TranscriptListPane: View {
                     progressBanner
                         .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
                 }
-                ForEach(items) { t in
-                    TranscriptRow(transcript: t, hovered: hoveredID == t.id, onCopy: { copy(t) })
-                        .contentShape(Rectangle())
-                        .onTapGesture { selection = t.id }
-                        .onHover { hoveredID = $0 ? t.id : (hoveredID == t.id ? nil : hoveredID) }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(
-                            RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous)
-                                // Selected OR hovered rows get the same quiet grey
-                                // (lighter than the rail-tab selection at 0.09) so
-                                // hover and selection read as one affordance.
-                                .fill(selection == t.id || hoveredID == t.id ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                        )
+                // Pinned rise to the top under their own header; the group is
+                // hidden entirely when nothing is pinned, so an unused feature
+                // doesn't take up permanent space.
+                let pinned = items.filter(\.pinned)
+                if !pinned.isEmpty {
+                    Section {
+                        ForEach(pinned) { row($0) }
+                    } header: {
+                        Text("Pinned").font(.sectionTitle)
+                    }
+                    Section {
+                        ForEach(items.filter { !$0.pinned }) { row($0) }
+                    }
+                } else {
+                    ForEach(items) { row($0) }
                 }
             }
             .overlay {
@@ -409,6 +416,23 @@ private struct TranscriptListPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func row(_ t: Transcript) -> some View {
+        TranscriptRow(transcript: t, hovered: hoveredID == t.id, onCopy: { copy(t) })
+            .contentShape(Rectangle())
+            .onTapGesture { selection = t.id }
+            .onHover { hoveredID = $0 ? t.id : (hoveredID == t.id ? nil : hoveredID) }
+            .listRowSeparator(.hidden)
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous)
+                    // Selected OR hovered rows get the same quiet grey (lighter
+                    // than the rail-tab selection at 0.09) so hover and
+                    // selection read as one affordance.
+                    .fill(selection == t.id || hoveredID == t.id ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+            )
     }
 
     @ViewBuilder
@@ -478,37 +502,42 @@ private struct TranscriptListPane: View {
 /// The Pinned board — a cross-type index of what matters, and the one place to
 /// manage stickies without hunting for them across desktops.
 ///
-/// **Phase 1 shows the "On your screen" section only.** Pin (importance) and
-/// stick (urgency) are still the same `Note.pinned` flag, and documents can't be
-/// pinned at all yet — phase 2 splits the lifecycles and phase 3 lets documents
-/// join, at which point the grid of pinned items lands below this strip.
+/// Two sections, in the order the two lifecycles deserve: **On your screen**
+/// (stuck notes — urgency, each with Unstick) above **Pinned** (importance —
+/// notes *and* documents together). A stuck note is pinned too, so it appears in
+/// both: the strip manages the screen, the grid indexes what matters.
 private struct PinnedBoard: View {
     @ObservedObject var store: TranscriptStore
     /// Clicking a card jumps to the item in its home tab, per the wireframes.
-    var onOpen: (UUID) -> Void
+    var onOpenNote: (UUID) -> Void
+    var onOpenTranscript: (UUID) -> Void
 
     private let columns = [GridItem(.adaptive(minimum: 200, maximum: 320), spacing: 10)]
 
     var body: some View {
-        // Read once per pass — the property filters and sorts.
-        let pinned = store.pinnedNotes
+        // Read once per pass — each property filters and sorts.
+        let stuck = store.stuckNotes
+        let notes = store.pinnedNotes
+        let documents = store.pinnedTranscripts
         return Group {
-            if pinned.isEmpty {
+            if stuck.isEmpty && notes.isEmpty && documents.isEmpty {
                 ContentUnavailableView(
-                    "Nothing on your screen",
+                    "Nothing pinned yet",
                     systemImage: "pin",
-                    description: Text("Pin a note to float it above your other windows as a sticky. It stays there until you unpin it.")
+                    description: Text("Pin a note or a document to keep it here. Stick a note to float it above your other windows until you're done with it.")
                 )
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("On your screen · \(pinned.count)", systemImage: "macwindow")
-                            .font(.sectionTitle)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                            ForEach(pinned) { note in
-                                card(note)
+                    VStack(alignment: .leading, spacing: 18) {
+                        if !stuck.isEmpty {
+                            section("On your screen · \(stuck.count)", icon: "macwindow") {
+                                ForEach(stuck) { noteCard($0, showsUnstick: true) }
+                            }
+                        }
+                        if !notes.isEmpty || !documents.isEmpty {
+                            section("Pinned · \(notes.count + documents.count)", icon: "pin") {
+                                ForEach(notes) { noteCard($0, showsUnstick: false) }
+                                ForEach(documents) { documentCard($0) }
                             }
                         }
                     }
@@ -519,20 +548,58 @@ private struct PinnedBoard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func card(_ note: Note) -> some View {
+    private func section<Content: View>(_ title: String, icon: String,
+                                        @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon)
+                .font(.sectionTitle)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                content()
+            }
+        }
+    }
+
+    private func noteCard(_ note: Note, showsUnstick: Bool) -> some View {
         let title = NotesView.preview(note.text)
-        return VStack(alignment: .leading, spacing: 6) {
+        return card(title: title, type: "Note",
+                    // A pinned note that's also on screen carries the screen
+                    // glyph, so the grid says which of the two it is.
+                    badge: showsUnstick ? nil : (note.stuck ? "macwindow" : nil),
+                    action: showsUnstick ? ("Unstick", { store.setNoteStuck(id: note.id, stuck: false) }) : nil,
+                    open: { onOpenNote(note.id) })
+            .accessibilityLabel("Pinned note: \(title)")
+    }
+
+    private func documentCard(_ transcript: Transcript) -> some View {
+        card(title: transcript.menuTitle, type: "Document", badge: nil, action: nil,
+             open: { onOpenTranscript(transcript.id) })
+            .accessibilityLabel("Pinned document: \(transcript.menuTitle)")
+    }
+
+    private func card(title: String, type: String, badge: String?,
+                      action: (label: String, run: () -> Void)?,
+                      open: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: DesignSystem.ChromeText.body, weight: .medium))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
-                TagCapsule("Note")
+                TagCapsule(type)
+                if let badge {
+                    Image(systemName: badge)
+                        .font(.system(size: DesignSystem.ChromeText.secondary))
+                        .foregroundStyle(.tertiary)
+                        .help("On your screen")
+                }
                 Spacer(minLength: 0)
-                Button("Unpin") { store.setNotePinned(id: note.id, pinned: false) }
-                    .controlSize(.small)
-                    // Same promise as the note editor's own unpin control.
-                    .help("Remove the floating sticky (the note stays here)")
+                if let action {
+                    Button(action.label) { action.run() }
+                        .controlSize(.small)
+                        .help("Take this note off your screen (it stays here)")
+                }
             }
         }
         .padding(10)
@@ -545,11 +612,10 @@ private struct PinnedBoard: View {
                 .stroke(DesignSystem.boxStroke, lineWidth: 1)
         )
         .contentShape(Rectangle())
-        // The whole card opens the note; the Unpin button keeps its own hit area
-        // because it sits above this gesture in the layered button.
-        .onTapGesture { onOpen(note.id) }
+        // The whole card opens the item; the action button keeps its own hit
+        // area because it sits above this gesture in the layered button.
+        .onTapGesture(perform: open)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Pinned note: \(title)")
     }
 }
 
@@ -613,9 +679,8 @@ private struct TranscriptRow: View {
     }
 }
 
-/// The detail pane: a tabbed reader (Transcript | Summary | Notes) with Copy /
-/// Save / Reveal actions. Summary is generated on-device on demand; Notes
-/// auto-save.
+/// The detail pane: a tabbed reader (Transcript | Summary) with a pared
+/// pin · copy · delete action row. Summary is generated on-device on demand.
 private struct TranscriptDetail: View {
     let transcript: Transcript
     @ObservedObject var store: TranscriptStore
@@ -693,18 +758,23 @@ private struct TranscriptDetail: View {
                 Text(metaLine).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            // Pin · copy · delete only. Save-as-.txt and reveal-in-Finder were
+            // dropped in the redesign: a .txt sidecar is already written beside
+            // the source at transcription time, and the source itself is often
+            // ephemeral (a WhatsApp file, a since-deleted upload) — the
+            // transcript is the durable artifact.
             HStack(spacing: 6) {
+                Button {
+                    store.setTranscriptPinned(id: transcript.id, pinned: !transcript.pinned)
+                } label: {
+                    Image(systemName: transcript.pinned ? "pin.fill" : "pin")
+                        .foregroundStyle(transcript.pinned ? Color.accentColor : Color.secondary)
+                }
+                .help(transcript.pinned ? "Unpin" : "Pin")
+                .accessibilityLabel(transcript.pinned ? "Unpin transcript" : "Pin transcript")
                 Button(action: copy) { Image(systemName: "doc.on.doc") }
                     .help("Copy transcript")
                     .accessibilityLabel("Copy transcript")
-                Button(action: saveTxt) { Image(systemName: "square.and.arrow.down") }
-                    .help("Save as .txt")
-                    .accessibilityLabel("Save transcript as plain text file")
-                if transcript.sourcePath != nil {
-                    Button(action: reveal) { Image(systemName: "folder") }
-                        .help("Reveal source in Finder")
-                        .accessibilityLabel("Reveal source file in Finder")
-                }
                 Button(role: .destructive) { showingDeleteConfirm = true } label: { Image(systemName: "trash") }
                     .help("Delete transcript")
                     .accessibilityLabel("Delete transcript")
@@ -891,21 +961,6 @@ private struct TranscriptDetail: View {
             guard !Task.isCancelled else { return }
             withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
         }
-    }
-
-    private func saveTxt() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
-        let base = transcript.fileName.map { ($0 as NSString).deletingPathExtension } ?? transcript.menuTitle
-        panel.nameFieldStringValue = "\(base).txt"
-        if panel.runModal() == .OK, let url = panel.url {
-            try? transcript.text.write(to: url, atomically: true, encoding: .utf8)
-        }
-    }
-
-    private func reveal() {
-        guard let path = transcript.sourcePath else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
     private func copySummary() {
