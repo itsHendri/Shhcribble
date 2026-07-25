@@ -85,6 +85,26 @@ enum Timeline {
         return days
     }
 
+    /// The day the stream should open on: the most recent day with anything on
+    /// it, or — if everything in the library is somehow in the future (clock
+    /// skew, an import stamped ahead) — the soonest day that does. `nil` only
+    /// for a genuinely empty library, which is a real empty state.
+    ///
+    /// Without the future fallback, a library full of future-stamped items
+    /// opens on an empty today and tells the user to start speaking.
+    static func openingDay(around now: Date,
+                           transcripts: [Transcript],
+                           notes: [Note],
+                           calendar: Calendar = .current) -> Date? {
+        if let past = mostRecentDayWithContent(atOrBefore: now, transcripts: transcripts,
+                                               notes: notes, calendar: calendar) {
+            return past
+        }
+        let stamps = transcripts.map(\.createdAt) + notes.map(\.createdAt)
+        guard let soonest = stamps.min() else { return nil }
+        return calendar.startOfDay(for: soonest)
+    }
+
     /// The most recent day that has anything on it, at or before `day` — what
     /// the stream opens on so a first visit isn't a blank page on a quiet
     /// morning. `nil` when the library is empty (a genuine empty state) or when

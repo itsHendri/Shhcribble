@@ -84,7 +84,11 @@ enum Search {
         for note in notes {
             let first = firstLine(of: note.text)
             let title = snippet(in: first, query: needle)
-            let body = snippet(in: note.text, query: needle)
+            // Search the note *past* its first line, since that line is already
+            // the title above it — otherwise a match in the title (the common
+            // case, it being the note's name) is windowed twice and the result
+            // card shows it twice.
+            let body = snippet(in: bodyAfterFirstLine(of: note.text), query: needle)
             guard title.isMatch || body.isMatch else { continue }
             grouped[.notes, default: []].append(
                 SearchResult(id: note.id, category: .notes, date: note.createdAt,
@@ -101,7 +105,9 @@ enum Search {
                              title: title, body: body, isAnchored: t.source.isDocument))
         }
 
-        for key in grouped.keys {
+        // `grouped.keys` holds a reference to the dictionary, so mutating
+        // through it while iterating copies on every step — snapshot first.
+        for key in Array(grouped.keys) {
             // Tie-break on id for a stable order under equal timestamps, same
             // as the timeline.
             grouped[key]?.sort { ($0.date, $0.id.uuidString) > ($1.date, $1.id.uuidString) }
@@ -120,7 +126,9 @@ enum Search {
     /// the useful thing to show is the sentence the word is in — a match 400
     /// characters into a transcript is invisible if you always show the head.
     static func snippet(in text: String, query: String, window: Int = 42) -> SearchSnippet {
-        let flattened = text.replacingOccurrences(of: "\n", with: " ")
+        // Every newline the platform recognises, not just \n — a snippet
+        // promised to be one line shouldn't break on a stray \r or U+2028.
+        let flattened = text.split(whereSeparator: \.isNewline).joined(separator: " ")
         guard !query.isEmpty,
               let range = flattened.range(of: query, options: [.caseInsensitive, .diacriticInsensitive])
         else {
@@ -144,9 +152,14 @@ enum Search {
                              trailing: trailing)
     }
 
-    /// First non-empty line, for a note's stand-in title.
+    /// First line, for a note's stand-in title.
     private static func firstLine(of text: String) -> String {
         let line = text.prefix { !$0.isNewline }.trimmingCharacters(in: .whitespaces)
         return line.isEmpty ? "New note" : line
+    }
+
+    /// Everything after the first line — the part a title doesn't already show.
+    private static func bodyAfterFirstLine(of text: String) -> String {
+        String(text.drop { !$0.isNewline }.drop { $0.isNewline })
     }
 }

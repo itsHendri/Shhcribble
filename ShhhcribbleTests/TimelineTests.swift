@@ -147,6 +147,30 @@ final class TimelineTests: XCTestCase {
             transcripts: [], notes: [], calendar: calendar))
     }
 
+    /// A library stamped entirely in the future (clock skew, an import dated
+    /// ahead) must not open on an empty today and tell the user to start
+    /// speaking — it opens on the soonest day that has something.
+    func testOpeningDayFallsForwardWhenEverythingIsInTheFuture() {
+        let day = Timeline.openingDay(
+            around: date("2026-07-25 09:00"),
+            transcripts: [transcript("2026-07-30 10:00"), transcript("2026-07-27 10:00")],
+            notes: [], calendar: calendar)
+        XCTAssertEqual(day, calendar.startOfDay(for: date("2026-07-27 00:00")))
+    }
+
+    func testOpeningDayPrefersThePastWhenThereIsAny() {
+        let day = Timeline.openingDay(
+            around: date("2026-07-25 09:00"),
+            transcripts: [transcript("2026-07-30 10:00"), transcript("2026-07-22 10:00")],
+            notes: [], calendar: calendar)
+        XCTAssertEqual(day, calendar.startOfDay(for: date("2026-07-22 00:00")))
+    }
+
+    func testOpeningDayIsNilOnlyForAnEmptyLibrary() {
+        XCTAssertNil(Timeline.openingDay(around: date("2026-07-25 09:00"),
+                                         transcripts: [], notes: [], calendar: calendar))
+    }
+
     // MARK: - Stepping and labelling
 
     func testSteppingMovesWholeDaysFromTheStartOfTheDay() {

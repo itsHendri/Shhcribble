@@ -125,6 +125,40 @@ final class SearchTests: XCTestCase {
         XCTAssertEqual(grouped[.notes]?.first?.isAnchored, true)
     }
 
+    /// A note's first line *is* its title, so a match there must not also be
+    /// windowed into the body — the result card would print it twice.
+    func testTitleMatchIsNotRepeatedInTheBody() {
+        let grouped = Search.results(
+            for: "pricing",
+            transcripts: [],
+            notes: [note("Pricing ideas\nthe paid line is sync, not volume")])
+        let result = grouped[.notes]!.first!
+
+        XCTAssertTrue(result.title.isMatch)
+        XCTAssertFalse(result.body.isMatch, "the body is searched past the first line")
+        XCTAssertFalse(result.body.plain.contains("Pricing ideas"))
+        XCTAssertTrue(result.body.plain.contains("the paid line"))
+    }
+
+    /// …but a match that's only in the body still has to be found.
+    func testBodyOnlyMatchInANoteIsStillFound() {
+        let grouped = Search.results(
+            for: "sync",
+            transcripts: [],
+            notes: [note("Pricing ideas\nthe paid line is sync")])
+        let result = grouped[.notes]!.first!
+        XCTAssertFalse(result.title.isMatch)
+        XCTAssertTrue(result.body.isMatch)
+    }
+
+    func testSnippetFlattensEveryKindOfLineBreak() {
+        for breaker in ["\n", "\r\n", "\u{2028}", "\u{2029}"] {
+            let snippet = Search.snippet(in: "first\(breaker)pricing second", query: "pricing")
+            XCTAssertFalse(snippet.plain.contains(breaker),
+                           "line break \(breaker.unicodeScalars.map { $0.value }) survived")
+        }
+    }
+
     func testEmptyNoteGetsAStandInTitle() {
         let grouped = Search.results(for: "pricing", transcripts: [], notes: [note("\npricing in the body")])
         XCTAssertEqual(grouped[.notes]?.first?.title.plain, "New note")

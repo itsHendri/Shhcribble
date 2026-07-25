@@ -22,7 +22,13 @@ struct TranscriptionsView: View {
 
     @State private var section: RailSection? = .today
     @State private var settingsPage: SettingsPage = .preferences
-    @State private var selectedID: UUID?
+    /// The day the Today stream is showing. **Owned here, not by `TodayView`.**
+    /// The detail `switch` is a `_ConditionalContent`, so leaving a branch
+    /// destroys its `@State` — a day kept inside the pane would silently reset
+    /// on every trip through Notes or Pinned, and a jump *into* Today (from the
+    /// Pinned board, say) would have nowhere to land. `nil` until the stream
+    /// picks its opening day.
+    @State private var todayDay: Date?
     /// Documents keeps its own selection — it's a different list, and carrying
     /// Today's pick across would land on a row that isn't there.
     @State private var documentID: UUID?
@@ -86,9 +92,6 @@ struct TranscriptionsView: View {
             }
         }
     }
-
-    /// Everything in the library — Today shows the lot, uncategorised.
-    private var everything: [Transcript] { store.matching(searchText) }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -198,7 +201,8 @@ struct TranscriptionsView: View {
                 section = .documents
             },
             onUpload: onTranscribeFile,
-            search: $searchText
+            search: $searchText,
+            day: $todayDay
         )
     }
 
@@ -240,15 +244,16 @@ struct TranscriptionsView: View {
                 section = .notes
             },
             onOpenTranscript: { id in
-                // Open it where it's actually listed: Documents lists file
-                // imports only, so a pinned dictation has to go to Today or it
-                // would land on a reader with no matching row beside it — and,
-                // with no imports at all, next to an "empty" list.
-                if store.transcripts.first(where: { $0.id == id })?.source.isDocument == true {
+                // Open it where it's actually listed. Documents lists long-form
+                // material only, so a pinned dictation goes to Today — and to
+                // *its own day*, or it would arrive on whatever day the stream
+                // happened to be showing and not be there.
+                guard let t = store.transcripts.first(where: { $0.id == id }) else { return }
+                if t.source.isDocument {
                     documentID = id
                     section = .documents
                 } else {
-                    selectedID = id
+                    todayDay = Calendar.current.startOfDay(for: t.createdAt)
                     section = .today
                 }
             }

@@ -23,31 +23,43 @@ struct TodayView: View {
     var onUpload: () -> Void
 
     @Binding var search: String
+    /// Owned by the shell — see `TranscriptionsView.todayDay`. `nil` until the
+    /// stream picks its opening day, which is also what makes that pick happen
+    /// once per window rather than once per visit.
+    @Binding var day: Date?
 
-    @State private var day = Calendar.current.startOfDay(for: Date())
-    @State private var didPickInitialDay = false
     @State private var showingMonth = false
     @State private var hoveredID: UUID?
     @State private var deleting: TimelineItem?
     @State private var copiedToast = false
     @State private var copiedToastTask: Task<Void, Never>?
 
+    /// Whether the stream is on today. Asked of the calendar, never of the
+    /// day *label* — that's user-facing text and will be localised.
+    private var isShowingToday: Bool { Calendar.current.isDateInToday(shownDay) }
+
+    /// The day being shown, falling back to today until the opening pick lands.
+    private var shownDay: Date { day ?? Calendar.current.startOfDay(for: Date()) }
+
     private var items: [TimelineItem] {
-        Timeline.items(on: day, transcripts: store.transcripts, notes: store.notes)
+        Timeline.items(on: shownDay, transcripts: store.transcripts, notes: store.notes)
     }
 
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var isSearching: Bool { !query.isEmpty }
-    private var results: [SearchCategory: [SearchResult]] {
-        Search.results(for: query, transcripts: store.transcripts, notes: store.notes)
-    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        // Computed once per pass and handed down. Searching the library is a
+        // full pass over every note and transcript, so re-deriving it in the
+        // header *and* the results view meant doing that twice per keystroke.
+        let grouped = isSearching
+            ? Search.results(for: query, transcripts: store.transcripts, notes: store.notes)
+            : [:]
+        return VStack(spacing: 0) {
+            header(grouped)
             Divider()
             if isSearching {
-                resultsView
+                resultsView(grouped)
             } else if items.isEmpty {
                 emptyState
             } else {
@@ -62,12 +74,24 @@ struct TodayView: View {
         .onAppear {
             // Open on the last day that actually has something — a blank page on
             // a quiet morning is a worse first impression than yesterday's work.
-            // Once only, so returning to the tab keeps the day you were reading.
-            guard !didPickInitialDay else { return }
-            didPickInitialDay = true
-            if let recent = Timeline.mostRecentDayWithContent(
-                atOrBefore: Date(), transcripts: store.transcripts, notes: store.notes) {
-                day = recent
+            // `day` is the shell's, so this runs once per window, not per visit.
+            guard day == nil else { return }
+            day = Timeline.openingDay(around: Date(),
+                                      transcripts: store.transcripts, notes: store.notes)
+                ?? Calendar.current.startOfDay(for: Date())
+        }
+        // Follow new work to the day it landed on. Without this, dictating while
+        // the stream sits on an older day (which is the *default* opening state
+        // after a quiet couple of days, and what any window left open past
+        // midnight becomes) puts the text in your editor and nowhere visible
+        // here — the most likely confusion in the whole redesign.
+        .onChange(of: store.transcripts.first?.id) { _, _ in
+            guard let newest = store.transcripts.first else { return }
+            let landed = Calendar.current.startOfDay(for: newest.createdAt)
+            guard !Calendar.current.isDate(landed, inSameDayAs: shownDay) else { return }
+            withAnimation(DesignSystem.motion(.easeOut(duration: DesignSystem.motionQuick))) {
+                day = landed
+                search = ""
             }
         }
         .onDisappear { copiedToastTask?.cancel() }
@@ -84,9 +108,10 @@ struct TodayView: View {
 
     // MARK: - Header
 
-    private var header: some View {
+    private func header(_ grouped: [SearchCategory: [SearchResult]]) -> some View {
         HStack(spacing: 8) {
-            SearchPill(text: $search, prompt: "Search everything", trailing: resultCount)
+            SearchPill(text: $search, prompt: "Search everything",
+                       trailing: resultCount(grouped))
             Spacer(minLength: 0)
             // The date navigator is meaningless against results that span every
             // day, so it steps aside until the search is cleared.
@@ -97,9 +122,9 @@ struct TodayView: View {
         }
     }
 
-    private var resultCount: String? {
+    private func resultCount(_ grouped: [SearchCategory: [SearchResult]]) -> String? {
         guard isSearching else { return nil }
-        let n = Search.total(results)
+        let n = Search.total(grouped)
         return "\(n) result\(n == 1 ? "" : "s")"
     }
 
@@ -111,7 +136,7 @@ struct TodayView: View {
                 .accessibilityLabel("Previous day")
 
             Button { showingMonth = true } label: {
-                Text(Timeline.dayLabel(for: day))
+                Text(Timeline.dayLabel(for: shownDay))
                     .font(.system(size: DesignSystem.ChromeText.control, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 92)
@@ -120,10 +145,13 @@ struct TodayView: View {
             .buttonStyle(.plain)
             .help("Pick a day")
             .popover(isPresented: $showingMonth, arrowEdge: .bottom) {
-                MonthPicker(month: day, selected: day, store: store) { picked in
+                MonthPicker(month: shownDay, selected: shownDay, store: store) { picked in
                     day = picked
                     showingMonth = false
                 }
+                // Keyed on the day so reopening after stepping can't show a
+                // month the button beside it disagrees with.
+                .id(shownDay)
             }
 
             Button { step(1) } label: { Image(systemName: "chevron.right") }
@@ -135,7 +163,7 @@ struct TodayView: View {
 
     private func step(_ days: Int) {
         withAnimation(DesignSystem.motion(.easeOut(duration: DesignSystem.motionQuick))) {
-            day = Timeline.day(day, steppedBy: days)
+            day = Timeline.day(shownDay, steppedBy: days)
         }
     }
 
@@ -155,10 +183,15 @@ struct TodayView: View {
 
     private func row(_ item: TimelineItem) -> some View {
         HStack(alignment: .top, spacing: 10) {
+            // Fixed width with a hard line limit: a 12-hour locale's "10:42 PM"
+            // (and worse, "10:42 p. m.") wraps to two lines otherwise and ragged
+            // the whole gutter.
             Text(item.occurredAt.formatted(date: .omitted, time: .shortened))
                 .font(.system(size: DesignSystem.ChromeText.secondary))
                 .foregroundStyle(.tertiary)
-                .frame(width: 44, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 58, alignment: .trailing)
                 .padding(.top, item.isAnchored ? 10 : 1)
 
             Group {
@@ -225,6 +258,7 @@ struct TodayView: View {
             }
             metaRow(for: .note(n)) {
                 Text(noteSubtitle(n))
+                    .lineLimit(1)
             }
         }
     }
@@ -308,8 +342,7 @@ struct TodayView: View {
     /// Results replace the timeline, grouped by category and dated within each.
     /// Same two weights as the stream, so a result reads like the thing it is.
     @ViewBuilder
-    private var resultsView: some View {
-        let grouped = results
+    private func resultsView(_ grouped: [SearchCategory: [SearchResult]]) -> some View {
         if Search.total(grouped) == 0 {
             ContentUnavailableView.search(text: query)
         } else {
@@ -338,10 +371,13 @@ struct TodayView: View {
 
     private func resultRow(_ result: SearchResult) -> some View {
         HStack(alignment: .top, spacing: 10) {
+            // Same reason, plus a previous year's label carries its year.
             Text(Timeline.dayLabel(for: result.date))
                 .font(.system(size: DesignSystem.ChromeText.secondary))
                 .foregroundStyle(.tertiary)
-                .frame(width: 62, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 78, alignment: .trailing)
                 .padding(.top, result.isAnchored ? 9 : 1)
 
             Group {
@@ -403,13 +439,17 @@ struct TodayView: View {
             Image(systemName: "calendar")
                 .font(.system(size: DesignSystem.ChromeText.icon))
                 .foregroundStyle(.tertiary)
-            Text(Timeline.dayLabel(for: day) == "Today" ? "Nothing captured yet" : "Nothing on this day")
+            Text(isShowingToday ? "Nothing captured yet" : "Nothing on this day")
                 .font(.headline)
             HStack(spacing: 6) {
                 Text("Hold")
                 keycap(ModelManager.availableHotkeys
                     .first { $0.id == ModelManager.selectedHotkeyID }?.symbol ?? "⌥Space")
-                Text("and speak — it pastes where you're typing and lands here.")
+                // On a past day, "lands here" would be a lie — a dictation lands
+                // on today, and the stream jumps there when it does.
+                Text(isShowingToday
+                     ? "and speak — your dictation pastes where you're typing and lands here."
+                     : "and speak — your dictation lands on today.")
             }
             .font(.system(size: DesignSystem.ChromeText.control))
             .foregroundStyle(.secondary)
@@ -453,9 +493,12 @@ struct TodayView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// The line *under* a note card's title — what the note says next, not the
+    /// title again.
     private func noteSubtitle(_ n: Note) -> String {
-        let body = NotesView.preview(n.text)
-        return body == "New note" ? "Empty note" : body
+        let body = NotesView.bodyPreview(n.text)
+        if !body.isEmpty { return body }
+        return n.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty note" : "Note"
     }
 
     private func copy(_ item: TimelineItem) {

@@ -313,10 +313,22 @@ dictation is kept for recovery and reuse, so hiding four fifths of it behind an
 ellipsis and making you open a reader to see it was the wrong shape. Don't add a
 line limit to the dictation line without re-reading the decision record.
 
-- **Scoped to one day.** Chevrons step a day; the day label opens a month
-  popover with a dot on every day that has something, so reaching older work
-  isn't clicking backwards through empty days. The stream opens on the most
-  recent day that *has* content (once per window), because a blank page on a
+- **Scoped to one day, and the day is owned by the SHELL, not the pane.** The
+  detail `switch` is a `_ConditionalContent`: leaving a branch destroys its
+  `@State`. A day kept inside `TodayView` silently reset on every trip through
+  Notes or Pinned, and a jump *into* Today (from the Pinned board) had nowhere
+  to land — `TranscriptionsView.todayDay` is the fix, and the same trap already
+  bit `FeedbackDraft`. Don't move pane state back down.
+- **The stream follows new work to its day.** Dictating while the stream sits on
+  an older day — which is the *default* opening state after a quiet couple of
+  days, and what any window left open past midnight becomes — otherwise pasted
+  the text into your editor and showed nothing here. `onChange` on the newest
+  transcript jumps to the day it landed on. This was the most likely real-world
+  confusion in the redesign.
+- Chevrons step a day; the day label opens a month popover with a dot on every
+  day that has something, so reaching older work isn't clicking backwards
+  through empty days. The stream opens on the most recent day that *has*
+  content (`Timeline.openingDay`, once per window), because a blank page on a
   quiet morning is a worse first impression than yesterday's work.
 - **All the day logic is pure and tested** in
   [Storage/Timeline.swift](Shhhcribble/Storage/Timeline.swift), with an injected
