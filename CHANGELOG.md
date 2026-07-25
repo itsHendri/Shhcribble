@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Calls are documents now.** A transcribed call is no longer filed with your
+  quick dictations — it lives in **Documents** alongside your uploads, with the
+  transcript-and-summary reader. Calls you've already transcribed move across
+  automatically.
 - **Pin what matters.** Notes *and* documents can now be pinned. Pinned items
   rise to a **Pinned** group at the top of their list and collect on the
   **Pinned** tab, so the things you keep coming back to are one click away.
