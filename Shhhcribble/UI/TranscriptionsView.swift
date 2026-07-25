@@ -7,12 +7,11 @@ import AppKit
 /// the titlebar always reading "Shhhcribble" (the rail's active state is the
 /// location indicator, so the title never restates it).
 ///
-/// **Phase 1 is the shell only.** Today still shows the pre-redesign
-/// transcripts master-detail (the chronological timeline is phase 4), Documents
-/// is that same reader filtered to file-sourced transcripts (a real source
-/// category — including call captures — is phase 3), and Pinned indexes pinned
-/// notes (the cross-type board is phase 6). Read the decision record before
-/// changing any of it.
+/// **Two panes are still stand-ins.** Today shows the pre-redesign transcripts
+/// master-detail (the chronological timeline is phase 4), and Documents is that
+/// same reader over file-sourced transcripts (a real source category — call
+/// captures included — is phase 3). Pinned is real. Read the decision record
+/// before changing any of it.
 struct TranscriptionsView: View {
     @ObservedObject var store: TranscriptStore
     @ObservedObject var fileTranscriber: FileTranscriber
@@ -242,10 +241,17 @@ struct TranscriptionsView: View {
                 section = .notes
             },
             onOpenTranscript: { id in
-                // Documents is where a pinned transcript reads; Today would show
-                // it too, but the board is a library surface, not a timeline one.
-                documentID = id
-                section = .documents
+                // Open it where it's actually listed: Documents lists file
+                // imports only, so a pinned dictation has to go to Today or it
+                // would land on a reader with no matching row beside it — and,
+                // with no imports at all, next to an "empty" list.
+                if store.transcripts.first(where: { $0.id == id })?.source == .file {
+                    documentID = id
+                    section = .documents
+                } else {
+                    selectedID = id
+                    section = .today
+                }
             }
         )
     }
@@ -372,21 +378,20 @@ private struct TranscriptListPane: View {
                     progressBanner
                         .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
                 }
-                // Pinned rise to the top under their own header; the group is
-                // hidden entirely when nothing is pinned, so an unused feature
-                // doesn't take up permanent space.
+                // Pinned rise to the top under their own header. Always two
+                // sections so pinning the first item doesn't restructure the
+                // list; the header appears only when the group has rows, so an
+                // unused feature takes up no permanent space.
                 let pinned = items.filter(\.pinned)
-                if !pinned.isEmpty {
-                    Section {
-                        ForEach(pinned) { row($0) }
-                    } header: {
+                Section {
+                    ForEach(pinned) { row($0) }
+                } header: {
+                    if !pinned.isEmpty {
                         Text("Pinned").font(.sectionTitle)
                     }
-                    Section {
-                        ForEach(items.filter { !$0.pinned }) { row($0) }
-                    }
-                } else {
-                    ForEach(items) { row($0) }
+                }
+                Section {
+                    ForEach(items.filter { !$0.pinned }) { row($0) }
                 }
             }
             .overlay {
@@ -518,9 +523,9 @@ private struct PinnedBoard: View {
         // Read once per pass — each property filters and sorts.
         let stuck = store.stuckNotes
         let notes = store.pinnedNotes
-        let documents = store.pinnedTranscripts
+        let transcripts = store.pinnedTranscripts
         return Group {
-            if stuck.isEmpty && notes.isEmpty && documents.isEmpty {
+            if stuck.isEmpty && notes.isEmpty && transcripts.isEmpty {
                 ContentUnavailableView(
                     "Nothing pinned yet",
                     systemImage: "pin",
@@ -534,10 +539,10 @@ private struct PinnedBoard: View {
                                 ForEach(stuck) { noteCard($0, showsUnstick: true) }
                             }
                         }
-                        if !notes.isEmpty || !documents.isEmpty {
-                            section("Pinned · \(notes.count + documents.count)", icon: "pin") {
+                        if !notes.isEmpty || !transcripts.isEmpty {
+                            section("Pinned · \(notes.count + transcripts.count)", icon: "pin") {
                                 ForEach(notes) { noteCard($0, showsUnstick: false) }
-                                ForEach(documents) { documentCard($0) }
+                                ForEach(transcripts) { transcriptCard($0) }
                             }
                         }
                     }
@@ -567,19 +572,25 @@ private struct PinnedBoard: View {
                     // A pinned note that's also on screen carries the screen
                     // glyph, so the grid says which of the two it is.
                     badge: showsUnstick ? nil : (note.stuck ? "macwindow" : nil),
-                    action: showsUnstick ? ("Unstick", { store.setNoteStuck(id: note.id, stuck: false) }) : nil,
+                    action: showsUnstick
+                        ? ("Unstick", "Take this note off your screen (it stays here)",
+                           { store.setNoteStuck(id: note.id, stuck: false) })
+                        : nil,
                     open: { onOpenNote(note.id) })
             .accessibilityLabel("Pinned note: \(title)")
     }
 
-    private func documentCard(_ transcript: Transcript) -> some View {
-        card(title: transcript.menuTitle, type: "Document", badge: nil, action: nil,
-             open: { onOpenTranscript(transcript.id) })
-            .accessibilityLabel("Pinned document: \(transcript.menuTitle)")
+    private func transcriptCard(_ transcript: Transcript) -> some View {
+        // A quick dictation is not a document — phase 3 gives the two a real
+        // source category; until then the label follows what the row actually is.
+        let type = transcript.source == .file ? "Document" : "Dictation"
+        return card(title: transcript.menuTitle, type: type, badge: nil, action: nil,
+                    open: { onOpenTranscript(transcript.id) })
+            .accessibilityLabel("Pinned \(type.lowercased()): \(transcript.menuTitle)")
     }
 
     private func card(title: String, type: String, badge: String?,
-                      action: (label: String, run: () -> Void)?,
+                      action: (label: String, help: String, run: () -> Void)?,
                       open: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -598,7 +609,7 @@ private struct PinnedBoard: View {
                 if let action {
                     Button(action.label) { action.run() }
                         .controlSize(.small)
-                        .help("Take this note off your screen (it stays here)")
+                        .help(action.help)
                 }
             }
         }
@@ -634,11 +645,21 @@ private struct TranscriptRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text(transcript.menuTitle)
-                .font(.system(size: 13, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 5) {
+                Text(transcript.menuTitle)
+                    .font(.system(size: DesignSystem.ChromeText.body, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                // Same marker the note rows carry, so a pinned row is still
+                // identifiable when it's scrolled away from its group header.
+                if transcript.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: DesignSystem.ChromeText.micro))
+                        .foregroundStyle(.tertiary)
+                        .help("Pinned")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             trailing
                 .frame(width: trailingWidth, height: 24, alignment: .trailing)
         }
@@ -738,7 +759,7 @@ private struct TranscriptDetail: View {
             Button("Delete", role: .destructive) { store.delete(transcript.id) }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This permanently removes it from Shhhcribble. Any .txt file you saved isn't affected.")
+            Text("This permanently removes it from Shhhcribble. A transcribed file's .txt sidecar isn't affected.")
         }
     }
 

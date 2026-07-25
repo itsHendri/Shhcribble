@@ -64,19 +64,19 @@ struct NotesView: View {
         VStack(spacing: 0) {
             SearchPill(text: $searchText, prompt: "Search notes")
             List {
-                // The Pinned group only appears when something is in it — an
-                // empty header would be a permanent reminder of a feature you
-                // aren't using.
-                if !pinnedMatches.isEmpty {
-                    Section {
-                        ForEach(pinnedMatches) { row($0) }
-                    } header: {
+                // Always two sections, so pinning the first item doesn't
+                // restructure the whole list and churn every row's identity.
+                // An empty section draws nothing; the header appears only when
+                // the group has rows, since an empty "Pinned" heading would be
+                // a permanent reminder of a feature you aren't using.
+                Section {
+                    ForEach(pinnedMatches) { row($0) }
+                } header: {
+                    if !pinnedMatches.isEmpty {
                         Text("Pinned").font(.sectionTitle)
                     }
-                    Section {
-                        ForEach(unpinnedMatches) { row($0) }
-                    }
-                } else {
+                }
+                Section {
                     ForEach(unpinnedMatches) { row($0) }
                 }
             }
@@ -128,7 +128,7 @@ struct NotesView: View {
     @ViewBuilder
     private var detailColumn: some View {
         if let note = selected {
-            NoteDetail(note: note, store: store, onCopy: { copyNote(note) })
+            NoteDetail(note: note, store: store, onCopy: { copy(text: $0) })
                 .id(note.id)
         } else {
             ContentUnavailableView(
@@ -164,10 +164,12 @@ struct NotesView: View {
         selectedID = note.id
     }
 
-    private func copyNote(_ note: Note) {
+    private func copyNote(_ note: Note) { copy(text: note.text) }
+
+    private func copy(text: String) {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(note.text, forType: .string)
+        pb.setString(text, forType: .string)
         copiedToastTask?.cancel()
         withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
         copiedToastTask = Task { @MainActor in
@@ -266,7 +268,7 @@ private struct NoteRow: View {
 private struct NoteDetail: View {
     let note: Note
     @ObservedObject var store: TranscriptStore
-    var onCopy: () -> Void
+    var onCopy: (String) -> Void
 
     @State private var attributed = NSAttributedString(string: "")
     @State private var saveTask: Task<Void, Never>?
@@ -291,6 +293,8 @@ private struct NoteDetail: View {
                 attributed: $attributed,
                 hasPendingEdit: $hasPendingEdit,
                 font: Self.editorFont,
+                // Room to scroll the last line clear of the stick capsule.
+                bottomInset: 52,
                 onFocusChange: { focused in if !focused { saveNow() } },
                 onUserEdit: { scheduleSave() }
             )
@@ -336,7 +340,10 @@ private struct NoteDetail: View {
             Spacer()
             HStack(spacing: 6) {
                 pinButton
-                Button(action: { saveNow(); onCopy() }) { Image(systemName: "doc.on.doc") }
+                // Copies what's on screen: the store lags typing by the save
+                // debounce, so a copy sourced from the stored row would hand
+                // back the text as it was up to 700 ms ago.
+                Button(action: { saveNow(); onCopy(attributed.string) }) { Image(systemName: "doc.on.doc") }
                     .buttonStyle(.borderless)
                     .help("Copy note")
                     .accessibilityLabel("Copy note")
@@ -355,6 +362,11 @@ private struct NoteDetail: View {
     /// different lifecycle — that's `stickCapsule`.
     private var pinButton: some View {
         Button {
+            // Flush first, like Copy: these write the whole row back from the
+            // store's copy, and the sticky that stick creates is built from it —
+            // so an unflushed keystroke would show up blank on the new sticky
+            // and then be overwritten by it.
+            saveNow()
             store.setNotePinned(id: note.id, pinned: !note.pinned)
         } label: {
             Image(systemName: note.pinned ? "pin.fill" : "pin")
@@ -370,10 +382,12 @@ private struct NoteDetail: View {
     /// needed elsewhere. Sticking auto-pins — see `TranscriptStore.setNoteStuck`.
     private var stickCapsule: some View {
         Button {
+            saveNow()
             store.setNoteStuck(id: note.id, stuck: !note.stuck)
         } label: {
+            // The additive glyph belongs to the additive verb.
             Label(note.stuck ? "Unstick" : "Stick to screen",
-                  systemImage: note.stuck ? "macwindow.badge.plus" : "macwindow")
+                  systemImage: note.stuck ? "macwindow" : "macwindow.badge.plus")
                 .font(.callout).fontWeight(.medium)
                 .padding(.horizontal, 16).padding(.vertical, 9)
                 .background(.regularMaterial, in: Capsule())

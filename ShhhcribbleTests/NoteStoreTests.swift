@@ -380,6 +380,60 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertTrue(TranscriptStore(path: path).transcripts[0].pinned)
     }
 
+    /// The v10 step must be all-or-nothing. If the `stuck` column could land
+    /// without the backfill and the version bump, the *next launch* would re-run
+    /// `UPDATE notes SET stuck = pinned` over a whole session of the user's own
+    /// pin and stick choices — popping every favourite onto the screen and
+    /// taking down any sticky they'd deliberately unpinned. This simulates that
+    /// partial state directly: `stuck` present, `user_version` still 9, and the
+    /// two flags already diverged.
+    func testInterruptedV10DoesNotClobberDivergedFlags() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        let ddl = """
+        CREATE TABLE notes (
+            id TEXT PRIMARY KEY, createdAt REAL NOT NULL, modifiedAt REAL NOT NULL,
+            text TEXT NOT NULL, isTask INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
+            completedAt REAL, dueAt REAL, reminderFiredAt REAL, richText BLOB,
+            pinned INTEGER NOT NULL DEFAULT 0, stuck INTEGER NOT NULL DEFAULT 0,
+            pinX REAL, pinY REAL, pinW REAL, pinH REAL,
+            sourceTranscriptID TEXT, sourceActionItem TEXT, position INTEGER NOT NULL
+        );
+        """
+        XCTAssertEqual(sqlite3_exec(db, ddl, nil, nil, nil), SQLITE_OK)
+        let favourite = UUID().uuidString      // pinned only — must stay off screen
+        let onScreen = UUID().uuidString       // stuck but deliberately unpinned
+        let insert = """
+        INSERT INTO notes (id, createdAt, modifiedAt, text, pinned, stuck, position)
+        VALUES ('\(favourite)', 100, 100, 'important, not urgent', 1, 0, 0),
+               ('\(onScreen)', 100, 100, 'on screen, unpinned by hand', 0, 1, 1);
+        """
+        XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = 9;", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+
+        let store = TranscriptStore(path: path)
+        let pinnedOnly = try XCTUnwrap(store.notes.first { $0.id.uuidString == favourite })
+        XCTAssertFalse(pinnedOnly.stuck, "a favourite must not be thrown onto the screen by a re-run backfill")
+        let stuckOnly = try XCTUnwrap(store.notes.first { $0.id.uuidString == onScreen })
+        XCTAssertTrue(stuckOnly.stuck, "a deliberately unpinned sticky must stay on screen")
+        XCTAssertTrue(store.schemaIsCurrent, "and the migration must still complete")
+    }
+
+    /// `insert` is INSERT OR REPLACE over every column, so a field it forgets is
+    /// a field that silently resets. Pin state is the newest such field.
+    func testAddedTranscriptKeepsItsPinState() {
+        let store = makeStore()
+        var t = Transcript(id: UUID(), createdAt: Date(), source: .file,
+                           title: "t", text: "body", rawText: "raw")
+        t.pinned = true
+        store.add(t)
+        XCTAssertEqual(store.pinnedTranscripts.map(\.id), [t.id])
+    }
+
     // MARK: - Transcript-notes migration
 
     func testTranscriptNotesMigrateIntoStandaloneNotes() {

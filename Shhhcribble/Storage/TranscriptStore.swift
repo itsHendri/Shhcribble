@@ -303,6 +303,9 @@ final class TranscriptStore: ObservableObject {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: Self.dictionarySeedFlagKey) else { return }
         guard db != nil else { return }   // DB not open — retry next launch
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.dictionarySeedFlagKey) }
         guard dictionaryEntries.isEmpty else { return }
 
@@ -452,6 +455,9 @@ final class TranscriptStore: ObservableObject {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: Self.stylesSeedFlagKey) else { return }
         guard db != nil else { return }   // DB not open — retry next launch
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.stylesSeedFlagKey) }
         guard styles.isEmpty else { return }
 
@@ -719,6 +725,9 @@ final class TranscriptStore: ObservableObject {
         // If the DB failed to open, don't mark migrated — retry next launch so
         // the legacy history isn't silently marked done and lost.
         guard db != nil else { return }
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.migrationFlagKey) }
 
         guard let data = defaults.data(forKey: "transcriptionHistory"),
@@ -759,6 +768,9 @@ final class TranscriptStore: ObservableObject {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: Self.transcriptNotesMigrationFlagKey) else { return }
         guard db != nil else { return }   // DB not open — retry next launch
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.transcriptNotesMigrationFlagKey) }
 
         let withNotes = transcripts.filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -796,6 +808,9 @@ final class TranscriptStore: ObservableObject {
         guard !defaults.bool(forKey: Self.dictionaryMigrationFlagKey) else { return }
         // If the DB failed to open, don't mark migrated — retry next launch.
         guard db != nil else { return }
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.dictionaryMigrationFlagKey) }
 
         guard let data = defaults.data(forKey: "dictionaryEntries"),
@@ -924,6 +939,20 @@ final class TranscriptStore: ObservableObject {
     /// present** — a step interrupted partway (e.g. an `ALTER` failing on a full
     /// disk) leaves the version unbumped and `return`s, so the whole sequence
     /// retries and heals on the next launch instead of half-migrating.
+    /// The version `migrateSchema` brings a DB up to. The loaders name columns
+    /// from this version, so anything short of it means the loaded arrays can't
+    /// be trusted — see `schemaIsCurrent`.
+    static let latestSchemaVersion: Int32 = 11
+
+    /// False when a migration step failed and the DB is behind
+    /// `latestSchemaVersion`. **Every one-shot migration guards on this**: they
+    /// filter the in-memory arrays, which a stale schema leaves empty (the
+    /// loaders' `SELECT` names a column the DB doesn't have and returns no
+    /// rows), and then set a UserDefaults flag that never runs again — so
+    /// running one against an unloaded store would permanently skip real work
+    /// (a user's per-transcript notes, say) while reporting success.
+    private(set) var schemaIsCurrent = false
+
     private func migrateSchema() {
         guard db != nil else { return }
         var version: Int32 = 0
@@ -1025,18 +1054,32 @@ final class TranscriptStore: ObservableObject {
             // existing sticky both stuck AND pinned — which is exactly what the
             // auto-pin rule says it should be, so no row needs correcting.
             //
-            // The backfill re-runs if the version bump below fails, which is
-            // harmless: the UI hasn't opened yet at this point, so the two flags
-            // cannot have diverged since.
-            guard addColumns([("stuck", "INTEGER NOT NULL DEFAULT 0")], to: "notes") else {
-                log.error("Schema v10 migration incomplete; leaving user_version at \(version) to retry next launch.")
+            // **This step must be all-or-nothing**, which is why it's the first
+            // one wrapped in a transaction. The backfill is a one-time read of
+            // `pinned` as if it still meant "stuck": if the column landed but
+            // the backfill or the version bump didn't, the *next launch* would
+            // re-run it over a session's worth of the user's own pin and stick
+            // choices — popping every favourite onto the screen and taking down
+            // any sticky they'd deliberately unpinned. A whole session sits
+            // between the failure and the retry, so "nothing can have diverged"
+            // is not true here. SQLite DDL and `PRAGMA user_version` are both
+            // transactional, so one commit covers all three.
+            let hadStuckAlready = existingColumns(of: "notes").contains("stuck")
+            let migrated = withTransaction {
+                guard addColumns([("stuck", "INTEGER NOT NULL DEFAULT 0")], to: "notes") else { return false }
+                // Belt and braces against a partial state written by an earlier
+                // build of this migration: if the column was already there, we
+                // can't tell a pre-upgrade `pinned` from a post-upgrade one, and
+                // silently losing stickies beats overwriting deliberate choices.
+                if !hadStuckAlready {
+                    guard exec("UPDATE notes SET stuck = pinned;", bind: nil) else { return false }
+                }
+                return exec("PRAGMA user_version = 10;", bind: nil)
+            }
+            guard migrated else {
+                log.error("Schema v10 migration rolled back; leaving user_version at \(version) to retry next launch.")
                 return
             }
-            guard exec("UPDATE notes SET stuck = pinned;", bind: nil) else {
-                log.error("Schema v10 backfill failed; leaving user_version at \(version) to retry next launch.")
-                return
-            }
-            exec("PRAGMA user_version = 10;", bind: nil)
             log.notice("Migrated schema to v10 (pin/stick split).")
             version = 10
         }
@@ -1044,14 +1087,34 @@ final class TranscriptStore: ObservableObject {
         if version < 11 {
             // Transcripts join the pin (importance) lifecycle — no `stuck`
             // counterpart, since a document isn't something you put on screen.
-            guard addColumns([("pinned", "INTEGER NOT NULL DEFAULT 0")]) else {
-                log.error("Schema v11 migration incomplete; leaving user_version at \(version) to retry next launch.")
+            let migrated = withTransaction {
+                guard addColumns([("pinned", "INTEGER NOT NULL DEFAULT 0")]) else { return false }
+                return exec("PRAGMA user_version = 11;", bind: nil)
+            }
+            guard migrated else {
+                log.error("Schema v11 migration rolled back; leaving user_version at \(version) to retry next launch.")
                 return
             }
-            exec("PRAGMA user_version = 11;", bind: nil)
             log.notice("Migrated schema to v11 (pinned transcripts).")
             version = 11
         }
+
+        schemaIsCurrent = version == Self.latestSchemaVersion
+    }
+
+    /// Run `body` inside a transaction, committing only if it returns true.
+    /// Used by migration steps that must not land halfway — see v10.
+    private func withTransaction(_ body: () -> Bool) -> Bool {
+        guard exec("BEGIN IMMEDIATE;", bind: nil) else { return false }
+        guard body() else {
+            exec("ROLLBACK;", bind: nil)
+            return false
+        }
+        guard exec("COMMIT;", bind: nil) else {
+            exec("ROLLBACK;", bind: nil)
+            return false
+        }
+        return true
     }
 
     /// Add each column to `table` only if it's missing (idempotent, so a
@@ -1079,19 +1142,21 @@ final class TranscriptStore: ObservableObject {
         return names
     }
 
-    // NOTE: `INSERT OR REPLACE` writes all 13 columns, so calling this with an
-    // already-stored `id` would overwrite its summary AND notes columns with the
-    // passed Transcript's values (nil/empty for a freshly built one). Safe today
-    // — every `add()` path mints a new UUID, and summary/notes are written via
-    // `updateSummary` / `updateNotes` (UPDATE, not insert). A future "edit/re-save"
-    // path must NOT round-trip an existing row through `add()`/`insert()` or it
-    // will wipe both; add a dedicated update instead.
+    // NOTE: `INSERT OR REPLACE` writes every column, so calling this with an
+    // already-stored `id` overwrites its summary, notes AND pinned state with
+    // the passed Transcript's values (nil/empty/false for a freshly built one).
+    // Safe today — every `add()` path mints a new UUID, and those fields are
+    // written via `updateSummary` / `updateNotes` / `setTranscriptPinned`
+    // (UPDATE, not insert). A future "edit/re-save" path must NOT round-trip an
+    // existing row through `add()`/`insert()` or it will wipe them; add a
+    // dedicated update instead. **Keep this list in step with the columns** —
+    // a field that's silently not written here is a field that vanishes.
     @discardableResult
     private func insert(_ t: Transcript) -> Bool {
         exec("""
         INSERT OR REPLACE INTO transcripts
-        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID, pinned)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """) { stmt in
             sqlite3_bind_text(stmt, 1, t.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, t.createdAt.timeIntervalSince1970)
@@ -1108,6 +1173,7 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalText(stmt, 13, t.notes.isEmpty ? nil : t.notes)
             self.bindOptionalText(stmt, 14, t.styleName)
             self.bindOptionalText(stmt, 15, t.styleID)
+            sqlite3_bind_int(stmt, 16, t.pinned ? 1 : 0)
         }
     }
 
@@ -1236,15 +1302,21 @@ final class TranscriptStore: ObservableObject {
         return true
     }
 
-    private func forEachRow(_ sql: String, _ handle: (OpaquePointer?) -> Void) {
-        guard let db else { return }
+    /// Returns false when the statement couldn't even be prepared — which for a
+    /// loader means "no rows" and "the table wouldn't answer" are the same
+    /// silence, and an intact library reads as empty. Callers that populate a
+    /// `@Published` array check it so the failure is at least in the log.
+    @discardableResult
+    private func forEachRow(_ sql: String, _ handle: (OpaquePointer?) -> Void) -> Bool {
+        guard let db else { return false }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             log.error("prepare failed: \(String(cString: sqlite3_errmsg(db)))")
-            return
+            return false
         }
         defer { sqlite3_finalize(stmt) }
         while sqlite3_step(stmt) == SQLITE_ROW { handle(stmt) }
+        return true
     }
 
     private func bindOptionalText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String?) {
