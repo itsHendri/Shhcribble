@@ -594,7 +594,12 @@ private struct PinnedBoard: View {
 
     private func noteCard(_ note: Note, showsUnstick: Bool) -> some View {
         let title = NotesView.preview(note.text)
-        return card(title: title, type: "Note",
+        // The strip is all notes, so a "Note" pill there says nothing; it earns
+        // its place in the grid, which mixes types. The strip spends that room
+        // on a preview line instead.
+        return card(title: title,
+                    type: showsUnstick ? nil : "Note",
+                    preview: showsUnstick ? NotesView.bodyPreview(note.text, limit: 60) : "",
                     // A pinned note that's also on screen carries the screen
                     // glyph, so the grid says which of the two it is.
                     badge: showsUnstick ? nil : (note.stuck ? "macwindow" : nil),
@@ -608,12 +613,12 @@ private struct PinnedBoard: View {
 
     private func transcriptCard(_ transcript: Transcript) -> some View {
         let type = transcript.source.isDocument ? "Document" : "Dictation"
-        return card(title: transcript.menuTitle, type: type, badge: nil, action: nil,
+        return card(title: transcript.menuTitle, type: type, preview: "", badge: nil, action: nil,
                     open: { onOpenTranscript(transcript.id) })
             .accessibilityLabel("Pinned \(type.lowercased()): \(transcript.menuTitle)")
     }
 
-    private func card(title: String, type: String, badge: String?,
+    private func card(title: String, type: String?, preview: String, badge: String?,
                       action: (label: String, help: String, run: () -> Void)?,
                       open: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -621,8 +626,15 @@ private struct PinnedBoard: View {
                 .font(.system(size: DesignSystem.ChromeText.body, weight: .medium))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if !preview.isEmpty {
+                Text(preview)
+                    .font(.system(size: DesignSystem.ChromeText.secondary))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack(spacing: 6) {
-                TagCapsule(type)
+                if let type { TagCapsule(type) }
                 if let badge {
                     Image(systemName: badge)
                         .font(.system(size: DesignSystem.ChromeText.secondary))

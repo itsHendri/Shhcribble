@@ -32,12 +32,17 @@ Rail (five items, every screen): **Today · Notes · Documents · Pinned · ⌵ 
 Settings**. The titlebar always reads "Shhhcribble" — the rail's active state
 is the location indicator; the title never restates it.
 
-- **Today** — single chronological stream. Anchored (bordered card): notes and
-  documents, title + type pill + preview. Passing (borderless line): dictations,
-  **always fully expanded — no truncation** (day grouping + scroll carry the
-  length; revisit only if it ever feels overwhelming). Hover reveals per-item
-  actions: copy (accent), add-to-note, delete. Date: chevrons step a day; the
-  day label opens a month popover with dots on non-empty days + "Jump to today".
+- **Today** — single chronological stream, **scoped to one day**. Anchored
+  (bordered card): notes and documents, title + type pill + preview. Passing
+  (borderless line): dictations, **always fully expanded — no truncation**
+  (scroll carries the length; revisit only if it ever feels overwhelming).
+  **"No truncation" binds the stream, not every surface** — search results trim
+  a dictation, because a list of matches is a different job from the record of
+  what you said. Hover reveals per-item actions: copy (accent) and delete on
+  everything, **add-to-note on dictations only** (a note already is one, and a
+  document keeps its own reader). Date: chevrons step a day; the day label opens
+  a month popover with dots on non-empty days + "Jump to today"; the date
+  navigator steps aside while a search is active, since results span every day.
 - **Notes** — master-detail. List groups: Pinned, then day groups ("Today",
   "Earlier this week", …). Detail: rich-text editor (existing type ramp),
   header actions **pin · copy · delete** only. Embedded dictation blocks: 2pt
@@ -83,16 +88,38 @@ Today's `Note.pinned` conflated two lifecycles. Split:
   list), Upload audio… (documents list / Today empty state), Stick/Unstick
   (note editor). One capsule per column, never more.
 - **Search**: only Today's "Search everything" crosses categories — results
-  replace the timeline, grouped by category (library order) then dated, matches
-  highlighted, Esc/✕ restores the day. Notes/Documents search pills filter
-  their own lists inline, no custom results view.
+  replace the timeline, grouped **Notes → Dictations → Documents** (was written
+  as "library order", which is undefined for dictations: they have no rail item)
+  then dated, matches highlighted, Esc/✕ restores the day. Notes/Documents
+  search pills filter their own lists inline, no custom results view.
 - **Empty states** teach the pane's verb with a real CTA; Today teaches the
   hotkey (keycap style); Pinned carries the one-sentence pin-vs-stick
-  explainer.
+  explainer. Today also has a *quiet-day* variant ("Nothing on this day") for a
+  past day that happens to be empty — distinct from the library-empty state.
+  Capsule labels follow macOS title case ("Add Note", "Upload Audio…") rather
+  than the sentence case used in this document's prose.
 - Action rows stay minimal: no download anywhere (copy covers it), no reveal.
 - All existing DesignSystem tokens carry over (neutral fills over primary,
   radius roles, chrome type ramp). Selection stays neutral; accent only for
   links, active copy glyph, and match highlights.
+
+## Open questions (raised by the 2026-07-25 build; need a ruling)
+
+- **Today's empty state: one capsule or two?** The cross-cutting rule says "one
+  capsule per column, never more", but wireframe screen 7 draws *two* on Today
+  (Add note + Upload audio…). Built with one (Upload Audio…), which follows the
+  rule — but leaves an empty Today with no route to a note, which is probably
+  why the second capsule appeared. Either relax the rule for this pane or accept
+  that a first note is started from the Notes tab.
+- **Can a dictation be pinned?** The prose scopes pin to "notes and documents",
+  but schema v11 put `pinned` on every transcript and the board renders one
+  correctly if it exists. No UI currently offers it (the pin lives in the
+  Documents reader). Decide whether to widen the prose or narrow the data.
+- **Embedded dictation blocks** (2pt left rule, quoted text, "From a dictation,
+  <date>" with mic glyph) are specified for Notes but **not built**: the
+  add-to-note action copies the text and links the source, and the note header
+  shows a "From transcript" tag instead. The left rule needs custom text-view
+  drawing; the attribution line is cheap. Scope it deliberately.
 
 ## Explicitly deferred (documented so they don't sneak in)
 

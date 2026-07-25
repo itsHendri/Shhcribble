@@ -179,6 +179,19 @@ struct NotesView: View {
         }
     }
 
+    /// What the note says *after* its first line — the preview that goes under a
+    /// title, so a card doesn't print the same line twice. Empty when the note
+    /// is a single line, in which case the caller shows nothing rather than a
+    /// duplicate.
+    static func bodyPreview(_ text: String, limit: Int = 80) -> String {
+        let rest = text.drop { !$0.isNewline }.drop { $0.isNewline }
+        let flattened = rest.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        guard !flattened.isEmpty else { return "" }
+        let prefix = String(flattened.prefix(limit))
+        return flattened.count > limit ? "\(prefix)…" : prefix
+    }
+
     /// First line, capped, for row display and confirms. Takes the prefix rather
     /// than `split`ting — this runs per visible row, and a note holding a pasted
     /// transcript would otherwise allocate an array of every one of its lines
