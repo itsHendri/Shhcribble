@@ -626,6 +626,29 @@ final class TranscriptStore: ObservableObject {
         }
     }
 
+    /// Transcripts that belong in the **Documents** tab — long-form material you
+    /// keep, as opposed to the quick dictations that pass through Today.
+    ///
+    /// Today that means file imports only. Call captures still store as
+    /// `.dictation` with a "Call —" title (the v1 gap), so they don't qualify
+    /// yet; **redesign phase 3 gives them a real source category, and this
+    /// method is where that change lands** — one tested place, rather than a
+    /// predicate spread across the views.
+    func documents(matching query: String) -> [Transcript] {
+        matching(query).filter { $0.source == .file }
+    }
+
+    /// Notes the user pinned. Pin (importance) and stick (urgency) are still the
+    /// one flag; **redesign phase 2 splits them here**, at which point this gains
+    /// a `stuckNotes` sibling and the callers keep working.
+    var pinnedNotes: [Note] {
+        // Tie-break on id: `sorted(by:)` isn't stable, so equal timestamps could
+        // otherwise reorder between renders and churn `ForEach` identity.
+        notes.filter(\.pinned).sorted {
+            ($0.modifiedAt, $0.id.uuidString) > ($1.modifiedAt, $1.id.uuidString)
+        }
+    }
+
     /// First ~60 chars of the first line, for use as a dictation title.
     static func title(from text: String) -> String {
         let firstLine = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text

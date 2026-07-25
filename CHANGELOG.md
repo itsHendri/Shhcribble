@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **New Studio navigation.** The sidebar is now five places — **Today · Notes ·
+  Documents · Pinned · Settings** — and the window title always reads
+  "Shhhcribble", so the sidebar alone tells you where you are. This is the first
+  step of a larger redesign; Today, Documents and Pinned fill in over the next
+  few updates.
+- **Documents.** Files and recordings you upload now have their own place,
+  separate from everyday dictations, with the transcript-and-summary reader.
+- **Pinned.** A single place to see every note you've pinned to your screen —
+  and unpin one without hunting for its sticky across desktops.
+- **Settings is now its own environment.** One sidebar item opens a settings
+  page with **Preferences · Styles · Dictionary · Feedback** down its side, plus
+  **Check for updates** and **Quit** at the bottom. Styles, Dictionary and
+  Feedback moved in from the main sidebar; Quit is still on the menu-bar icon's
+  right-click menu too.
+
 ## [1.13.0] - 2026-07-24
 
 ### Added

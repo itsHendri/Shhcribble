@@ -197,6 +197,48 @@ This is the first cut of the **"Transcription Studio"** program (see [docs/ROADM
 ### Menu bar is window-first — left-click opens the window, right-click is a minimal menu
 [MenuBarController.swift](Shhhcribble/UI/MenuBarController.swift) is the `NSStatusItem` + a click handler that branches on `NSApp.currentEvent?.type`: **left-click opens the Transcriptions window**; **right-click pops a small `NSMenu`** with **Upload Audio…** (file transcription) and **Quit** (via `menu.popUp(...)`, not a persistent `statusItem.menu`, so left-click keeps firing the action). The old full dropdown is still gone — recent transcripts, Settings, engine status live only in the window ([TranscriptionsView.swift](Shhhcribble/UI/TranscriptionsView.swift)). The right-click menu revived the `MenuBarControllerDelegate` `transcribeFile`/`quit` methods (they're now wired to `presentFilePicker()` / `NSApp.terminate`, not dead code); `repaste`/`checkForUpdates` remain unused. Because there's no app menu (`LSUIElement`), **Quit must stay reachable** — it now has two homes: the window rail button *and* the right-click menu. Having the right-click Quit is what made the window rail safe to **collapse** (see the Transcriptions window decisions).
 
+### Studio shell: five-item rail + Settings-as-an-environment (redesign phase 1)
+The Studio window's IA now follows the locked redesign in
+[docs/design/studio-wireframes.md](docs/design/studio-wireframes.md) — **read that
+file before ANY Studio UI work; it is the contract.** Rail is **Today · Notes ·
+Documents · Pinned · Settings** on every screen, and the titlebar always reads
+"Shhhcribble" (the rail's active state is the location indicator — don't restate
+it in the title).
+
+- **Settings is one rail item that opens its own master-detail**: a subnav column
+  (**Preferences · Styles · Dictionary · Feedback**) with **Check for updates**
+  and **Quit** anchored at its bottom. Styles/Dictionary/Feedback were *demoted*
+  from top-level rail tabs — quick style *switching* lives in the menu-bar Style
+  submenu + per-app auto, so the page is only for authoring. The manual update
+  check moved out of `SettingsView`'s About section into that bottom group.
+- **Quit left the rail.** The "Quit must stay reachable" invariant now rests on
+  the menu-bar right-click menu (which is also why collapsing the rail is safe).
+  Don't remove it from there.
+- **Phase 1 is the shell only** — three panes are deliberate stand-ins, each
+  replaced by its owning phase, and each marked in code: **Today** = the
+  pre-redesign transcripts master-detail (the chronological two-weight timeline
+  is phase 4); **Documents** = that same reader filtered to `source == .file`
+  (call captures still store as `.dictation`, so they stay in Today until phase 3
+  gives documents a real source category); **Pinned** = the "On your screen"
+  strip only, since pin (importance) and stick (urgency) are still the one
+  `Note.pinned` flag until phase 2 splits them, and documents can't be pinned at
+  all yet. Don't "finish" a stand-in without doing its phase properly.
+- `NotesView`'s selection is now a `@Binding` owned by `TranscriptionsView` —
+  that's what lets the Pinned board open a note in its home tab, and it keeps the
+  selection across a rail round-trip.
+- **The category predicates live on the store, not in the views**:
+  `TranscriptStore.documents(matching:)` and `.pinnedNotes` are exactly what
+  phases 3 and 2 redefine, so the change lands in one unit-tested place and the
+  view diff is a rename. Don't inline `filter { $0.source == .file }` /
+  `filter(\.pinned)` back into a pane.
+- **`TranscriptListPane` is a component, not a pair of helper funcs** — a `func`
+  can't own state, so sharing the master-detail that way forced every list's
+  hover/toast state up into the window. Transient state stays in the component;
+  only the selection and query (which must survive a rail round-trip) are passed
+  in. `SearchPill` and `TagCapsule` in [DesignSystem.swift](Shhhcribble/UI/DesignSystem.swift)
+  are the shared chrome for the search field and the little neutral label —
+  reach for them instead of re-stacking the modifiers.
+
 ### Universal UI conventions (apply to every new affordance)
 Two rules established 2026-07-08, expected everywhere going forward:
 - **Any copy action shows the "Copied" toast.** The capsule toast (`.regularMaterial` in a `Capsule`, ~1.4 s auto-dismiss, cancellable task) is duplicated in `TranscriptDetail` (transcript + summary copy), `TranscriptionsView` (hover-to-copy on rows), and `DictionarySettingsView` (`flashCopied()`, prompt copy). New copy affordances must flash it too (candidate for extraction into one shared modifier later).
@@ -453,6 +495,8 @@ This project runs a **largely-autonomous research→build→verify loop** over t
 8. **Backlog re-evaluation** (added 2026-07-08): after a feature ships, re-scan [docs/ROADMAP.md](docs/ROADMAP.md) and the backlog against any new signal (user feedback, competitive finds, what the feature unlocked) and re-prioritize; record the shift in the loop-progress note. New feedback often converges or reshuffles items — don't just march the old order.
 
 Iterate implement→review→fix up to ~3 rounds; if still failing or low-confidence, **stop and escalate** rather than loop. Use the **Workflow tool** for each sprint's implement→parallel-review→verify pipeline; keep a short loop-progress note here (current sprint / last done / next / blocker).
+
+**Loop progress (2026-07-25b):** **Redesign Phase 1 ("shell") BUILT** on branch `shhhcribble/studio-shell` (not merged/pushed). Ships the five-item rail (Today · Notes · Documents · Pinned · Settings), **Settings as its own master-detail environment** (subnav Preferences/Styles/Dictionary/Feedback + Check-for-updates/Quit at the bottom; Styles/Dictionary/Feedback demoted from the rail, Quit out of the rail and now resting on the menu-bar right-click menu), and the constant titlebar (already true — no change needed). See the new **Studio shell** decision above. **Human call this session:** the three not-yet-built panes ship as **functional-lite stand-ins**, not placeholders — Today = the old transcripts master-detail, Documents = the same reader filtered to `.file`, Pinned = an "On your screen" board of pinned notes that jumps into Notes — so no rail item is a dead end. QC: **build green, 232 tests green** (no test change — pure view layer), no `AudioRecorder`/routing/`MusicPauser`/`TextInserter`/pipeline/pref-table/schema touch → **no hardware smoke test triggered**. **⚠ PENDING: human visual pass** (the dev build wasn't launched — the installed v1.13.0 was running and swapping instances is the human's call) and the adversarial `/code-review` round before merge. **Next: Phase 2 (pin/stick split, schema bump).** Prior progress ↓.
 
 **Loop progress (2026-07-25):** **Studio redesign direction LOCKED — design-only session, zero app code touched.** A multi-round wireframe workshop with the human settled the window's new IA ("one timeline, two weights"): the rail becomes **five items — Today / Notes / Documents / Pinned / Settings** — where **Today** is a single chronological stream (notes+documents as anchored cards, dictations as borderless always-expanded lines — no truncation), **Documents** (files/calls/imports only, never quick dictations) keeps the Transcript|Summary reader exclusively, **pin** (importance; notes AND documents; tops of lists + cross-type Pinned board) is split from **stick** (urgency; floating sticky; auto-pins; capsule toggle "Stick to screen"↔"Unstick"), and **Settings becomes a master-detail environment** (subnav: Preferences/Styles/Dictionary/Feedback + Check-for-updates and Quit at its bottom; menu-bar right-click Quit remains). Titlebar always reads "Shhhcribble". Reveal-in-Finder and download actions dropped everywhere. **The full contract lives in [docs/design/studio-wireframes.md](docs/design/studio-wireframes.md) + browsable [docs/design/studio-wireframes.html](docs/design/studio-wireframes.html) — LIVING documents; read the md before ANY Studio UI work; it lists six implementation phases.** **Next: Phase 1 "shell"** (five-item rail + Settings environment + constant titlebar — pure UI, autonomy-safe, own branch). Phases 2–3 touch schema (note favourite flag, transcripts pinned column, a real document/call source category — fixing the "calls stored as .dictation" v1 gap). Deferred-with-warning in the md: dictate-into-note ("note style") reopens the 2026-07-23 cut and needs its own design session. Also this session: the wireframing method was captured as the `wireframe` skill in the human's skills repo (`~/skills/skills/wireframe/`, symlinked into `~/.claude/skills/` like his other skills). Docs committed to `main`; push pending the human's call. Prior progress ↓.
 
