@@ -19,6 +19,25 @@ enum TranscriptSource: String, Codable, Equatable {
 
     /// True for the long-form sources that live in the Documents tab.
     var isDocument: Bool { self != .dictation }
+
+    /// How this source shows up in chrome. Here rather than in a view because
+    /// three surfaces now need the same answer (the reader header, the Today
+    /// stream, the Pinned board) and a fourth would otherwise invent a fifth.
+    var icon: String {
+        switch self {
+        case .dictation: return "mic"
+        case .file:      return "waveform"
+        case .call:      return "phone"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .dictation: return "Dictated"
+        case .file:      return "Imported"
+        case .call:      return "Call"
+        }
+    }
 }
 
 /// One stored transcript. `text` is the cleaned/final version (what Copy and
@@ -61,6 +80,12 @@ struct Transcript: Identifiable, Equatable {
     /// Pinned board. There is no transcript equivalent of `Note.stuck`: a
     /// document isn't something you put on your screen.
     var pinned: Bool = false
+
+    /// `m:ss` for a duration in seconds — the one place the app formats one.
+    static func durationString(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
 
     /// Menu / list title, truncated for one-line display.
     var menuTitle: String {
@@ -641,6 +666,21 @@ final class TranscriptStore: ObservableObject {
     /// survives later edits of the note's own `text`.
     func noteForActionItem(transcriptID: UUID, item: String) -> Note? {
         notes.first { $0.sourceTranscriptID == transcriptID && $0.sourceActionItem == item }
+    }
+
+    /// Start a note from a dictation, quoting it as an embedded block.
+    ///
+    /// **Not idempotent, unlike `promoteActionItem`** — and that's deliberate.
+    /// An action item is one fixed thing that either is or isn't in Notes; a
+    /// dictation is raw material you might legitimately want to start two
+    /// different notes from. It's linked back by `sourceTranscriptID` all the
+    /// same, so the note can say where its text came from.
+    @discardableResult
+    func addNoteFromDictation(_ transcript: Transcript) -> Note {
+        var note = Note(text: transcript.text)
+        note.sourceTranscriptID = transcript.id
+        addNote(note)
+        return note
     }
 
     /// Add a transcript action item to Notes. Idempotent: if the item was

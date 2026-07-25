@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Today is a stream now.** The main screen is a single chronological feed of
+  your day. Dictations appear **in full — never cut off** — so you can read and
+  re-copy one without opening anything. Notes and documents appear as cards you
+  click through to. Hovering anything gives you copy, add-to-a-note, and delete.
+- **Move between days.** Arrows step a day at a time, and clicking the date
+  opens a month calendar with a dot on every day that has something on it, plus
+  a "Jump to today" button.
 - **Calls are documents now.** A transcribed call is no longer filed with your
   quick dictations — it lives in **Documents** alongside your uploads, with the
   transcript-and-summary reader. Calls you've already transcribed move across

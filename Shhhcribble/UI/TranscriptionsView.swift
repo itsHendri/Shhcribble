@@ -7,10 +7,10 @@ import AppKit
 /// the titlebar always reading "Shhhcribble" (the rail's active state is the
 /// location indicator, so the title never restates it).
 ///
-/// **Today is still a stand-in** — it shows the pre-redesign transcripts
-/// master-detail; the chronological two-weight timeline is phase 4. Notes,
-/// Documents, Pinned and Settings are real. Read the decision record before
-/// changing any of it.
+/// Every pane is now the redesign's own: Today is the two-weight day stream
+/// ([TodayView](TodayView.swift)), Notes and Documents are master-detail,
+/// Pinned is the cross-type board, Settings is its own environment. Read the
+/// decision record before changing any of it.
 struct TranscriptionsView: View {
     @ObservedObject var store: TranscriptStore
     @ObservedObject var fileTranscriber: FileTranscriber
@@ -183,23 +183,22 @@ struct TranscriptionsView: View {
 
     // MARK: - Today & Documents (list + reader)
 
-    /// Today — phase-1 stand-in: the pre-redesign transcripts master-detail over
-    /// everything in the library. Phase 4 replaces it with the chronological
-    /// day stream (which is a different shape, not a variant of this one — so
-    /// this call site is deleted then, not parameterised further).
+    /// Today — the chronological day stream. Not a master-detail: a dictation
+    /// is read in place, and the things that *do* have readers (notes,
+    /// documents) open in their own tab.
     private var todayPane: some View {
-        TranscriptListPane(
+        TodayView(
             store: store,
-            fileTranscriber: fileTranscriber,
-            items: everything,
-            selection: $selectedID,
-            search: $searchText,
-            searchPrompt: "Search everything",
-            showsProgressBanner: false,
-            emptyTitle: "No transcripts yet",
-            emptyIcon: "calendar",
-            emptyMessage: "Dictate with your hotkey or upload a file to get started.",
-            onUpload: onTranscribeFile
+            onOpenNote: { id in
+                noteID = id
+                section = .notes
+            },
+            onOpenTranscript: { id in
+                documentID = id
+                section = .documents
+            },
+            onUpload: onTranscribeFile,
+            search: $searchText
         )
     }
 
@@ -683,7 +682,7 @@ private struct TranscriptRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if let d = transcript.durationSec, d > 0 {
-                    Text(Self.durationString(d))
+                    Text(Transcript.durationString(d))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -691,10 +690,6 @@ private struct TranscriptRow: View {
         }
     }
 
-    static func durationString(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
 }
 
 /// The detail pane: a tabbed reader (Transcript | Summary) with a pared
@@ -764,7 +759,7 @@ private struct TranscriptDetail: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: Self.icon(for: transcript.source))
+                    Image(systemName: transcript.source.icon)
                         .foregroundStyle(transcript.source.isDocument ? Color.accentColor : Color.secondary)
                     Text(transcript.menuTitle).font(.headline).lineLimit(1)
                     if let style = currentStyleName, !style.isEmpty {
@@ -952,26 +947,10 @@ private struct TranscriptDetail: View {
         }
     }
 
-    static func icon(for source: TranscriptSource) -> String {
-        switch source {
-        case .dictation: return "mic"
-        case .file:      return "waveform"
-        case .call:      return "phone"
-        }
-    }
-
-    static func label(for source: TranscriptSource) -> String {
-        switch source {
-        case .dictation: return "Dictated"
-        case .file:      return "Imported"
-        case .call:      return "Call"
-        }
-    }
-
     private var metaLine: String {
-        var parts: [String] = [Self.label(for: transcript.source)]
+        var parts: [String] = [transcript.source.label]
         parts.append(transcript.createdAt.formatted(date: .abbreviated, time: .shortened))
-        if let d = transcript.durationSec, d > 0 { parts.append(TranscriptRow.durationString(d)) }
+        if let d = transcript.durationSec, d > 0 { parts.append(Transcript.durationString(d)) }
         return parts.joined(separator: " · ")
     }
 

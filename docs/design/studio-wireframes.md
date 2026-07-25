@@ -127,8 +127,9 @@ Today's `Note.pinned` conflated two lifecycles. Split:
    `.dictation`, keyed on `durationSec` rather than the title. `isDocument` is
    the one predicate dividing the app's two halves. Action rows pared to
    pin · copy · delete (download and reveal dropped).
-4. **Today timeline** — the feed replacing the transcripts master-detail:
-   day stream, two weights, hover actions, chevrons + month popover.
+4. ~~**Today timeline**~~ — **DONE 2026-07-25.** The feed replacing the
+   transcripts master-detail: day stream, two weights, hover actions, chevrons +
+   month popover. Day logic is pure and tested (`Storage/Timeline.swift`).
 5. **Search everything** — cross-category results view on Today.
 6. **Pinned board** — strip + grid. **Largely delivered in phase 2**; what's
    left is whatever polish the wireframe implies once documents have a real

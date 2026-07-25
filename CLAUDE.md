@@ -33,7 +33,8 @@ Shhhcribble/
 │   ├── SkillFileParser.swift     ← Pure SKILL.md → (name, prompt) import parser (testable)
 │   └── FillerWordFilter.swift    ← Regex strip of "um", "uh", etc.
 ├── Storage/
-│   └── TranscriptStore.swift     ← SQLite transcript library (dictation + file); replaces cap-10 history
+│   ├── TranscriptStore.swift     ← SQLite transcript library (dictation + file + call); replaces cap-10 history
+│   └── Timeline.swift            ← Pure day-bucketing for the Today stream (testable)
 ├── TextInsertion/
 │   └── TextInserter.swift        ← AX direct insert → Cmd+V fallback → clipboard fallback
 ├── UI/
@@ -42,7 +43,8 @@ Shhhcribble/
 │   ├── MenuBarController.swift   ← NSStatusItem + menu rebuilds
 │   ├── SettingsView.swift        ← Settings form (SwiftUI)
 │   ├── SettingsWindowController.swift
-│   ├── TranscriptionsView.swift  ← Transcription Studio window (rail + list + tabbed detail)
+│   ├── TranscriptionsView.swift  ← Transcription Studio window (five-item rail + panes)
+│   ├── TodayView.swift           ← Today stream: one timeline, two weights + month popover
 │   ├── StylesView.swift          ← Styles rail tab (active-style picker + list CRUD + StyleEditor + import)
 │   ├── TranscriptionsWindowController.swift
 │   ├── FeedbackView.swift        ← Feedback rail tab (single general form → Gmail/Apple Mail/Outlook + Copy; pure FeedbackReport)
@@ -300,6 +302,33 @@ long-form source joins Documents by flipping `isDocument` — don't re-inline
   `testV11CallCapturesAreReclassifiedButDictationsAreNot`.
 - Summaries stay a **Documents-only** affordance per the design contract; the
   reader is still shared with Today until phase 4 takes it out of the timeline.
+
+### Today is a stream, not a master-detail (redesign phase 4)
+[TodayView.swift](Shhhcribble/UI/TodayView.swift) replaced the transcripts
+master-detail. **One timeline, two weights**: notes and documents *anchor* the
+day as bordered cards you click through to their own tab; dictations *pass
+through* as **borderless lines, always fully expanded — never truncated**. A
+dictation is kept for recovery and reuse, so hiding four fifths of it behind an
+ellipsis and making you open a reader to see it was the wrong shape. Don't add a
+line limit to the dictation line without re-reading the decision record.
+
+- **Scoped to one day.** Chevrons step a day; the day label opens a month
+  popover with a dot on every day that has something, so reaching older work
+  isn't clicking backwards through empty days. The stream opens on the most
+  recent day that *has* content (once per window), because a blank page on a
+  quiet morning is a worse first impression than yesterday's work.
+- **All the day logic is pure and tested** in
+  [Storage/Timeline.swift](Shhhcribble/Storage/Timeline.swift), with an injected
+  `Calendar` — "which day did this land on" is wrong by an hour twice a year if
+  the machine's zone decides. `TimelineTests` pins Europe/London and covers the
+  23:59 boundary and a DST step.
+- **Hover actions are copy · add-to-note · delete.** Add-to-note makes a *new*
+  note from the dictation (`addNoteFromDictation`) rather than appending to
+  "the current note" — a wrong guess there edits something the user didn't ask
+  to touch. Deliberately **not** idempotent, unlike `promoteActionItem`: one
+  dictation can legitimately seed two notes.
+- The empty state teaches the hotkey with a keycap rather than apologising for
+  being empty.
 
 ### Universal UI conventions (apply to every new affordance)
 Two rules established 2026-07-08, expected everywhere going forward:
