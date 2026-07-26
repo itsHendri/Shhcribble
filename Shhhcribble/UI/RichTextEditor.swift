@@ -615,6 +615,12 @@ struct RichTextEditor: NSViewRepresentable {
 
     var font: NSFont = RichText.baseFont
     var insets: NSSize = NSSize(width: 12, height: 10)
+    /// Extra scrollable space below the last line. Set it when something floats
+    /// over the bottom of the editor (the Notes pane's stick capsule): without
+    /// it the final lines sit permanently under the overlay, unreachable — a
+    /// list can scroll its rows clear of a floating button, but the end of a
+    /// document can't scroll past the end of itself.
+    var bottomInset: CGFloat = 0
     /// Gains/loses focus. Only used for things that are harmless to get wrong:
     /// activating the app (so ⌘V works in a sticky) and flushing on blur.
     var onFocusChange: ((Bool) -> Void)?
@@ -634,6 +640,10 @@ struct RichTextEditor: NSViewRepresentable {
         scroll.borderType = .noBorder
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        if bottomInset > 0 {
+            scroll.automaticallyAdjustsContentInsets = false
+            scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
+        }
 
         let storage = NSTextStorage()
         let layoutManager = NSLayoutManager()

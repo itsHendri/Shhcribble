@@ -10,7 +10,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Search everything.** The search box on Today now searches your whole
+  library at once — notes, dictations and documents — grouped by kind with the
+  matching words highlighted in place, so you can see why each result matched.
+  Esc or the ✕ puts your day back.
+- **Today is a stream now.** The main screen is a single chronological feed of
+  your day. Dictations appear **in full — never cut off** — so you can read and
+  re-copy one without opening anything. Notes and documents appear as cards you
+  click through to. Hovering anything gives you copy, add-to-a-note, and delete.
+- **Day headings in Notes and Documents.** Both lists now group under "Today",
+  "Earlier this week" and so on beneath anything you've pinned, instead of one
+  long undifferentiated column.
+- **Move between days.** Arrows step a day at a time, and clicking the date
+  opens a month calendar with a dot on every day that has something on it, plus
+  a "Jump to today" button.
+- **Calls are documents now.** A transcribed call is no longer filed with your
+  quick dictations — it lives in **Documents** alongside your uploads, with the
+  transcript-and-summary reader. Calls you've already transcribed move across
+  automatically.
+- **Pin what matters.** Notes *and* documents can now be pinned. Pinned items
+  rise to a **Pinned** group at the top of their list and collect on the
+  **Pinned** tab, so the things you keep coming back to are one click away.
+
 ### Changed
+- **Pinning and sticking are now two different things.** *Pin* marks something
+  important and keeps it handy. *Stick* puts a note on your screen as a floating
+  sticky until you're done with it — its button now says **Stick to screen** /
+  **Unstick** and sits over the note itself. Sticking a note pins it too.
+  Anything currently stuck to your screen stays exactly where it is.
+- The **Pinned** tab shows what's on your screen above everything you've pinned,
+  and clicking any card jumps straight to it.
 - **New Studio navigation.** The sidebar is now five places — **Today · Notes ·
   Documents · Pinned · Settings** — and the window title always reads
   "Shhhcribble", so the sidebar alone tells you where you are. This is the first
@@ -25,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Check for updates** and **Quit** at the bottom. Styles, Dictionary and
   Feedback moved in from the main sidebar; Quit is still on the menu-bar icon's
   right-click menu too.
+
+### Removed
+- **Save as .txt** on notes and transcripts, and **Reveal source in Finder** on
+  transcripts. Copy covers the same ground, and every file you transcribe
+  already gets a .txt written beside it automatically.
 
 ## [1.13.0] - 2026-07-24
 

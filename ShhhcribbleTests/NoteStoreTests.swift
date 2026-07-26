@@ -123,33 +123,128 @@ final class NoteStoreTests: XCTestCase {
 
     // MARK: - Pinning
 
-    /// Pinning changes where a note is shown, not what it says, so it must not
-    /// stamp `modifiedAt` — otherwise an untouched note is labelled "Edited"
-    /// just for being pinned.
-    func testPinningDoesNotMarkTheNoteEdited() {
+    /// Pinning or sticking changes where a note is shown, not what it says, so
+    /// neither may stamp `modifiedAt` — otherwise an untouched note is labelled
+    /// "Edited" just for being put somewhere.
+    func testPinningAndStickingDoNotMarkTheNoteEdited() {
         let store = makeStore()
         let created = Date(timeIntervalSince1970: 1_000)
         store.addNote(Note(createdAt: created, modifiedAt: created, text: "untouched"))
         let id = store.notes[0].id
 
-        store.setNotePinned(id: id, pinned: true, origin: CGPoint(x: 1, y: 2))
+        store.setNotePinned(id: id, pinned: true)
+        XCTAssertEqual(store.notes[0].modifiedAt, created)
+
+        store.setNoteStuck(id: id, stuck: true, origin: CGPoint(x: 1, y: 2))
         XCTAssertEqual(store.notes[0].modifiedAt, created)
 
         store.updateNotePinFrame(id: id, frame: CGRect(x: 3, y: 4, width: 200, height: 200))
         XCTAssertEqual(store.notes[0].modifiedAt, created)
     }
 
-    func testSetPinnedKeepsLastOriginAcrossUnpin() {
+    func testStickingKeepsLastOriginAcrossUnstick() {
         let store = makeStore()
         let note = Note(text: "sticky")
         store.addNote(note)
-        store.setNotePinned(id: note.id, pinned: true, origin: CGPoint(x: 10, y: 20))
-        XCTAssertTrue(store.notes[0].pinned)
+        store.setNoteStuck(id: note.id, stuck: true, origin: CGPoint(x: 10, y: 20))
+        XCTAssertTrue(store.notes[0].stuck)
         XCTAssertEqual(store.notes[0].pinX, 10)
+
+        store.setNoteStuck(id: note.id, stuck: false)
+        XCTAssertFalse(store.notes[0].stuck)
+        XCTAssertEqual(store.notes[0].pinX, 10)   // origin survives for re-stick
+    }
+
+    // MARK: - Pin vs stick
+
+    /// Urgency is a subset of importance: anything worth putting on screen is
+    /// worth finding on the Pinned board afterwards.
+    func testStickingAutoPins() {
+        let store = makeStore()
+        let note = Note(text: "urgent")
+        store.addNote(note)
+        XCTAssertFalse(store.notes[0].pinned)
+
+        store.setNoteStuck(id: note.id, stuck: true)
+        XCTAssertTrue(store.notes[0].stuck)
+        XCTAssertTrue(store.notes[0].pinned)
+    }
+
+    /// Taking a note off the screen says it stopped being urgent — not that it
+    /// stopped mattering.
+    func testUnstickingKeepsThePin() {
+        let store = makeStore()
+        let note = Note(text: "still matters")
+        store.addNote(note)
+        store.setNoteStuck(id: note.id, stuck: true)
+
+        store.setNoteStuck(id: note.id, stuck: false)
+        XCTAssertFalse(store.notes[0].stuck)
+        XCTAssertTrue(store.notes[0].pinned)
+    }
+
+    /// Unpinning a stuck note is a deliberate override, and deliberately does
+    /// not take it off the screen — the flags are independent once set.
+    func testUnpinningLeavesAStuckNoteOnScreen() {
+        let store = makeStore()
+        let note = Note(text: "on screen")
+        store.addNote(note)
+        store.setNoteStuck(id: note.id, stuck: true)
 
         store.setNotePinned(id: note.id, pinned: false)
         XCTAssertFalse(store.notes[0].pinned)
-        XCTAssertEqual(store.notes[0].pinX, 10)   // origin survives for re-pin
+        XCTAssertTrue(store.notes[0].stuck)
+    }
+
+    func testPinnedAndStuckAccessorsSelectTheRightNotes() {
+        let store = makeStore()
+        let plain = Note(text: "plain")
+        let pinned = Note(text: "pinned")
+        let stuck = Note(text: "stuck")
+        [plain, pinned, stuck].forEach { store.addNote($0) }
+        store.setNotePinned(id: pinned.id, pinned: true)
+        store.setNoteStuck(id: stuck.id, stuck: true)
+
+        XCTAssertEqual(store.stuckNotes.map(\.id), [stuck.id])
+        // The stuck note is pinned too (auto-pin), so both are favourites.
+        XCTAssertEqual(Set(store.pinnedNotes.map(\.id)), [pinned.id, stuck.id])
+    }
+
+    func testStuckSurvivesReopen() {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let store = TranscriptStore(path: path)
+        let note = Note(text: "sticky")
+        store.addNote(note)
+        store.setNoteStuck(id: note.id, stuck: true)
+
+        let reopened = TranscriptStore(path: path)
+        XCTAssertTrue(reopened.notes[0].stuck)
+        XCTAssertTrue(reopened.notes[0].pinned)
+    }
+
+    func testTranscriptPinRoundTrips() {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let store = TranscriptStore(path: path)
+        // A document, since that's what pinning is for — this covers the column
+        // round-trip; `testPinnedDictationsAreKeptOffTheBoard` covers the filter.
+        let t = Transcript(id: UUID(), createdAt: Date(), source: .file,
+                           title: "worth keeping.m4a", text: "body", rawText: "raw")
+        store.add(t)
+        XCTAssertFalse(store.transcripts[0].pinned)
+        XCTAssertTrue(store.pinnedTranscripts.isEmpty)
+
+        store.setTranscriptPinned(id: t.id, pinned: true)
+        XCTAssertEqual(store.pinnedTranscripts.map(\.id), [t.id])
+
+        let reopened = TranscriptStore(path: path)
+        XCTAssertTrue(reopened.transcripts[0].pinned)
+
+        reopened.setTranscriptPinned(id: t.id, pinned: false)
+        XCTAssertTrue(TranscriptStore(path: path).pinnedTranscripts.isEmpty)
     }
 
     func testUpdatePinFrameStoresOriginAndSize() {
@@ -211,6 +306,255 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertEqual(reopened.notes.first?.pinW, 300)
         XCTAssertEqual(reopened.notes.first?.pinH, 240)
         XCTAssertEqual(reopened.notes.first?.richText, Data("blob".utf8))
+    }
+
+    // MARK: - Pin/stick split migration (v9 → v10)
+
+    /// The split reuses the existing `pinned` column for *importance* and adds
+    /// `stuck` for the sticky, seeded from it. Every note that was on screen
+    /// before the upgrade must come out both stuck AND pinned — which is what
+    /// the auto-pin rule says it should be, so nothing needs correcting by hand.
+    func testV9StickiesBecomeStuckAndPinned() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        // Build a v9-shaped notes table: `pinned` still means "on screen".
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        let ddl = """
+        CREATE TABLE notes (
+            id TEXT PRIMARY KEY, createdAt REAL NOT NULL, modifiedAt REAL NOT NULL,
+            text TEXT NOT NULL, isTask INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
+            completedAt REAL, dueAt REAL, reminderFiredAt REAL, richText BLOB,
+            pinned INTEGER NOT NULL DEFAULT 0, pinX REAL, pinY REAL, pinW REAL, pinH REAL,
+            sourceTranscriptID TEXT, sourceActionItem TEXT, position INTEGER NOT NULL
+        );
+        """
+        XCTAssertEqual(sqlite3_exec(db, ddl, nil, nil, nil), SQLITE_OK)
+        let onScreen = UUID().uuidString
+        let filed = UUID().uuidString
+        let insert = """
+        INSERT INTO notes (id, createdAt, modifiedAt, text, pinned, position)
+        VALUES ('\(onScreen)', 100, 100, 'was a sticky', 1, 0),
+               ('\(filed)', 100, 100, 'was just a note', 0, 1);
+        """
+        XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = 9;", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+
+        let store = TranscriptStore(path: path)
+        let sticky = try XCTUnwrap(store.notes.first { $0.id.uuidString == onScreen })
+        XCTAssertTrue(sticky.stuck, "an existing sticky must still be on screen after the upgrade")
+        XCTAssertTrue(sticky.pinned, "and pinned, since sticking auto-pins")
+
+        let plain = try XCTUnwrap(store.notes.first { $0.id.uuidString == filed })
+        XCTAssertFalse(plain.stuck)
+        XCTAssertFalse(plain.pinned)
+    }
+
+    /// Transcripts predate the pin column entirely; an existing library must
+    /// come back unpinned rather than failing to load.
+    func testTranscriptsPredatingThePinColumnLoadUnpinned() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        let ddl = """
+        CREATE TABLE transcripts (
+            id TEXT PRIMARY KEY, createdAt REAL NOT NULL, source TEXT NOT NULL,
+            title TEXT NOT NULL, text TEXT NOT NULL, rawText TEXT NOT NULL,
+            fileName TEXT, sourcePath TEXT, durationSec REAL
+        );
+        """
+        XCTAssertEqual(sqlite3_exec(db, ddl, nil, nil, nil), SQLITE_OK)
+        let insert = """
+        INSERT INTO transcripts (id, createdAt, source, title, text, rawText)
+        VALUES ('\(UUID().uuidString)', 100, 'dictation', 'old', 'old body', 'raw');
+        """
+        XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+
+        let store = TranscriptStore(path: path)
+        XCTAssertEqual(store.transcripts.count, 1)
+        XCTAssertFalse(store.transcripts[0].pinned)
+
+        // And the freshly-added column is writable end to end.
+        store.setTranscriptPinned(id: store.transcripts[0].id, pinned: true)
+        XCTAssertTrue(TranscriptStore(path: path).transcripts[0].pinned)
+    }
+
+    /// The v10 step must be all-or-nothing. If the `stuck` column could land
+    /// without the backfill and the version bump, the *next launch* would re-run
+    /// `UPDATE notes SET stuck = pinned` over a whole session of the user's own
+    /// pin and stick choices — popping every favourite onto the screen and
+    /// taking down any sticky they'd deliberately unpinned. This simulates that
+    /// partial state directly: `stuck` present, `user_version` still 9, and the
+    /// two flags already diverged.
+    func testInterruptedV10DoesNotClobberDivergedFlags() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        let ddl = """
+        CREATE TABLE notes (
+            id TEXT PRIMARY KEY, createdAt REAL NOT NULL, modifiedAt REAL NOT NULL,
+            text TEXT NOT NULL, isTask INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
+            completedAt REAL, dueAt REAL, reminderFiredAt REAL, richText BLOB,
+            pinned INTEGER NOT NULL DEFAULT 0, stuck INTEGER NOT NULL DEFAULT 0,
+            pinX REAL, pinY REAL, pinW REAL, pinH REAL,
+            sourceTranscriptID TEXT, sourceActionItem TEXT, position INTEGER NOT NULL
+        );
+        """
+        XCTAssertEqual(sqlite3_exec(db, ddl, nil, nil, nil), SQLITE_OK)
+        let favourite = UUID().uuidString      // pinned only — must stay off screen
+        let onScreen = UUID().uuidString       // stuck but deliberately unpinned
+        let insert = """
+        INSERT INTO notes (id, createdAt, modifiedAt, text, pinned, stuck, position)
+        VALUES ('\(favourite)', 100, 100, 'important, not urgent', 1, 0, 0),
+               ('\(onScreen)', 100, 100, 'on screen, unpinned by hand', 0, 1, 1);
+        """
+        XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "PRAGMA user_version = 9;", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+
+        let store = TranscriptStore(path: path)
+        let pinnedOnly = try XCTUnwrap(store.notes.first { $0.id.uuidString == favourite })
+        XCTAssertFalse(pinnedOnly.stuck, "a favourite must not be thrown onto the screen by a re-run backfill")
+        let stuckOnly = try XCTUnwrap(store.notes.first { $0.id.uuidString == onScreen })
+        XCTAssertTrue(stuckOnly.stuck, "a deliberately unpinned sticky must stay on screen")
+        XCTAssertTrue(store.schemaIsCurrent, "and the migration must still complete")
+    }
+
+    /// `insert` is INSERT OR REPLACE over every column, so a field it forgets is
+    /// a field that silently resets. Pin state is the newest such field.
+    func testAddedTranscriptKeepsItsPinState() {
+        let store = makeStore()
+        var t = Transcript(id: UUID(), createdAt: Date(), source: .file,
+                           title: "t", text: "body", rawText: "raw")
+        t.pinned = true
+        store.add(t)
+        XCTAssertEqual(store.pinnedTranscripts.map(\.id), [t.id])
+    }
+
+    // MARK: - Pinned board
+
+    /// The board's two sections and the deliberate overlap between them: a
+    /// stuck note is on your screen *and* something you marked as mattering, so
+    /// it belongs in both. The strip manages the screen; the grid indexes
+    /// importance.
+    func testPinnedBoardPutsStuckNotesInBothSections() {
+        let store = makeStore()
+        let stuck = Note(text: "on screen")
+        let favourite = Note(text: "important")
+        let ordinary = Note(text: "neither")
+        [stuck, favourite, ordinary].forEach { store.addNote($0) }
+        store.setNoteStuck(id: stuck.id, stuck: true)
+        store.setNotePinned(id: favourite.id, pinned: true)
+
+        let board = store.pinnedBoardContents
+        XCTAssertEqual(board.onScreen.map(\.id), [stuck.id])
+        XCTAssertEqual(Set(board.notes.map(\.id)), [stuck.id, favourite.id])
+        XCTAssertFalse(board.notes.contains { $0.id == ordinary.id })
+    }
+
+    func testPinnedBoardIncludesPinnedDocumentsAndCounts() {
+        let store = makeStore()
+        let note = Note(text: "note")
+        store.addNote(note)
+        store.setNotePinned(id: note.id, pinned: true)
+        let doc = Transcript(id: UUID(), createdAt: Date(), source: .file,
+                             title: "memo.m4a", text: "body", rawText: "raw")
+        store.add(doc)
+        store.setTranscriptPinned(id: doc.id, pinned: true)
+
+        let board = store.pinnedBoardContents
+        XCTAssertEqual(board.documents.map(\.id), [doc.id])
+        XCTAssertEqual(board.pinnedCount, 2, "the count spans both types")
+        XCTAssertFalse(board.isEmpty)
+    }
+
+    /// Pin is for the durable half. A dictation pinned by an older build (the
+    /// column exists on every transcript since v11) must not reappear on the
+    /// board — human's call, 2026-07-25.
+    func testPinnedDictationsAreKeptOffTheBoard() {
+        let store = makeStore()
+        let dictation = store.addDictation(text: "quick thought", rawText: "raw")
+        store.setTranscriptPinned(id: dictation.id, pinned: true)
+
+        XCTAssertTrue(store.pinnedTranscripts.isEmpty)
+        XCTAssertTrue(store.pinnedBoardContents.isEmpty)
+    }
+
+    func testPinnedBoardIsEmptyWhenNothingIsPinnedOrStuck() {
+        let store = makeStore()
+        store.addNote(Note(text: "plain"))
+        store.addDictation(text: "plain", rawText: "raw")
+        XCTAssertTrue(store.pinnedBoardContents.isEmpty)
+    }
+
+    // MARK: - Call transcripts get their own source (v12)
+
+    /// Call captures shipped before there was a source for them. The migration
+    /// has to find them by shape, and the shape it keys on is `durationSec`:
+    /// `addDictation` never sets one, a call capture always does. A dictation
+    /// that merely *starts* with "Call — " must be left alone.
+    func testV11CallCapturesAreReclassifiedButDictationsAreNot() throws {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        let ddl = """
+        CREATE TABLE transcripts (
+            id TEXT PRIMARY KEY, createdAt REAL NOT NULL, source TEXT NOT NULL,
+            title TEXT NOT NULL, text TEXT NOT NULL, rawText TEXT NOT NULL,
+            fileName TEXT, sourcePath TEXT, durationSec REAL
+        );
+        """
+        XCTAssertEqual(sqlite3_exec(db, ddl, nil, nil, nil), SQLITE_OK)
+        let call = UUID().uuidString
+        let lookalike = UUID().uuidString
+        let plain = UUID().uuidString
+        let insert = """
+        INSERT INTO transcripts (id, createdAt, source, title, text, rawText, durationSec) VALUES
+          ('\(call)', 300, 'dictation', 'Call — WhatsApp, 14:02', 'call body', 'raw', 240.0),
+          ('\(lookalike)', 200, 'dictation', 'Call — remind me to ring Ben', 'dictated body', 'raw', NULL),
+          ('\(plain)', 100, 'dictation', 'ordinary note', 'body', 'raw', NULL);
+        """
+        XCTAssertEqual(sqlite3_exec(db, insert, nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+
+        let store = TranscriptStore(path: path)
+        XCTAssertEqual(store.transcripts.first { $0.id.uuidString == call }?.source, .call)
+        XCTAssertEqual(store.transcripts.first { $0.id.uuidString == lookalike }?.source, .dictation,
+                       "a dictation that merely starts with the call prefix must not be reclassified")
+        XCTAssertEqual(store.transcripts.first { $0.id.uuidString == plain }?.source, .dictation)
+
+        // And the reclassified call is now a document, so it lists in Documents.
+        XCTAssertEqual(store.documents(matching: "").map(\.id.uuidString), [call])
+    }
+
+    func testDocumentsCoversFilesAndCallsButNotDictations() {
+        let store = makeStore()
+        store.addDictation(text: "quick thought", rawText: "raw")
+        store.add(Transcript(id: UUID(), createdAt: Date(), source: .file,
+                             title: "memo.m4a", text: "imported", rawText: "raw"))
+        store.add(Transcript(id: UUID(), createdAt: Date(), source: .call,
+                             title: "Call — Zoom, 09:00", text: "call", rawText: "raw"))
+
+        XCTAssertEqual(Set(store.documents(matching: "").map(\.source)), [.file, .call])
+    }
+
+    func testCallSourceRoundTripsThroughTheDatabase() {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let store = TranscriptStore(path: path)
+        store.add(Transcript(id: UUID(), createdAt: Date(), source: .call,
+                             title: "Call — Slack, 11:30", text: "body", rawText: "raw"))
+        XCTAssertEqual(TranscriptStore(path: path).transcripts.first?.source, .call)
     }
 
     // MARK: - Transcript-notes migration

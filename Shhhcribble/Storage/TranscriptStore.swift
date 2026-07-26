@@ -5,9 +5,39 @@ import os
 /// Where a transcript came from — a live hotkey dictation, or a file the user
 /// dropped/opened. Drives the icon in the Transcriptions list and whether a
 /// source file exists on disk.
+/// Where a transcript came from — and, since the redesign, which half of the app
+/// it belongs to. **`.dictation` is the quick, semi-throwaway half** (kept for
+/// recovery and reuse, never a document); `.file` and `.call` are long-form
+/// material you keep, and are what `TranscriptStore.documents(matching:)`
+/// returns. Add a new case on the document side of that predicate deliberately.
 enum TranscriptSource: String, Codable, Equatable {
     case dictation
     case file
+    /// Your side of a detected call, captured to the library. Stored as
+    /// `.dictation` before schema v12 — see the migration there.
+    case call
+
+    /// True for the long-form sources that live in the Documents tab.
+    var isDocument: Bool { self != .dictation }
+
+    /// How this source shows up in chrome. Here rather than in a view because
+    /// three surfaces now need the same answer (the reader header, the Today
+    /// stream, the Pinned board) and a fourth would otherwise invent a fifth.
+    var icon: String {
+        switch self {
+        case .dictation: return "mic"
+        case .file:      return "waveform"
+        case .call:      return "phone"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .dictation: return "Dictated"
+        case .file:      return "Imported"
+        case .call:      return "Call"
+        }
+    }
 }
 
 /// One stored transcript. `text` is the cleaned/final version (what Copy and
@@ -45,6 +75,18 @@ struct Transcript: Identifiable, Equatable {
     var styleName: String? = nil
     var styleID: String? = nil
 
+    /// Importance — a durable favourite, the same lifecycle as `Note.pinned`.
+    /// Pinned transcripts group at the top of their list and appear on the
+    /// Pinned board. There is no transcript equivalent of `Note.stuck`: a
+    /// document isn't something you put on your screen.
+    var pinned: Bool = false
+
+    /// `m:ss` for a duration in seconds — the one place the app formats one.
+    static func durationString(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
     /// Menu / list title, truncated for one-line display.
     var menuTitle: String {
         let base = title.isEmpty ? text : title
@@ -61,8 +103,15 @@ struct Transcript: Identifiable, Equatable {
 /// kept in sync with the rich content, so every read-only surface can ignore
 /// `richText` entirely.
 ///
-/// A **sticky** is a note with `pinned` (floating panel at `pinX`/`pinY`, sized
-/// `pinW`/`pinH`). A note added from a transcript's AI action items carries
+/// **Pin and stick are two different lifecycles** (split 2026-07-25 — see the
+/// redesign decision record). `pinned` is *importance*: a durable favourite that
+/// groups the note at the top of its list and puts it on the Pinned board.
+/// `stuck` is *urgency*: the note is on screen right now as a floating panel (at
+/// `pinX`/`pinY`, sized `pinW`/`pinH`), and is meant to come down when it's
+/// done. **Sticking auto-pins** — urgency is a subset of importance — so `stuck`
+/// implies `pinned` unless the user deliberately unpins afterwards.
+///
+/// A note added from a transcript's AI action items carries
 /// `sourceTranscriptID` + the verbatim `sourceActionItem` string, which is how
 /// the Summary tab resolves "already added" even after the note's `text` is
 /// edited. CloudKit-migration friendly by design: every column optional or
@@ -80,7 +129,10 @@ struct Note: Identifiable, Equatable {
     var text: String
     /// RTF encoding of the styled body — see `RichText`.
     var richText: Data? = nil
+    /// Importance — a durable favourite. See the type doc for pin vs stick.
     var pinned: Bool = false
+    /// Urgency — on screen as a floating sticky right now.
+    var stuck: Bool = false
     /// Persisted sticky-panel origin (bottom-left, screen coordinates) and
     /// size (the sticky is user-resizable; nil = default size).
     var pinX: Double? = nil
@@ -287,6 +339,9 @@ final class TranscriptStore: ObservableObject {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: Self.dictionarySeedFlagKey) else { return }
         guard db != nil else { return }   // DB not open — retry next launch
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.dictionarySeedFlagKey) }
         guard dictionaryEntries.isEmpty else { return }
 
@@ -436,6 +491,9 @@ final class TranscriptStore: ObservableObject {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: Self.stylesSeedFlagKey) else { return }
         guard db != nil else { return }   // DB not open — retry next launch
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.stylesSeedFlagKey) }
         guard styles.isEmpty else { return }
 
@@ -484,8 +542,8 @@ final class TranscriptStore: ObservableObject {
         guard exec("""
         INSERT INTO notes
         (id, createdAt, modifiedAt, text, richText,
-         pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem, position)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+         pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem, position, stuck)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, bind: { stmt in
             sqlite3_bind_text(stmt, 1, note.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, note.createdAt.timeIntervalSince1970)
@@ -500,6 +558,7 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalText(stmt, 11, note.sourceTranscriptID?.uuidString)
             self.bindOptionalText(stmt, 12, note.sourceActionItem)
             sqlite3_bind_int(stmt, 13, Int32(position))
+            sqlite3_bind_int(stmt, 14, note.stuck ? 1 : 0)
         }) else { return }
         notes.append(note)
     }
@@ -520,7 +579,7 @@ final class TranscriptStore: ObservableObject {
         guard exec("""
         UPDATE notes SET modifiedAt = ?, text = ?, richText = ?,
         pinned = ?, pinX = ?, pinY = ?, pinW = ?, pinH = ?,
-        sourceTranscriptID = ?, sourceActionItem = ? WHERE id = ?;
+        sourceTranscriptID = ?, sourceActionItem = ?, stuck = ? WHERE id = ?;
         """, bind: { stmt in
             sqlite3_bind_double(stmt, 1, updated.modifiedAt.timeIntervalSince1970)
             sqlite3_bind_text(stmt, 2, updated.text, -1, Self.SQLITE_TRANSIENT)
@@ -532,7 +591,8 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalDouble(stmt, 8, updated.pinH)
             self.bindOptionalText(stmt, 9, updated.sourceTranscriptID?.uuidString)
             self.bindOptionalText(stmt, 10, updated.sourceActionItem)
-            sqlite3_bind_text(stmt, 11, updated.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            sqlite3_bind_int(stmt, 11, updated.stuck ? 1 : 0)
+            sqlite3_bind_text(stmt, 12, updated.id.uuidString, -1, Self.SQLITE_TRANSIENT)
         }) else { return }
         notes[idx] = updated
     }
@@ -547,21 +607,46 @@ final class TranscriptStore: ObservableObject {
         renumberNotePositions(from: idx)
     }
 
-    /// Pin/unpin a note to the screen. Pinning may carry an initial origin
-    /// (bottom-left screen coords); unpinning keeps the last origin so re-pinning
-    /// restores the old spot.
+    /// Pin/unpin a note — *importance*, not the sticky. Unpinning a note that's
+    /// currently stuck is allowed (a deliberate override), and deliberately does
+    /// **not** take it off the screen: the two flags are independent once set.
     ///
-    /// `modifiedAt` is preserved: where a note is displayed is not a change to
+    /// `modifiedAt` is preserved: marking a note important is not a change to
     /// what it says, and bumping it would label an untouched note "Edited" just
-    /// for being pinned (`updateNotePinFrame` preserves it for the same reason).
-    func setNotePinned(id: UUID, pinned: Bool, origin: CGPoint? = nil) {
+    /// for being pinned (`setNoteStuck`/`updateNotePinFrame` do the same).
+    func setNotePinned(id: UUID, pinned: Bool) {
         guard var note = notes.first(where: { $0.id == id }) else { return }
         note.pinned = pinned
+        updateNote(note, modifiedAt: note.modifiedAt)
+    }
+
+    /// Put a note on screen as a floating sticky, or take it down. Sticking may
+    /// carry an initial origin (bottom-left screen coords); unsticking keeps the
+    /// last origin so re-sticking restores the old spot.
+    ///
+    /// **Sticking auto-pins** — urgency is a subset of importance, so anything
+    /// worth putting on screen is worth finding on the Pinned board afterwards.
+    /// Unsticking leaves the pin alone: the note stops being urgent, but you
+    /// haven't said it stopped mattering.
+    func setNoteStuck(id: UUID, stuck: Bool, origin: CGPoint? = nil) {
+        guard var note = notes.first(where: { $0.id == id }) else { return }
+        note.stuck = stuck
+        if stuck { note.pinned = true }
         if let origin {
             note.pinX = origin.x
             note.pinY = origin.y
         }
         updateNote(note, modifiedAt: note.modifiedAt)
+    }
+
+    /// Pin/unpin a transcript — the same importance lifecycle as `setNotePinned`.
+    func setTranscriptPinned(id: UUID, pinned: Bool) {
+        guard let idx = transcripts.firstIndex(where: { $0.id == id }) else { return }
+        guard exec("UPDATE transcripts SET pinned = ? WHERE id = ?;", bind: { stmt in
+            sqlite3_bind_int(stmt, 1, pinned ? 1 : 0)
+            sqlite3_bind_text(stmt, 2, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }) else { return }
+        transcripts[idx].pinned = pinned
     }
 
     /// Persist a sticky's dragged/resized frame without touching `modifiedAt`
@@ -581,6 +666,21 @@ final class TranscriptStore: ObservableObject {
     /// survives later edits of the note's own `text`.
     func noteForActionItem(transcriptID: UUID, item: String) -> Note? {
         notes.first { $0.sourceTranscriptID == transcriptID && $0.sourceActionItem == item }
+    }
+
+    /// Start a note from a dictation, quoting it as an embedded block.
+    ///
+    /// **Not idempotent, unlike `promoteActionItem`** — and that's deliberate.
+    /// An action item is one fixed thing that either is or isn't in Notes; a
+    /// dictation is raw material you might legitimately want to start two
+    /// different notes from. It's linked back by `sourceTranscriptID` all the
+    /// same, so the note can say where its text came from.
+    @discardableResult
+    func addNoteFromDictation(_ transcript: Transcript) -> Note {
+        var note = Note(text: transcript.text)
+        note.sourceTranscriptID = transcript.id
+        addNote(note)
+        return note
     }
 
     /// Add a transcript action item to Notes. Idempotent: if the item was
@@ -627,26 +727,54 @@ final class TranscriptStore: ObservableObject {
     }
 
     /// Transcripts that belong in the **Documents** tab — long-form material you
-    /// keep, as opposed to the quick dictations that pass through Today.
-    ///
-    /// Today that means file imports only. Call captures still store as
-    /// `.dictation` with a "Call —" title (the v1 gap), so they don't qualify
-    /// yet; **redesign phase 3 gives them a real source category, and this
-    /// method is where that change lands** — one tested place, rather than a
-    /// predicate spread across the views.
+    /// keep (file and video imports, call captures), as opposed to the quick
+    /// dictations that pass through Today. One tested place, rather than a
+    /// predicate spread across the views: a new long-form source joins Documents
+    /// by flipping `TranscriptSource.isDocument`.
     func documents(matching query: String) -> [Transcript] {
-        matching(query).filter { $0.source == .file }
+        matching(query).filter(\.source.isDocument)
     }
 
-    /// Notes the user pinned. Pin (importance) and stick (urgency) are still the
-    /// one flag; **redesign phase 2 splits them here**, at which point this gains
-    /// a `stuckNotes` sibling and the callers keep working.
-    var pinnedNotes: [Note] {
-        // Tie-break on id: `sorted(by:)` isn't stable, so equal timestamps could
-        // otherwise reorder between renders and churn `ForEach` identity.
-        notes.filter(\.pinned).sorted {
-            ($0.modifiedAt, $0.id.uuidString) > ($1.modifiedAt, $1.id.uuidString)
-        }
+    /// What the Pinned board shows: urgency on top, importance below.
+    ///
+    /// A stuck note appears in **both** sections on purpose — the strip is for
+    /// managing what's on your screen, the grid is the index of what matters,
+    /// and a stuck note is by definition both.
+    struct PinnedBoardContents: Equatable {
+        var onScreen: [Note]
+        var notes: [Note]
+        var documents: [Transcript]
+
+        var isEmpty: Bool { onScreen.isEmpty && notes.isEmpty && documents.isEmpty }
+        var pinnedCount: Int { notes.count + documents.count }
+    }
+
+    var pinnedBoardContents: PinnedBoardContents {
+        PinnedBoardContents(onScreen: stuckNotes, notes: pinnedNotes, documents: pinnedTranscripts)
+    }
+
+    /// Notes marked important, newest-touched first.
+    var pinnedNotes: [Note] { Self.byRecency(notes.filter(\.pinned)) }
+
+    /// Notes currently on screen as floating stickies. A subset of
+    /// `pinnedNotes` in practice, since sticking auto-pins.
+    var stuckNotes: [Note] { Self.byRecency(notes.filter(\.stuck)) }
+
+    /// Documents marked important, newest first (`transcripts` is already
+    /// ordered by `createdAt DESC`, so this only filters).
+    ///
+    /// **Documents only.** Schema v11 put `pinned` on every transcript, but pin
+    /// is for the durable half — a quick dictation is read in the day stream and
+    /// let go (human's call, 2026-07-25). The `isDocument` filter is what keeps
+    /// a row pinned by an older build from reappearing on the board.
+    var pinnedTranscripts: [Transcript] {
+        transcripts.filter { $0.pinned && $0.source.isDocument }
+    }
+
+    /// Tie-break on id: `sorted(by:)` isn't stable, so equal timestamps could
+    /// otherwise reorder between renders and churn `ForEach` identity.
+    private static func byRecency(_ notes: [Note]) -> [Note] {
+        notes.sorted { ($0.modifiedAt, $0.id.uuidString) > ($1.modifiedAt, $1.id.uuidString) }
     }
 
     /// First ~60 chars of the first line, for use as a dictation title.
@@ -670,6 +798,9 @@ final class TranscriptStore: ObservableObject {
         // If the DB failed to open, don't mark migrated — retry next launch so
         // the legacy history isn't silently marked done and lost.
         guard db != nil else { return }
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.migrationFlagKey) }
 
         guard let data = defaults.data(forKey: "transcriptionHistory"),
@@ -710,6 +841,9 @@ final class TranscriptStore: ObservableObject {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: Self.transcriptNotesMigrationFlagKey) else { return }
         guard db != nil else { return }   // DB not open — retry next launch
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.transcriptNotesMigrationFlagKey) }
 
         let withNotes = transcripts.filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -747,6 +881,9 @@ final class TranscriptStore: ObservableObject {
         guard !defaults.bool(forKey: Self.dictionaryMigrationFlagKey) else { return }
         // If the DB failed to open, don't mark migrated — retry next launch.
         guard db != nil else { return }
+        // A stale schema leaves the in-memory arrays empty, and these
+        // routines set a flag that never runs again — see `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
         defer { defaults.set(true, forKey: Self.dictionaryMigrationFlagKey) }
 
         guard let data = defaults.data(forKey: "dictionaryEntries"),
@@ -836,6 +973,7 @@ final class TranscriptStore: ObservableObject {
             reminderFiredAt REAL,
             richText BLOB,
             pinned INTEGER NOT NULL DEFAULT 0,
+            stuck INTEGER NOT NULL DEFAULT 0,
             pinX REAL,
             pinY REAL,
             pinW REAL,
@@ -874,6 +1012,20 @@ final class TranscriptStore: ObservableObject {
     /// present** — a step interrupted partway (e.g. an `ALTER` failing on a full
     /// disk) leaves the version unbumped and `return`s, so the whole sequence
     /// retries and heals on the next launch instead of half-migrating.
+    /// The version `migrateSchema` brings a DB up to. The loaders name columns
+    /// from this version, so anything short of it means the loaded arrays can't
+    /// be trusted — see `schemaIsCurrent`.
+    static let latestSchemaVersion: Int32 = 12
+
+    /// False when a migration step failed and the DB is behind
+    /// `latestSchemaVersion`. **Every one-shot migration guards on this**: they
+    /// filter the in-memory arrays, which a stale schema leaves empty (the
+    /// loaders' `SELECT` names a column the DB doesn't have and returns no
+    /// rows), and then set a UserDefaults flag that never runs again — so
+    /// running one against an unloaded store would permanently skip real work
+    /// (a user's per-transcript notes, say) while reporting success.
+    private(set) var schemaIsCurrent = false
+
     private func migrateSchema() {
         guard db != nil else { return }
         var version: Int32 = 0
@@ -967,6 +1119,103 @@ final class TranscriptStore: ObservableObject {
             log.notice("Migrated schema to v9 (note rich text).")
             version = 9
         }
+
+        if version < 10 {
+            // Pin/stick split. `pinned` used to mean "on screen as a sticky";
+            // from here it means "favourite", and the new `stuck` carries the
+            // sticky. Seeding `stuck` from `pinned` therefore leaves every
+            // existing sticky both stuck AND pinned — which is exactly what the
+            // auto-pin rule says it should be, so no row needs correcting.
+            //
+            // **This step must be all-or-nothing**, which is why it's the first
+            // one wrapped in a transaction. The backfill is a one-time read of
+            // `pinned` as if it still meant "stuck": if the column landed but
+            // the backfill or the version bump didn't, the *next launch* would
+            // re-run it over a session's worth of the user's own pin and stick
+            // choices — popping every favourite onto the screen and taking down
+            // any sticky they'd deliberately unpinned. A whole session sits
+            // between the failure and the retry, so "nothing can have diverged"
+            // is not true here. SQLite DDL and `PRAGMA user_version` are both
+            // transactional, so one commit covers all three.
+            let hadStuckAlready = existingColumns(of: "notes").contains("stuck")
+            let migrated = withTransaction {
+                guard addColumns([("stuck", "INTEGER NOT NULL DEFAULT 0")], to: "notes") else { return false }
+                // Belt and braces against a partial state written by an earlier
+                // build of this migration: if the column was already there, we
+                // can't tell a pre-upgrade `pinned` from a post-upgrade one, and
+                // silently losing stickies beats overwriting deliberate choices.
+                if !hadStuckAlready {
+                    guard exec("UPDATE notes SET stuck = pinned;", bind: nil) else { return false }
+                }
+                return exec("PRAGMA user_version = 10;", bind: nil)
+            }
+            guard migrated else {
+                log.error("Schema v10 migration rolled back; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            log.notice("Migrated schema to v10 (pin/stick split).")
+            version = 10
+        }
+
+        if version < 11 {
+            // Transcripts join the pin (importance) lifecycle — no `stuck`
+            // counterpart, since a document isn't something you put on screen.
+            let migrated = withTransaction {
+                guard addColumns([("pinned", "INTEGER NOT NULL DEFAULT 0")]) else { return false }
+                return exec("PRAGMA user_version = 11;", bind: nil)
+            }
+            guard migrated else {
+                log.error("Schema v11 migration rolled back; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            log.notice("Migrated schema to v11 (pinned transcripts).")
+            version = 11
+        }
+
+        if version < 12 {
+            // Call captures shipped before there was a source for them: they
+            // were stored as `.dictation` with a "Call — App, time" title (the
+            // v1 gap). Reclassify them so they land in Documents with the rest
+            // of the long-form material.
+            //
+            // The predicate is deliberately narrow. `addDictation` never sets
+            // `durationSec` (it's nil on every dictation ever written), while a
+            // call capture always does — so the duration, not the title, is the
+            // real discriminator; the title prefix is a second lock. A user
+            // whose dictation happens to start "Call — " is left alone because
+            // it has no duration.
+            let migrated = withTransaction {
+                guard exec("""
+                UPDATE transcripts SET source = 'call'
+                WHERE source = 'dictation' AND durationSec IS NOT NULL
+                  AND fileName IS NULL AND title LIKE 'Call — %';
+                """, bind: nil) else { return false }
+                return exec("PRAGMA user_version = 12;", bind: nil)
+            }
+            guard migrated else {
+                log.error("Schema v12 migration rolled back; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            log.notice("Migrated schema to v12 (call transcripts get their own source).")
+            version = 12
+        }
+
+        schemaIsCurrent = version == Self.latestSchemaVersion
+    }
+
+    /// Run `body` inside a transaction, committing only if it returns true.
+    /// Used by migration steps that must not land halfway — see v10.
+    private func withTransaction(_ body: () -> Bool) -> Bool {
+        guard exec("BEGIN IMMEDIATE;", bind: nil) else { return false }
+        guard body() else {
+            exec("ROLLBACK;", bind: nil)
+            return false
+        }
+        guard exec("COMMIT;", bind: nil) else {
+            exec("ROLLBACK;", bind: nil)
+            return false
+        }
+        return true
     }
 
     /// Add each column to `table` only if it's missing (idempotent, so a
@@ -994,19 +1243,21 @@ final class TranscriptStore: ObservableObject {
         return names
     }
 
-    // NOTE: `INSERT OR REPLACE` writes all 13 columns, so calling this with an
-    // already-stored `id` would overwrite its summary AND notes columns with the
-    // passed Transcript's values (nil/empty for a freshly built one). Safe today
-    // — every `add()` path mints a new UUID, and summary/notes are written via
-    // `updateSummary` / `updateNotes` (UPDATE, not insert). A future "edit/re-save"
-    // path must NOT round-trip an existing row through `add()`/`insert()` or it
-    // will wipe both; add a dedicated update instead.
+    // NOTE: `INSERT OR REPLACE` writes every column, so calling this with an
+    // already-stored `id` overwrites its summary, notes AND pinned state with
+    // the passed Transcript's values (nil/empty/false for a freshly built one).
+    // Safe today — every `add()` path mints a new UUID, and those fields are
+    // written via `updateSummary` / `updateNotes` / `setTranscriptPinned`
+    // (UPDATE, not insert). A future "edit/re-save" path must NOT round-trip an
+    // existing row through `add()`/`insert()` or it will wipe them; add a
+    // dedicated update instead. **Keep this list in step with the columns** —
+    // a field that's silently not written here is a field that vanishes.
     @discardableResult
     private func insert(_ t: Transcript) -> Bool {
         exec("""
         INSERT OR REPLACE INTO transcripts
-        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID, pinned)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """) { stmt in
             sqlite3_bind_text(stmt, 1, t.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, t.createdAt.timeIntervalSince1970)
@@ -1023,13 +1274,14 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalText(stmt, 13, t.notes.isEmpty ? nil : t.notes)
             self.bindOptionalText(stmt, 14, t.styleName)
             self.bindOptionalText(stmt, 15, t.styleID)
+            sqlite3_bind_int(stmt, 16, t.pinned ? 1 : 0)
         }
     }
 
     private func reload() {
         var rows: [Transcript] = []
         forEachRow("""
-        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID
+        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID, pinned
         FROM transcripts ORDER BY createdAt DESC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
@@ -1052,7 +1304,8 @@ final class TranscriptStore: ObservableObject {
                 summaryGeneratedAt: generatedAt,
                 notes: Self.columnText(stmt, 12) ?? "",
                 styleName: Self.columnText(stmt, 13),
-                styleID: Self.columnText(stmt, 14)
+                styleID: Self.columnText(stmt, 14),
+                pinned: sqlite3_column_int(stmt, 15) != 0
             ))
         }
         transcripts = rows
@@ -1086,7 +1339,7 @@ final class TranscriptStore: ObservableObject {
         var rows: [Note] = []
         forEachRow("""
         SELECT id, createdAt, modifiedAt, text, richText,
-               pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem
+               pinned, pinX, pinY, pinW, pinH, sourceTranscriptID, sourceActionItem, stuck
         FROM notes ORDER BY position ASC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
@@ -1104,6 +1357,7 @@ final class TranscriptStore: ObservableObject {
             note.pinH = Self.columnDouble(stmt, 9)
             note.sourceTranscriptID = Self.columnText(stmt, 10).flatMap(UUID.init(uuidString:))
             note.sourceActionItem = Self.columnText(stmt, 11)
+            note.stuck = sqlite3_column_int(stmt, 12) != 0
             rows.append(note)
         }
         notes = rows
@@ -1149,15 +1403,21 @@ final class TranscriptStore: ObservableObject {
         return true
     }
 
-    private func forEachRow(_ sql: String, _ handle: (OpaquePointer?) -> Void) {
-        guard let db else { return }
+    /// Returns false when the statement couldn't even be prepared — which for a
+    /// loader means "no rows" and "the table wouldn't answer" are the same
+    /// silence, and an intact library reads as empty. Callers that populate a
+    /// `@Published` array check it so the failure is at least in the log.
+    @discardableResult
+    private func forEachRow(_ sql: String, _ handle: (OpaquePointer?) -> Void) -> Bool {
+        guard let db else { return false }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             log.error("prepare failed: \(String(cString: sqlite3_errmsg(db)))")
-            return
+            return false
         }
         defer { sqlite3_finalize(stmt) }
         while sqlite3_step(stmt) == SQLITE_ROW { handle(stmt) }
+        return true
     }
 
     private func bindOptionalText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String?) {

@@ -32,12 +32,17 @@ Rail (five items, every screen): **Today · Notes · Documents · Pinned · ⌵ 
 Settings**. The titlebar always reads "Shhhcribble" — the rail's active state
 is the location indicator; the title never restates it.
 
-- **Today** — single chronological stream. Anchored (bordered card): notes and
-  documents, title + type pill + preview. Passing (borderless line): dictations,
-  **always fully expanded — no truncation** (day grouping + scroll carry the
-  length; revisit only if it ever feels overwhelming). Hover reveals per-item
-  actions: copy (accent), add-to-note, delete. Date: chevrons step a day; the
-  day label opens a month popover with dots on non-empty days + "Jump to today".
+- **Today** — single chronological stream, **scoped to one day**. Anchored
+  (bordered card): notes and documents, title + type pill + preview. Passing
+  (borderless line): dictations, **always fully expanded — no truncation**
+  (scroll carries the length; revisit only if it ever feels overwhelming).
+  **"No truncation" binds the stream, not every surface** — search results trim
+  a dictation, because a list of matches is a different job from the record of
+  what you said. Hover reveals per-item actions: copy (accent) and delete on
+  everything, **add-to-note on dictations only** (a note already is one, and a
+  document keeps its own reader). Date: chevrons step a day; the day label opens
+  a month popover with dots on non-empty days + "Jump to today"; the date
+  navigator steps aside while a search is active, since results span every day.
 - **Notes** — master-detail. List groups: Pinned, then day groups ("Today",
   "Earlier this week", …). Detail: rich-text editor (existing type ramp),
   header actions **pin · copy · delete** only. Embedded dictation blocks: 2pt
@@ -80,19 +85,41 @@ Today's `Note.pinned` conflated two lifecycles. Split:
 ## Cross-cutting rules
 
 - **The floating capsule is a column's single primary verb** — Add note (notes
-  list), Upload audio… (documents list / Today empty state), Stick/Unstick
-  (note editor). One capsule per column, never more.
+  list), Upload audio… (documents list), Stick/Unstick (note editor). One
+  capsule per column, **except Today's empty state, which carries both Add note
+  and Upload audio…** (ruled 2026-07-25): it has no other verb, and without the
+  first there is no route to a note from an empty app. The wireframe drew this
+  before the rule was written; where the two disagree, **the wireframe wins
+  unless it's technically impossible**.
 - **Search**: only Today's "Search everything" crosses categories — results
-  replace the timeline, grouped by category (library order) then dated, matches
-  highlighted, Esc/✕ restores the day. Notes/Documents search pills filter
-  their own lists inline, no custom results view.
+  replace the timeline, grouped **Notes → Dictations → Documents** (was written
+  as "library order", which is undefined for dictations: they have no rail item)
+  then dated, matches highlighted, Esc/✕ restores the day. Notes/Documents
+  search pills filter their own lists inline, no custom results view.
 - **Empty states** teach the pane's verb with a real CTA; Today teaches the
   hotkey (keycap style); Pinned carries the one-sentence pin-vs-stick
-  explainer.
+  explainer. Today also has a *quiet-day* variant ("Nothing on this day") for a
+  past day that happens to be empty — distinct from the library-empty state.
+  Capsule labels follow macOS title case ("Add Note", "Upload Audio…") rather
+  than the sentence case used in this document's prose.
 - Action rows stay minimal: no download anywhere (copy covers it), no reveal.
 - All existing DesignSystem tokens carry over (neutral fills over primary,
   radius roles, chrome type ramp). Selection stays neutral; accent only for
   links, active copy glyph, and match highlights.
+
+## Open questions (raised by the 2026-07-25 build; need a ruling)
+
+- ~~**Today's empty state: one capsule or two?**~~ **RULED 2026-07-25: two**,
+  per the wireframe. The rule gains an explicit carve-out above.
+- ~~**Can a dictation be pinned?**~~ **RULED 2026-07-25: no.** Pin is for the
+  durable half. `pinnedTranscripts` filters on `isDocument`, the reader's pin
+  control only appears for documents, and a row pinned by an earlier build stays
+  off the board.
+- **Embedded dictation blocks** (2pt left rule, quoted text, "From a dictation,
+  <date>" with mic glyph) are specified for Notes but **not built**: the
+  add-to-note action copies the text and links the source, and the note header
+  shows a "From transcript" tag instead. The left rule needs custom text-view
+  drawing; the attribution line is cheap. Scope it deliberately.
 
 ## Explicitly deferred (documented so they don't sneak in)
 
@@ -114,20 +141,29 @@ Today's `Note.pinned` conflated two lifecycles. Split:
 
 ## Implementation phasing (recommended; one branch per phase)
 
-1. **Shell** — five-item rail, Settings environment (subnav master-detail),
-   constant titlebar, Quit/updates relocation. Pure UI; autonomy-safe.
-2. **Pin/stick split** — schema bump: notes get a favourite flag alongside the
-   sticky flag (migration: existing `pinned` stickies become stuck AND pinned,
-   which the auto-pin rule makes exactly right); `transcripts` gains a pinned
-   column. Rename sticky verbs in UI. Pinned groups atop both lists.
-3. **Documents vs dictations** — a real source distinction. Call captures are
-   currently stored as `source: .dictation` with a "Call —" title (v1 gap in
-   CLAUDE.md); this phase gives them and file imports a proper document
-   category. Documents tab + pared actions.
-4. **Today timeline** — the feed replacing the transcripts master-detail:
-   day stream, two weights, hover actions, chevrons + month popover.
-5. **Search everything** — cross-category results view on Today.
-6. **Pinned board** — strip + grid.
+1. ~~**Shell**~~ — **DONE 2026-07-25.** Five-item rail, Settings environment
+   (subnav master-detail), constant titlebar, Quit/updates relocation.
+2. ~~**Pin/stick split**~~ — **DONE 2026-07-25.** Schema v10 adds `notes.stuck`
+   seeded from `pinned` (so existing stickies come out stuck AND pinned, which
+   the auto-pin rule makes exactly right); v11 adds `transcripts.pinned`. Sticky
+   verbs renamed, Pinned groups atop both lists. **This phase also delivered
+   phase 6's board** — adding pin without a surface that shows pinned items
+   would have left the Pinned tab lying — so 6 below is reduced to polish.
+3. ~~**Documents vs dictations**~~ — **DONE 2026-07-25.** `TranscriptSource`
+   gained `.call`; schema v12 reclassifies the call captures that shipped as
+   `.dictation`, keyed on `durationSec` rather than the title. `isDocument` is
+   the one predicate dividing the app's two halves. Action rows pared to
+   pin · copy · delete (download and reveal dropped).
+4. ~~**Today timeline**~~ — **DONE 2026-07-25.** The feed replacing the
+   transcripts master-detail: day stream, two weights, hover actions, chevrons +
+   month popover. Day logic is pure and tested (`Storage/Timeline.swift`).
+5. ~~**Search everything**~~ — **DONE 2026-07-25.** Cross-category results on
+   Today: grouped Notes → Dictations → Documents, dated within each, matches
+   highlighted, Esc/✕ restores the day. Pure and tested (`Storage/Search.swift`).
+6. ~~**Pinned board**~~ — **DONE 2026-07-25.** Strip + grid (the bulk landed
+   with phase 2); this pass added the board's tested content model, the
+   pin-vs-stick empty state with its Browse-notes CTA, and the contract's empty
+   -state copy across Today, Notes and Documents.
 
 Phases 2–3 touch schema (versioned per-step migrations per the TranscriptStore
 pattern); none touch `AudioRecorder`/routing/`MusicPauser`/`TextInserter`, so
