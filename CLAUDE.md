@@ -343,6 +343,23 @@ line limit to the dictation line without re-reading the decision record.
 - The empty state teaches the hotkey with a keycap rather than apologising for
   being empty.
 
+### Lists group by recency; the wireframe outranks the prose rule
+Notes and Documents both render **Pinned first, then day groups** — Today /
+Yesterday / Earlier this week / Earlier this month / Older — via pure, tested
+`Timeline.recencyGroup` + `Timeline.grouped`. **"This week" is the calendar's
+week, not the last seven days**: on a Saturday, something from six days ago is
+*last* week, and calling it this week is the kind of small lie that makes a list
+feel untrustworthy.
+
+**Standing rule from 2026-07-25: where the wireframes' drawings and their prose
+disagree, the drawing wins unless it's technically impossible** (the human's
+call). That settled three things — Today's empty state carries **two** capsules
+(Add Note + Upload Audio…) despite the one-capsule-per-column rule, because an
+empty app otherwise has no route to a note; **dictations cannot be pinned**
+(`pinnedTranscripts` filters on `isDocument`, the reader's pin control only
+appears for a document, and a row pinned by an older build stays off the board);
+and these day groups, which the build had skipped.
+
 ### Search: only Today crosses categories (redesign phase 5)
 [Storage/Search.swift](Shhhcribble/Storage/Search.swift) is pure and tested;
 `TodayView` renders it. A query **replaces** the day stream with results grouped
@@ -620,6 +637,22 @@ This project runs a **largely-autonomous research→build→verify loop** over t
 8. **Backlog re-evaluation** (added 2026-07-08): after a feature ships, re-scan [docs/ROADMAP.md](docs/ROADMAP.md) and the backlog against any new signal (user feedback, competitive finds, what the feature unlocked) and re-prioritize; record the shift in the loop-progress note. New feedback often converges or reshuffles items — don't just march the old order.
 
 Iterate implement→review→fix up to ~3 rounds; if still failing or low-confidence, **stop and escalate** rather than loop. Use the **Workflow tool** for each sprint's implement→parallel-review→verify pipeline; keep a short loop-progress note here (current sprint / last done / next / blocker).
+
+**Loop progress (2026-07-25f — HANDOFF):** **The Studio redesign is COMPLETE: all six phases + the human's three rulings, on branch `shhhcribble/pin-stick-split` (7 commits ahead of `shhhcribble/main`, NOT merged, NOT pushed).** `main` already carries phase 1. **296 tests green, up from 232 at session start (+64); every phase has its own tests.** No `AudioRecorder`/routing/`MusicPauser`/`TextInserter`/pref-table touch anywhere in the redesign → **no hardware smoke test triggered.** Schema went **v9 → v12** (v10 `notes.stuck`, v11 `transcripts.pinned`, v12 call reclassification); all three steps are transactional and the human's live DB migrated cleanly on launch (v12, 3 calls reclassified out of 610 dictations + 5 files).
+
+**The human is now running the current dev build** (relaunched 2026-07-25 18:32 from DerivedData; `/Applications` 1.13.0 is quit). Expect Accessibility to be dropped — fresh build signature — so **Escape-to-cancel and auto-paste need a re-grant** before judging them.
+
+**Four adversarial reviews ran across the session and every one found real defects; all fixed.** The two worst were comments of mine asserting the opposite of the code: the v10 migration backfill was *not* safe to re-run (the retry lands a session later, and would have thrown every favourite onto the screen), and Today's day did *not* survive a tab switch (the detail `switch` is a `_ConditionalContent`). Also fixed: one-shot migrations could burn their flags against an empty store; `insert()` silently dropped `pinned`; the stick capsule occluded the end of a long note and stole its clicks; pin/stick skipped the save flush so sticking mid-typing could lose keystrokes; note cards and note search results printed their first line twice; search ran the whole library twice per keystroke.
+
+**⚠ THE HONEST GATE — nothing has had a visual pass.** Every claim is build-and-test verified, not eyes-verified. **The human's next session starts with a UI review** (their words), plus a new competitor to fold in and a decision on where to take it next.
+
+**Open for that session:**
+- **Embedded dictation blocks** — specified for Notes (2pt left rule, quoted text, "From a dictation, <date>" + mic glyph), **not built**. Today's add-to-note copies the text and links `sourceTranscriptID`; the note shows a "From transcript" tag instead. The attribution line is cheap; the left rule needs custom `NSTextView` drawing — the one place "technically we can't" may genuinely apply. Recorded under Open questions in the wireframes doc.
+- **Worth judging by eye:** Today with 610 dictations (one day, fully expanded, no truncation — the contract says revisit only if it feels overwhelming); the stick capsule floating over the note editor; Today's two-capsule empty state.
+- **Settled, don't reopen:** Save-as-.txt and Reveal-in-Finder are gone for good (human confirmed); dictations aren't pinnable; the wireframe outranks the prose rule.
+- Merge + push are the human's call; no release cut this session.
+
+Prior progress ↓.
 
 **Loop progress (2026-07-25e):** **ALL SIX REDESIGN PHASES COMPLETE** on branch `shhhcribble/pin-stick-split` (phases 2–6; phase 1 already merged to `main`). Not pushed. Phases this round: **4 — Today timeline** (the stream replacing the transcripts master-detail; pure `Storage/Timeline.swift`), **5 — Search everything** (cross-category results; pure `Storage/Search.swift`), **6 — Pinned board** (tested content model + the pin-vs-stick empty state; the bulk landed with phase 2). Phase 1 gained its own tests retroactively (`StudioShellTests` pins the locked five-item rail and four Settings pages). **289 tests green, from 232 at session start (+57); every phase has tests.** No audio-path touch across any phase → **no hardware smoke test triggered.**
 
