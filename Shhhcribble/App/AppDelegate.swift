@@ -96,8 +96,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the device busy. Two consecutive idle polls end the capture.
     private var callEndPollTimer: Timer?
     private var callEndIdlePolls = 0
-    /// Hard cap so a missed call-end can't record forever (~230 MB/hour).
-    private let callCaptureMaxDuration: TimeInterval = 60 * 60
+    /// Hard cap so a missed call-end can't record forever.
+    ///
+    /// **This is a memory bound, so it scales with how many streams are
+    /// running.** Captured audio accumulates in memory for the whole call —
+    /// 16 kHz mono Float32 is **3.84 MB/min per stream**, and the array doubles
+    /// its capacity as it grows, so the transient peak is roughly twice the
+    /// resident figure. One stream for an hour is ~230 MB resident; two streams
+    /// would be ~460 MB (~920 MB transient), which is why both-sides capture
+    /// gets half the wall-clock.
+    ///
+    /// Interim mitigation, not the fix. The real fix is chunked capture
+    /// (ROADMAP C2) — draining to disk as it goes — which has to touch
+    /// `AudioRecorder` and is therefore human-gated. Until then this keeps the
+    /// worst case at the ~230 MB envelope that has already shipped, rather than
+    /// doubling it the moment someone turns the new feature on.
+    private var callCaptureMaxDuration: TimeInterval {
+        callCapturedBothSides ? 30 * 60 : 60 * 60
+    }
 
     /// Captures what comes *out* of the speakers, so a call transcript can carry
     /// the other side too. Entirely separate from `AudioRecorder` — the mic
@@ -930,7 +946,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard callCapturePhase == .recording else { return }
         if let started = callCaptureStartedAt,
            Date().timeIntervalSince(started) > callCaptureMaxDuration {
-            print("[Shhhcribble] Call capture hit the duration cap — stopping")
+            let minutes = Int(callCaptureMaxDuration / 60)
+            print("[Shhhcribble] Call capture hit the \(minutes)-minute cap — stopping")
+            // Say so rather than just stopping: silently truncating an hour-long
+            // meeting and saving it as if it were complete is the kind of thing
+            // that makes a transcript untrustworthy.
+            notifyCall(title: "Call transcript stopped at \(minutes) minutes",
+                       body: "That's the current recording limit. Everything up to here is saved.")
             endCallCapture()
             return
         }
