@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Calls can now include the other person.** Turn on "Include the other side of
+  the call" in Settings and a transcribed call captures the audio coming out of
+  your speakers as well as your microphone, so the transcript reads as a
+  conversation — each turn labelled **Me** or **Others**. It all happens on your
+  Mac; nothing is uploaded. Off by default, and macOS asks for Screen & System
+  Audio Recording permission the first time you use it. Without that permission
+  calls are still transcribed from your microphone alone, exactly as before.
+- **No more hearing the other person twice.** When you're on speakers your
+  microphone picks up their voice as well, which would otherwise put everything
+  they said into the transcript twice, once wrongly under your name. Those
+  duplicates are detected and dropped — while short replies like "yeah" or
+  "right" are always kept as yours.
+
 ### Changed
 - **Sticky notes share one window now, as tabs.** Sticking several notes used to
   scatter a separate card across your screen for each one. They now live in a

@@ -46,6 +46,8 @@
 	<string>Shhhcribble uses Accessibility to insert transcribed text directly at the cursor in the focused app.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Shhhcribble pauses Spotify and Apple Music while you dictate, then resumes them when you stop. This lets you keep music going in the background without it drowning out your voice.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Shhhcribble records the audio coming out of your speakers, but only during a call you have chosen to transcribe, so the transcript includes what the other person said. It is transcribed on this Mac and never uploaded.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Shhhcribble records your voice while you hold the hotkey (⌥Space by default) so it can transcribe your speech and paste the text into the focused field.</string>
 	<key>NSPrincipalClass</key>

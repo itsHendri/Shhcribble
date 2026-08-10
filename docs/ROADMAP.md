@@ -8,6 +8,8 @@
 
 > This is the re-prioritization that was deferred on 2026-07-26 (*"we'll re-prioritize features another time"*). Agreed with the human 2026-08-10, after re-auditing **Wispr Flow 1.6.447** — which shipped **Notetaker**, their meeting-notes product, and confirmed the mechanism for our biggest open item.
 
+> **STATUS 2026-08-10: C3 is BUILT** (design session held the same day; decisions were text-domain echo removal, speaker-labelled turns, and off-by-default with the prompt on first use). `SystemAudioCapture` + `CallTranscriptMerger` + the AppDelegate wiring + a Settings toggle + `NSAudioCaptureUsageDescription`. 334 tests green. **`AudioRecorder` untouched — no hardware smoke test triggered by this feature.** ⚠ **Verified: the permission-refused path only** (the `debugSystemAudioProbe` diagnostic correctly reported the missing grant and the code degraded to mic-only). **Unverified: audio actually arriving, the merge on real speech, and echo removal on speakers** — all need the Screen Recording grant plus a real call. **C2 (chunked *capture*) is still open**: transcription is now windowed at 30 s, which bounds the transcribe, but `AudioRecorder.samples` still accumulates the whole mic recording, so the logged buffer defect stands. Cheap interim mitigation remains lowering the 60-minute cap.
+
 **1. Both-sides call capture — C2 + C3.** *(design-gated + audio-gated → human)*
 The meeting-notes feature this project intended before Wispr shipped theirs. **Wispr's Notetaker requires cloud sync; Granola is cloud; the one local implementation is all-rights-reserved.** On-device meeting notes is genuinely unoccupied, and it is the strongest on-brand pitch we have. Now much better understood — see the corrections below.
 

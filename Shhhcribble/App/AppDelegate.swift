@@ -99,6 +99,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Hard cap so a missed call-end can't record forever (~230 MB/hour).
     private let callCaptureMaxDuration: TimeInterval = 60 * 60
 
+    /// Captures what comes *out* of the speakers, so a call transcript can carry
+    /// the other side too. Entirely separate from `AudioRecorder` — the mic
+    /// keeps its own path (see `SystemAudioCapture` for why that split is
+    /// forced as well as desirable). Only ever started when the user has turned
+    /// the feature on, and silently skipped when the permission is missing.
+    private let systemAudioCapture = SystemAudioCapture()
+    /// Was the system stream actually running for this capture? Decides whether
+    /// the transcript is speaker-labelled or the plain single-voice text it has
+    /// always been.
+    private var callCapturedBothSides = false
+
+    /// Window length for transcribing a call. Long captures are sliced before
+    /// transcription rather than handed over whole: it bounds peak memory during
+    /// transcription, gives each segment a time range for interleaving the two
+    /// streams, and means one failed window costs a few seconds of transcript
+    /// instead of the entire call.
+    private let callChunkSeconds: Double = 30
+
     /// Timestamp of the hotkey keyDown that started the current recording.
     /// On keyUp we measure the elapsed hold: a long hold (≥ holdThreshold) is
     /// read as push-to-talk and releases stop the recording; a quick tap is
@@ -190,6 +208,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     appName: "WhatsApp",
                     onAccept: { },
                     onDismiss: { })
+            }
+        }
+
+        // Hidden diagnostic: `defaults write com.shhhcribble.app debugSystemAudioProbe -bool true`
+        // captures system audio for 5 s at launch and logs how much it got and
+        // how loud it was. The point is that the ScreenCaptureKit path cannot be
+        // reached from a unit test and otherwise needs a real call to exercise —
+        // this makes "is the permission granted, and is audio actually arriving?"
+        // answerable in five seconds with music playing. Nothing is transcribed
+        // or stored.
+        if UserDefaults.standard.bool(forKey: "debugSystemAudioProbe") {
+            Task { @MainActor in
+                do {
+                    try await self.systemAudioCapture.start()
+                    print("[Shhhcribble] System-audio probe: capturing for 5 s — play something now")
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    let samples = await self.systemAudioCapture.stop()
+                    let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+                    print(String(format: "[Shhhcribble] System-audio probe: %d samples (%.2f s), peak %.4f",
+                                 samples.count, Double(samples.count) / 16_000, peak))
+                    if peak == 0 {
+                        print("[Shhhcribble] System-audio probe: captured silence — was anything playing?")
+                    }
+                } catch {
+                    print("[Shhhcribble] System-audio probe failed: \(error.localizedDescription)")
+                }
+                // Redirected stdout is block-buffered, and this app rarely exits
+                // during a diagnostic — without this the result sits in the
+                // buffer and the probe looks like it never ran.
+                fflush(stdout)
             }
         }
 
@@ -844,6 +892,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.notifyCall(title: "Call transcript failed", body: message, isError: true)
             }
         )
+        // Start the system-audio stream alongside the mic, if the user asked for
+        // both sides. Deliberately fire-and-forget: `start()` awaits the
+        // permission check, and blocking the capture on it would delay the mic
+        // for the far more common single-sided case. A refusal degrades to
+        // mic-only rather than failing the capture.
+        callCapturedBothSides = false
+        if ModelManager.callBothSidesEnabled {
+            Task { @MainActor in
+                guard self.callCapturePhase == .recording else { return }
+                do {
+                    try await self.systemAudioCapture.start()
+                    // The capture may have ended while we were awaiting.
+                    guard self.callCapturePhase == .recording else {
+                        _ = await self.systemAudioCapture.stop()
+                        return
+                    }
+                    self.callCapturedBothSides = true
+                } catch {
+                    print("[Shhhcribble] Both-sides capture unavailable: \(error.localizedDescription)")
+                    self.notifyCall(title: "Recording your side only",
+                                    body: "Grant Screen & System Audio Recording to include the other person.")
+                }
+            }
+        }
+
         // Auto-stop: poll whether any known call app still runs mic input.
         // (The device-level idle signal can't work here — we hold the mic.)
         let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
@@ -894,8 +967,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             defer { self.resetCallCaptureState() }
             do {
-                let text = try await transcriptionEngine.transcribe(audioSamples: samples)
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Collect the other side first — the shared AsrManager is not
+                // re-entrant, so both streams transcribe serially below.
+                let systemSamples = self.callCapturedBothSides
+                    ? await self.systemAudioCapture.stop() : []
+                self.callCapturedBothSides = false
+
+                let trimmed: String
+                if systemSamples.isEmpty {
+                    // Mic-only — unchanged from before both-sides capture
+                    // existed, including for anyone who never turns it on.
+                    let text = try await transcriptionEngine.transcribe(audioSamples: samples)
+                    trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    let mine = await self.transcribeInWindows(samples, as: .me)
+                    let theirs = await self.transcribeInWindows(systemSamples, as: .others)
+                    let turns = CallTranscriptMerger.merge(mic: mine, system: theirs)
+                    trimmed = CallTranscriptMerger.render(turns)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
                 guard !trimmed.isEmpty else {
                     notifyCall(title: "No speech detected",
                                body: "The call capture contained no usable speech.")
@@ -927,8 +1017,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Transcribe one call stream in fixed windows, tagging each with the time
+    /// range it covers so the two streams can be interleaved and echo-matched.
+    ///
+    /// Windows come from sample arithmetic, not the ASR's token timings:
+    /// Parakeet-TDT folds trailing silence into the preceding token's duration
+    /// (the reason the `PauseSegmenter` experiment was reverted), so its timings
+    /// can't be trusted as a clock. A window that fails or comes back empty is
+    /// skipped rather than aborting the call.
+    private func transcribeInWindows(_ samples: [Float], as speaker: CallSpeaker) async -> [CallSegment] {
+        let rate = 16_000.0
+        let windowSamples = Int(callChunkSeconds * rate)
+        guard windowSamples > 0, !samples.isEmpty else { return [] }
+
+        var segments: [CallSegment] = []
+        var offset = 0
+        while offset < samples.count {
+            let end = min(offset + windowSamples, samples.count)
+            let window = Array(samples[offset..<end])
+            let start = Double(offset) / rate
+            let stop = Double(end) / rate
+            // Under a second of audio has nothing usable in it and Parakeet
+            // tends to hallucinate on such a fragment.
+            if window.count > Int(rate) {
+                if let text = try? await transcriptionEngine.transcribe(audioSamples: window) {
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        segments.append(CallSegment(speaker: speaker, start: start,
+                                                    end: stop, text: trimmed))
+                    }
+                }
+            }
+            offset = end
+        }
+        return segments
+    }
+
     private func resetCallCaptureState() {
         callCapturePhase = .idle
+        // Catch-all for the paths that never reach the transcribe — a capture
+        // too short to use, a mic error, a stale-offer rejection. Leaving the
+        // system stream running would keep recording the speakers after the call
+        // is over, which is the worst possible bug in this feature.
+        // `stop()` is a no-op when it isn't running, so a double-stop is safe.
+        if callCapturedBothSides {
+            callCapturedBothSides = false
+            Task { @MainActor in _ = await self.systemAudioCapture.stop() }
+        }
         // Files dropped on the app during the capture queued behind the
         // isDictationActive gate — kick the queue now that the engine is free.
         fileTranscriber?.drainIfIdle()

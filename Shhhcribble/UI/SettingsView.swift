@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var selectedHotkeyID:    String = ModelManager.selectedHotkeyID
     @State private var activationMode: ModelManager.ActivationMode = ModelManager.activationMode
     @State private var callDetectionEnabled: Bool = ModelManager.callDetectionEnabled
+    @State private var callBothSidesEnabled: Bool = ModelManager.callBothSidesEnabled
 
     @State private var axGranted        = false
     @State private var micGranted       = false
@@ -112,6 +113,20 @@ struct SettingsView: View {
                         appDelegate.callDetectionSettingChanged()
                     }
                 Text("When WhatsApp, Zoom, FaceTime or another call app starts using the microphone, a notification offers to transcribe your side of the call into the library. Nothing is recorded unless you accept.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Toggle("Include the other side of the call", isOn: $callBothSidesEnabled)
+                    .disabled(!callDetectionEnabled)
+                    .onChange(of: callBothSidesEnabled) { _, newValue in
+                        ModelManager.callBothSidesEnabled = newValue
+                    }
+                Text("Also records the audio coming out of your speakers or headphones, so the transcript has both halves of the conversation labelled **Me** and **Others**. macOS will ask for Screen & System Audio Recording permission the first time you accept a call — until you grant it, calls are still transcribed from your microphone alone. Everything stays on this Mac.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Recording another person may require their consent where you live.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

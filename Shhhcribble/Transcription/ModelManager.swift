@@ -66,6 +66,23 @@ enum ModelManager {
         set { UserDefaults.standard.set(newValue, forKey: callDetectionKey) }
     }
 
+    /// Also capture the **other side** of a call, by recording system output
+    /// audio alongside the microphone and labelling the two streams "Me" and
+    /// "Others".
+    ///
+    /// **Off by default, deliberately.** It needs the Screen & System Audio
+    /// Recording grant, and capturing what comes out of the speakers is a
+    /// materially bigger claim than recording your own microphone — on a public
+    /// repo the capability alone gets read. Nothing changes for anyone who never
+    /// turns it on, and if the grant is missing or refused, call capture falls
+    /// back to mic-only rather than failing.
+    private static let callBothSidesKey = "callBothSidesEnabled"
+
+    static var callBothSidesEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: callBothSidesKey) as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: callBothSidesKey) }
+    }
+
     // MARK: - Activation mode
 
     /// How the hotkey drives recording.
