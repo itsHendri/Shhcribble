@@ -211,6 +211,16 @@ are worth taking in the same pass; their notes sidebar is not (our Notes tab is 
   — with one recorded limit: a sticky's undo stack is cleared on tab switch, so a
   transform applied in a sticky is unrecoverable after switching tabs. Text below
   kept as the original framing.
+- **Note transforms were REMOVED the same day, after seeing them on screen**
+  (human's call): *"instead of choosing a style for a note I think it can simply
+  be unstyled… I'd remove the styles for now, I don't think this is needed."* The
+  reason was **density, not correctness** — a wand *and* a microphone in a note's
+  action row read as too many things to do. **Dictation into a note stays.** The
+  implementation is intact in commit `ea1f88c` (transform menu + `applyTransform`)
+  if it is ever wanted back; `NoteEditorProxy` survived because dictation needs
+  it. Standing lesson, already true twice in this app (tasks/reminders, and this):
+  **a feature can be built correctly and still be wrong on screen** — judge the
+  density before assuming the work should ship.
 - ~~**Dictate-into-a-note, original entry**~~ — (human's
   call, prompted by Wispr's Scratchpad shipping in-note push-to-talk *and* a
   Transforms bar). It is running-order #3 and still gets **its own design session** —
