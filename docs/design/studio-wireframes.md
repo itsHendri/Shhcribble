@@ -112,6 +112,23 @@ Today's `Note.pinned` conflated two lifecycles. Split:
   stick/unstick (desktop glyph). This renames the shipped "Pin to Screen"
   button.
 
+**Amendment 2026-08-10 — stickies become tabs in one panel.** Borrowed from Wispr's
+Scratchpad. **The lifecycle is unchanged: stick/unstick is still the only lifecycle,
+and tabs are presentation.** That answers the window-close question cleanly — closing a
+*tab* unsticks that note (keeping the existing Discard-if-empty / Unstick-if-content
+confirm), the panel disappears on its own when the last tab goes, and so **there is no
+window close button and no new destructive semantics**. Tab order comes from the
+existing dense `Note.position`. The panel frame and active tab move to UserDefaults, so
+the per-note `pinX/pinY/pinW/pinH` columns stop driving placement but **stay in the
+schema for rollback** (same discipline as the legacy pref keys) — **no schema bump**.
+The load-bearing risk is that only the active tab has a live `RichTextEditor`, so a tab
+switch destroys one editor and creates another: **the debounced save must flush first**
+or the last keystrokes are lost. That is the same class of bug adversarial review
+already caught twice here (pin/stick not flushing; the 2026-07-24 two-editor sync gap),
+and the `hasPendingEdit` / `onUserEdit` discipline is what makes it tractable — reuse
+it rather than reinventing focus tracking. Wispr's **compact ↔ expand** window modes
+are worth taking in the same pass; their notes sidebar is not (our Notes tab is that).
+
 ## Cross-cutting rules
 
 - **The floating capsule is a column's single primary verb** — Add note (notes
@@ -180,10 +197,21 @@ Today's `Note.pinned` conflated two lifecycles. Split:
 
 - **Richer notes: images, image grids.** Attachments survive the keyed-archive
   storage in principle; layout/grids are untested and undesigned.
-- **Dictate-into-a-note with a "note style"** (structures speech into
-  title/subtitle/body). NOTE: this reopens the deliberate 2026-07-23 "no
-  dictate-into-note" decision — needs its own design session, not incidental
-  inclusion.
+- ~~**Dictate-into-a-note with a "note style"**~~ — **REOPENED 2026-08-10** (human's
+  call, prompted by Wispr's Scratchpad shipping in-note push-to-talk *and* a
+  Transforms bar). It is running-order #3 and still gets **its own design session** —
+  the caveat below always applied and now binds: this is not incidental inclusion.
+  Two halves, and the second is bigger than it looks. **Dictation into a note**
+  raises which style applies and whether a note dictation appears in Today (which is
+  *transcriptions only* as of the 2026-08-10 ruling above — so probably not, and that
+  asymmetry needs stating). **Transforms on note text is C8 pointed inward**: it acts
+  on text we didn't author, note text can already come from a transcript or an
+  AI-extracted action item, and `StyleGuard`'s coverage floor was built for "reshape
+  what you just said", not "reshape a document". Wispr's **version history labelled by
+  origin** (Created / Typed edits / Dictated / Transform) is the affordance that makes
+  an AI transform on your own note feel recoverable rather than lossy — a good fit
+  with our existing raw-vs-cleaned split. Design session must produce a ruling here,
+  not a build.
 - **Local MCP server** over transcripts.sqlite (read-only tools:
   search_transcripts, get_note, …) so Claude can query everything with zero
   cloud. Uniquely compatible with the privacy pitch; no competitor can offer it

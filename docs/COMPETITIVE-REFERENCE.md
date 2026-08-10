@@ -1,6 +1,6 @@
-# Shhhcribble — Competitive Reference (2026-06, re-reviewed 2026-07, full re-audit 2026-07-26)
+# Shhhcribble — Competitive Reference (2026-06, re-reviewed 2026-07, full re-audit 2026-07-26, Wispr re-audit 2026-08-10)
 
-> Durable reference so we don't re-run the competitor audit each time. Original findings from **static analysis of the installed app bundles, prefs, and on-disk SQLite/JSON state** — not marketing pages. The **2026-07-26 full re-audit** adds **Ghost Pepper** (source read) and refreshes every prior competitor; where the installed bundle hadn't moved, the delta comes from release notes and is **labelled as such**.
+> Durable reference so we don't re-run the competitor audit each time. Original findings from **static analysis of the installed app bundles, prefs, and on-disk SQLite/JSON state** — not marketing pages. The **2026-07-26 full re-audit** adds **Ghost Pepper** (source read) and refreshes every prior competitor; where the installed bundle hadn't moved, the delta comes from release notes and is **labelled as such**. The **2026-08-10 Wispr re-audit** replaces the vendor-stated Wispr section with real bundle analysis — their app finally moved.
 
 **Competitors tracked:** SuperWhisper · Wispr Flow · FluidVoice · VoiceInk · Granola · Aqua · Willow · Ghost Pepper.
 
@@ -8,7 +8,9 @@
 
 ## 2026-07-26 full re-audit — delta since 2026-07
 
-**Method note (honesty):** SuperWhisper (2.14.0) and Wispr Flow (1.5.433) on this Mac have **not auto-updated since May**, so their local bundles are frozen at the versions we already analysed. Their deltas below are from **published release notes, not fresh static analysis** — treat feature claims as vendor-stated. Granola *has* updated locally (v7.441.6, 2026-07-24) but its **schema delta was NOT re-verified** — reading `granola.db` was blocked as personal meeting data, correctly. The prior data model stands unchallenged, not re-confirmed.
+**Method note (honesty):** SuperWhisper (2.14.0) and Wispr Flow (1.5.433) on this Mac had **not auto-updated since May** at the time of this audit, so their local bundles were frozen at the versions we already analysed. Their deltas below are from **published release notes, not fresh static analysis** — treat feature claims as vendor-stated. Granola *has* updated locally (v7.441.6, 2026-07-24) but its **schema delta was NOT re-verified** — reading `granola.db` was blocked as personal meeting data, correctly. The prior data model stands unchallenged, not re-confirmed.
+
+> **Superseded for Wispr on 2026-08-10** — their bundle updated to **1.6.447** (6 Aug) and was re-analysed properly. See the Wispr Flow 1.6.447 profile below; the release-notes-only caveat no longer applies to them. It still applies to SuperWhisper (2.14.0 locally as of 2026-08-10, still frozen).
 
 | Competitor | Was | Now | Verified by |
 |---|---|---|---|
@@ -31,7 +33,7 @@
 
 **SuperWhisper 2.14.0 → 2.16.5.** Minimum requirement **raised to macOS 14+** — they dropped Intel/13.3, so the "they hedge because they support old Macs" half of our LLM-cleanup decision record is now weaker (the Apple-Intelligence-gating logic still holds; see that section). Also: `.mov` video transcription (we have this), vocabulary management rebuilt around a combined search-and-create bar with **forced alignment** on Whisper offline models, **paste latency cut by 300 ms**, an experimental **S1-mini** model, **Tone settings**, audio-device favourites/exclusions, and a "no microphone audio detected" warning (our `.noResult` pill predates it).
 
-**Wispr Flow.** Launched **Android**; shipped **Flow Notes** (cross-device notes with transcription, formatting, search) — converging on the Notes module we already built, but cloud-synced. Dictation sessions extended to **20 minutes** (4×). **Personalized Style** sets tone per app category (Very Casual → Formal) — a coarser cousin of our per-app Styles. Following a privacy backlash the CTO publicly apologised; AI-training data use is now **opt-in and off by default**, plus a zero-retention **Privacy Mode**. That backlash is a market signal in our favour, not just gossip.
+**Wispr Flow.** Launched **Android**; shipped **Flow Notes** (cross-device notes with transcription, formatting, search) — converging on the Notes module we already built, but cloud-synced. Dictation sessions extended to **20 minutes** (4×). **Personalized Style** sets tone per app category (Very Casual → Formal) — a coarser cousin of our per-app Styles. Following a privacy backlash the CTO publicly apologised; AI-training data use is now **opt-in and off by default**, plus a zero-retention **Privacy Mode**. That backlash is a market signal in our favour, not just gossip. **→ Superseded by the 1.6.447 profile below (2026-08-10).**
 
 **FluidVoice — the biggest mover: 8,890★.** Now ships **seven ASR engines** (Nemotron Speech 3.5 ~670 MB/40 languages; **Parakeet Flash beta — 250 MB, lowest-latency English**; Parakeet TDT v3 and v2; Cohere Transcribe; Apple Speech; Whisper) and **"Fluid Intelligence"** — a **~3.5 GB proprietary on-device enhancement model** they deliberately keep **closed while the app stays GPLv3**, explicitly as the monetisation hedge. Plus Command/Write Mode, per-app prompt sets, local audio history with ZIP export, daily usage stats, and a notch-aware overlay. **Parakeet Flash is directly relevant to us** — same FluidAudio stack, half the size of our 494 MB v3, tuned for latency.
 
@@ -100,6 +102,54 @@ Injecting OCR'd screen content into a prompt whose output is **auto-pasted** is 
 
 ---
 
+## Wispr Flow 1.6.447 — full profile (2026-08-10)
+
+Electron, **572 MB**, `com.electron.wispr-flow`, `LSMinimumSystemVersion` **12.0**. Bundle re-analysed on disk (6 Aug build) — this section is static analysis, not release notes. Two shipments matter: **Notetaker** (meeting notes, launched 5 Aug) and **Scratchpad** (tabbed notes, May, still evolving).
+
+### Notetaker — their Granola answer
+
+- **System audio via ScreenCaptureKit.** The bundle carries `desktopCapturer`, `getDisplayMedia` and `SystemAudioLoopback` — Electron's loopback path, which is ScreenCaptureKit underneath. **Not** Core Audio process taps. `NSAudioCaptureUsageDescription` is present in `Info.plist` ("needs to access your computer's audio to take notes during meetings"), and `NotetakerScreenShareEducation` strings exist to walk the user through the TCC grant.
+- **It requires cloud.** `hub_cloud_sync_notetaker_modal_title` reads *"Private Cloud Sync is required to use Notetaker"*, alongside `NotetakerTranscriptRetentionNotice` and `NotetakerSaveNotesCloudSync`. Audio is captured locally; everything after that is theirs. Also `NotetakerWeeklyLimitReached` / `…Warning` (free-tier cap) and `NotetakerNonEnglishDetected` (English-only at launch).
+- **Detection is a mic-holders poll** — `meeting.autodetect.holders_poll`, `holder_signal.{mean,max}_gap_ms`, `observations`, `push_age_ms`. Same family as our HAL `DeviceIsRunningSomewhere` + AudioProcess attribution. They add `meeting.autostop.browser_move_rebind` for meetings that move between browser windows — the coverage our HAL path structurally can't name (our C10).
+- **Auto-stop is far more defensive than ours:** `end_state_confirm`, `liveness_veto`, `rebound_on_join_evidence`, `attribution_discount`, `high_tier_demoted`, `auto_heal`, `suppressed`. Ours is two consecutive idle polls. Theirs suggests the naive version produces false stops in the wild — worth remembering when our own capture finally runs at length.
+- **`NotetakerChat`** — an agent over meeting history (`NotetakerChatAgentState`, `NotetakerChatMessages`), plus MCP integration for Claude/ChatGPT. This is the scope-creep half we deliberately don't copy.
+
+### Two subsystems we had not accounted for
+
+**1. Echo gate — `meeting.echo_gate.*`.** A whole subsystem: `correlated_windows`, `suppressed_fraction`, `suppression_ms`, `lock_stability`, `lock_lag_ms`, `lock_rejected`, `score`, `ui_latch`, `gap_fill_filled_seconds`, `warmup_prefix_lead_seconds`, `confroom`. The problem: with mic + system captured simultaneously, **the mic re-records the far end coming out of the speakers**, so the same words land in both streams. Severe on speakers, mild on headphones, worst in a conference room (hence `confroom`). **Any two-stream capture hits this** — it is a named sub-problem of our C3, and it was missing from our scoping.
+
+**2. Liveness probe — `meeting.audio.liveness_probe.goertzel_amplitude`** (+ `verdict`, and `silence_recovery.{max_peak,verification,late_audio_after_exhaust}`). They run a **Goertzel filter to measure real audio energy** rather than trusting that IO registration means live audio. That is precisely our Bluetooth digital-zero lesson — a route can report itself running while delivering literal silence — reached independently by a competitor. **Convergent validation of our transport-branched warm-up design**, and evidence the problem is general rather than an AirPods quirk.
+
+### Scratchpad — the tabbed notes model
+
+Confirmed from extracted UI strings (the help article is JS-rendered and did not load; the strings are stronger evidence anyway). It is **one window with tabs**, not floating cards:
+
+- Browser-style tabs — `hub_scratchpad_new_tab` = **"New tab (⌘T)"**, `hub_scratchpad_close_tab_aria`, `hub_scratchpad_tabs_aria` = "Scratchpad tabs", telemetry `scratchpad_tab_switched` / `scratchpad_tab_closed` / `scratchpadTabSave`.
+- **Collapsible notes sidebar** ("Collapse Notes") with `search_placeholder` "Search notes…", `recent_notes_aria`, `load_more`.
+- **"Compact window" ↔ "Expand window"** size modes.
+- **Push-to-talk dictation inside the note** — `hub_scratchpad_dictate_aria` = "{{pttKey}} to dictate".
+- Formatting past ours: **checklist, table** (full row/column ops), blockquote, inline code, toggle, plus bold/italic/underline and link insertion.
+- **Transforms bar** — placeholder *"Follow up or ask a question"*, `transform_regenerate` = "Get new suggestions" (AI-generated suggestion chips), `transform_failed`.
+- **Version history labelled by origin** — `version_created` "Created", `version_typed` "Typed edits", `version_dictated` "Dictated", `version_transform` "Transform", `version_custom_transform` "Custom transform".
+- **`hub_scratchpad_send_in_app`** = "Send in {{appName}}" — push the note back into the app you came from.
+- Pinning exists but is **local to each device and does not sync** (their own docs), with an "open last active pinned note" preference.
+
+### Command Mode — how they grab the selection
+
+`SelectedTextViaCopy` / `SelectedTextViaCopyPayload` — they take the selection by **sending Cmd+C and reading the pasteboard**, not via AX. Also `voice_edit_transform_hint`, and `CommandModeUpgradeToPro` / `CommandModeServersAreBusy` (cloud, paid). Directly relevant to **C8**: our `TextInserter` already owns pasteboard snapshot/restore with change-count gating, so the capture half of voice-edit is largely plumbing we have.
+
+### Their dev tooling, which tells on them
+
+The bundle ships `ax-inspect.mjs` / `ax-inspect-lib.mjs` — an internal tool that **renders past dictations' saved AX context to HTML**, with sidecar traces for `paste`, `noun`, `textbox`, `verify`, `event`, **`edit`** and `context`. Confirms two things: they store full AX context per dictation (already known from the `axText`/`axHTML` columns), and they **instrument post-paste edits** as a first-class trace. The self-learning-dictionary loop (our C1) is clearly where they are heading.
+
+### What this changes for us
+
+- **On-device meeting notes is still unoccupied.** Wispr requires cloud sync; Granola is cloud. Ghost Pepper is the only local one, and it is all-rights-reserved with no faithfulness guard. "Transcribe a call, nothing leaves your Mac" remains ours to take.
+- **Two independent competitors chose ScreenCaptureKit** for system audio. The C3 re-scope away from Core Audio process taps is confirmed, not speculative.
+- **Echo gate is a real cost of C3** that we had not budgeted.
+
+---
+
 ## Verified capabilities in our current stack
 
 **⚠ We pin FluidAudio `0.13.6` (revision `57551cd9`); current is `0.15.5` (2026-07-07) — two minor versions behind.** Three parked candidates matured inside our own dependency:
@@ -128,8 +178,8 @@ Injecting OCR'd screen content into a prompt whose output is **auto-pasted** is 
 | | **SuperWhisper** | **Wispr Flow** | **Ghost Pepper** | **FluidVoice** | **Shhhcribble** |
 |---|---|---|---|---|---|
 | Stack | Native Swift, **macOS 14+** | Electron, macOS 12+ | Native Swift, macOS 14+, **AS-only** | Native Swift | Native Swift, macOS 14+ |
-| Version | 2.16.5 | 1.5.x | — | — | 1.13.0 |
-| Bundle | 133 MB | 497 MB | ~30 MB + models | ~3.5 GB w/ model | **~30 MB** |
+| Version | 2.16.5 | **1.6.447** | — | — | **1.14.0** |
+| Bundle | 133 MB | **572 MB** | ~30 MB + models | ~3.5 GB w/ model | **~30 MB** |
 | ASR | WhisperKit + Parakeet V3 | Cloud-only | Whisper / Parakeet / Qwen3-ASR | **7 engines** | Parakeet V3 (FluidAudio) |
 | Local LLM | llama.cpp, 6 families | None | **Qwen 3.5 GGUF** (LLM.swift) | **"Fluid Intelligence" 3.5 GB, closed** | Apple FoundationModels |
 | Cloud LLM | 8 via proxy | All cloud | Opt-in only | Opt-in | **None** |
@@ -138,7 +188,7 @@ Injecting OCR'd screen content into a prompt whose output is **auto-pasted** is 
 | Auto-update | Sparkle | Squirrel | Sparkle | — | **Sparkle** |
 | Telemetry | Sentry | Sentry | **None** (local counters) | — | **None** |
 | Accounts | Yes | Yes | **No** | No | **No** |
-| Both-sides capture | `useSystemAudio` | Meetings | **ScreenCaptureKit** | — | Not built |
+| Both-sides capture | `useSystemAudio` | **ScreenCaptureKit** (cloud-gated) | **ScreenCaptureKit** | — | Not built |
 | Voice-edit mode | — | **Command Mode** | — | **Command + Write Mode** | **Not built** |
 | Licence | Proprietary | Proprietary | **None (badge lies)** | GPLv3 | **GPLv3** |
 
@@ -170,6 +220,8 @@ Ships **`bundled_app_info.json`** — a **686-app catalog** mapping apps → one
 
 Note the `editedText` column and `formattingDivergenceScore`: **they have been recording post-paste user edits all along.** Ghost Pepper closed the loop and learns from them. That is the same signal, twice.
 
+**⚠ Not re-verified since the original audit.** The 1.6.447 re-audit was **bundle-only** — reading `flow.sqlite` was blocked, correctly, because it holds the user's own dictation and meeting content. So the 14-table model above stands unchallenged rather than re-confirmed, and Notetaker will have added tables we haven't seen. Their own `ax-inspect` tooling references the same DB and adds sidecar trace files for paste/noun/textbox/verify/event/**edit**/context.
+
 ---
 
 ## LLM cleanup — decision record
@@ -200,7 +252,7 @@ Note the `editedText` column and `formattingDivergenceScore`: **they have been r
 ## What Shhhcribble already wins on
 
 - **Smart activation** (tap = toggle, hold = PTT, no setting) — still unique across all eight competitors.
-- **Cold-Bluetooth correctness** — HAL probe, transport-branched readiness, dwell backstop, leading-silence trim. **No competitor examined shows this care**; Ghost Pepper has none of it.
+- **Cold-Bluetooth correctness** — HAL probe, transport-branched readiness, dwell backstop, leading-silence trim. **No competitor examined shows this care**; Ghost Pepper has none of it. *(2026-08-10: Wispr's `liveness_probe.goertzel_amplitude` is the same insight — a route can report itself running while delivering silence — reached independently for meetings. Convergent validation, and evidence the problem is general rather than an AirPods quirk. They are the only one; we still got there first and cover dictation, which they don't.)*
 - **Mid-recording route rebuild** — Ghost Pepper has no configuration-change observer at all.
 - **VP-free AirPods reliability + fresh-engine-per-recording.**
 - **Cleanup output validation** (`CleanupGuard` + `PromptFence`) — nobody else validates that cleanup didn't fabricate or drop the user's words.
@@ -213,13 +265,17 @@ Note the `editedText` column and `formattingDivergenceScore`: **they have been r
 
 ## Emerging gaps (ranked, cross-competitor)
 
-1. **Voice-edit-existing-text** (Command / Write Mode) — FluidVoice **and** Wispr. Our biggest capability gap.
-2. **Revert-to-raw / cleanup intensity dial** — Wispr shipped it; we already store `rawText`. Cheapest win.
-3. **Self-learning dictionary** — Ghost Pepper shipped it; Wispr has the data to.
-4. **Both-sides capture** — Ghost Pepper shipped it via a simpler route than we scoped.
+*Re-ranked 2026-08-10: both-sides capture moves to the top. It is the only gap where the competition has converged on a mechanism **and** left the on-device version unclaimed — Wispr gates Notetaker behind cloud sync, Granola is cloud, and the one local implementation is all-rights-reserved. Everything below it is a feature we lack; this one is a position we can still hold alone.*
+
+1. **Both-sides capture** — Ghost Pepper and now Wispr, both via ScreenCaptureKit. **On-device remains unoccupied.** Carries the echo-gate cost (below).
+2. **Voice-edit-existing-text** (Command / Write Mode) — FluidVoice **and** Wispr. Our biggest pure-capability gap. Wispr takes the selection via Cmd+C to the pasteboard, which we already have plumbing for.
+3. **Revert-to-raw / cleanup intensity dial** — Wispr shipped it; we already store `rawText`. Cheapest win.
+4. **Self-learning dictionary** — Ghost Pepper shipped it; Wispr's `edit` traces show they're building toward it.
 5. **Screen context for cleanup** — Ghost Pepper (OCR) and SuperWhisper (`contextFrom*`).
-6. **Browser meeting detection** — AX window titles reach what our HAL path can't name.
+6. **Browser meeting detection** — AX window titles reach what our HAL path can't name; Wispr's `browser_move_rebind` does the same job.
 7. **Local usage stats** — Ghost Pepper and FluidVoice; costless, privacy-safe.
+
+**Known cost attached to #1 — the echo gate.** With mic and system audio captured together, the mic re-records the far end through the speakers, so the same words land in both streams. Wispr devotes a whole subsystem to it (`meeting.echo_gate.*`). Any implementation of #1 must answer it; see the ROADMAP C3 entry for our candidate (text-level dedup rather than audio-domain correlation).
 
 ## Dropped ideas (with reason)
 
