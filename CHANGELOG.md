@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-08-10
+
 ### Added
 - **Search everything.** The search box on Today now searches your whole
   library at once — notes, dictations and documents — grouped by kind with the
@@ -41,11 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Anything currently stuck to your screen stays exactly where it is.
 - The **Pinned** tab shows what's on your screen above everything you've pinned,
   and clicking any card jumps straight to it.
-- **New Studio navigation.** The sidebar is now five places — **Today · Notes ·
-  Documents · Pinned · Settings** — and the window title always reads
-  "Shhhcribble", so the sidebar alone tells you where you are. This is the first
-  step of a larger redesign; Today, Documents and Pinned fill in over the next
-  few updates.
+- **New Studio navigation.** The sidebar is now five places — **Today ·
+  Documents · Notes · Pinned · Settings** — and the window title always reads
+  "Shhhcribble", so the sidebar alone tells you where you are.
 - **Documents.** Files and recordings you upload now have their own place,
   separate from everyday dictations, with the transcript-and-summary reader.
 - **Pinned.** A single place to see every note you've pinned to your screen —
@@ -55,7 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Check for updates** and **Quit** at the bottom. Styles, Dictionary and
   Feedback moved in from the main sidebar; Quit is still on the menu-bar icon's
   right-click menu too.
-
 - **Pin without opening.** Hovering a row in Notes or Documents now offers
   **pin** as well as copy, so marking something important doesn't mean opening
   it first.
@@ -75,14 +74,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than a ragged grid.
 - Hover actions and the source icon in the reader are now plain grey. Colour is
   reserved for links and for highlighting what your search matched.
-- The **Documents** sidebar icon is two offset squares — at that size the old
-  page icon was hard to tell apart from Notes.
+- The **Documents** sidebar icon is a stack — at that size the old page icon
+  was hard to tell apart from Notes.
 
 ### Fixed
-- **Today's hover actions can actually be clicked.** Only the text of a row
-  counted as "hovered", so moving the pointer towards copy, add-to-note or
-  delete left the row and made them vanish on the way. The whole row is now the
-  target.
+- **Today's row actions can actually be clicked.** Only the text of a row
+  counted as "hovered", so moving the pointer towards an action left the row and
+  made it vanish on the way. Copy is permanent now, and the whole row is the
+  target for the one action still revealed on hover.
 
 ### Removed
 - **Notes no longer appear on Today.** Today is the record of what you *said*;
@@ -517,7 +516,10 @@ First public release (as Shhhcribble; formerly FieldWhisperer).
 - Replaced WhisperKit with Parakeet V3 (FluidAudio).
 - Renamed FieldWhisperer → Shhhcribble.
 
-[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.14.0
+[1.13.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.13.0
+[1.12.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.12.0
 [1.11.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.11.0
 [1.10.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.10.0
 [1.9.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.9.0
