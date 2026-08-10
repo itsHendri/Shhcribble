@@ -197,7 +197,21 @@ are worth taking in the same pass; their notes sidebar is not (our Notes tab is 
 
 - **Richer notes: images, image grids.** Attachments survive the keyed-archive
   storage in principle; layout/grids are untested and undesigned.
-- ~~**Dictate-into-a-note with a "note style"**~~ — **REOPENED 2026-08-10** (human's
+- ~~**Dictate-into-a-note with a "note style"**~~ — **REOPENED AND BUILT
+  2026-08-10.** Rulings from that design session: the microphone button reuses
+  the existing capture pipeline but delivers **straight into the editor** (no
+  clipboard, no synthetic ⌘V — the button takes focus off the text view, so the
+  ordinary paste path has nowhere to land); notes **always** use the faithful
+  cleaner, because per-app style activation would otherwise resolve against our
+  own bundle id; the dictation **still appears in Today**, which stays the record
+  of what you said wherever the words went; and transforms **reuse the user's
+  existing styles** rather than a free-text instruction box, since note text can
+  come from a transcript and a free prompt over untrusted content would be the
+  widest injection surface in the app. **Safety net is undo only** (human's call)
+  — with one recorded limit: a sticky's undo stack is cleared on tab switch, so a
+  transform applied in a sticky is unrecoverable after switching tabs. Text below
+  kept as the original framing.
+- ~~**Dictate-into-a-note, original entry**~~ — (human's
   call, prompted by Wispr's Scratchpad shipping in-note push-to-talk *and* a
   Transforms bar). It is running-order #3 and still gets **its own design session** —
   the caveat below always applied and now binds: this is not incidental inclusion.

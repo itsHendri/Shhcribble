@@ -12,6 +12,15 @@ import os
 import Sparkle
 #endif
 
+/// Published "a note is currently being dictated into", so the note's microphone
+/// button can reflect it. Deliberately a tiny separate object: `AppDelegate` is
+/// an `NSApplicationDelegate`, and making it an `ObservableObject` to publish a
+/// single Bool would be a large change for a small need.
+@MainActor
+final class NoteDictationState: ObservableObject {
+    @Published var isActive = false
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -132,6 +141,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// streams, and means one failed window costs a few seconds of transcript
     /// instead of the entire call.
     private let callChunkSeconds: Double = 30
+
+    // MARK: Dictating into a note
+
+    /// Where a note-targeted dictation should be delivered, set for the duration
+    /// of one recording started from a note's microphone button.
+    ///
+    /// Non-nil also means "this dictation belongs to a note", which forces the
+    /// faithful cleaner instead of per-app style activation — that would
+    /// otherwise resolve against *our own* bundle id.
+    private var noteDictationSink: ((String) -> Void)?
+
+    /// Observable slice of the above, so a note's microphone button can show
+    /// whether it is recording. `AppDelegate` is an `NSApplicationDelegate`, not
+    /// an `ObservableObject`, and converting it just to publish one Bool would
+    /// be a large change for a small need.
+    let noteDictation = NoteDictationState()
+
+    /// True while a note is the target.
+    var isDictatingIntoNote: Bool { noteDictationSink != nil }
+
+    /// Arm or disarm in one place, so the published flag can't drift from the
+    /// sink it describes.
+    private func setNoteDictationSink(_ sink: ((String) -> Void)?) {
+        noteDictationSink = sink
+        noteDictation.isActive = sink != nil
+    }
+
+    /// Start (or stop) a dictation whose text lands in a note rather than being
+    /// pasted into the frontmost app.
+    ///
+    /// Toggling rather than push-to-talk: the caller is an on-screen button, so
+    /// there is no key to hold, and the click that would end a hold has to go
+    /// somewhere anyway.
+    func toggleNoteDictation(insert: @escaping (String) -> Void) {
+        // Only stop a recording this button started. An ordinary hotkey
+        // dictation may be running — the button reads "Dictate into this note"
+        // in that case, so ending someone else's recording (and pasting it into
+        // whatever app is frontmost) is not what the click asked for.
+        if state == .recording {
+            if isDictatingIntoNote {
+                Task { @MainActor in await self.endRecording() }
+            } else {
+                soundwavePanel.showInfo("Already recording")
+            }
+            return
+        }
+        guard state == .idle, !dictationStarting, !isCallCapturing, !fileTranscriber.isRunning else {
+            soundwavePanel.showInfo("Busy with another transcription")
+            return
+        }
+        setNoteDictationSink(insert)
+        Task { @MainActor in
+            await beginRecording()
+            // A failed start (no mic, permission refused) must not leave the
+            // sink armed, or the *next* ordinary dictation would silently be
+            // delivered into this note instead of pasted.
+            if state != .recording { self.setNoteDictationSink(nil) }
+        }
+    }
 
     /// Timestamp of the hotkey keyDown that started the current recording.
     /// On keyUp we measure the elapsed hold: a long hold (≥ holdThreshold) is
@@ -452,6 +520,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController.setRecordingIndicator(active: false)
         soundwavePanel.hide()
         recordingStartedByKeyDownAt = nil
+        // Escape during a note dictation must disarm it, or the next ordinary
+        // dictation would be delivered into that note instead of pasted.
+        setNoteDictationSink(nil)
         state = .idle
         transcriptionEngine.isBusy = false
     }
@@ -516,11 +587,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // force the Email style). Gated on the master switch too.
         let frontmostBundleID = (ModelManager.styleAppActivationEnabled && frontmostFocusIsEditable())
             ? NSWorkspace.shared.frontmostApplication?.bundleIdentifier : nil
-        let activeStyle = StyleResolver.resolve(
-            frontmostBundleID: frontmostBundleID,
-            activeStyleID: ModelManager.activeStyleID,
-            styles: transcriptStore.styles
-        )
+        // Dictating into a note always uses the faithful cleaner. Per-app
+        // activation would otherwise resolve against *our own* bundle id, and a
+        // note is a document you keep — it should not arrive shaped like a Slack
+        // message because a style happened to be active.
+        let activeStyle: ActiveStyle = noteDictationSink != nil
+            ? .defaultCleanup
+            : StyleResolver.resolve(
+                frontmostBundleID: frontmostBundleID,
+                activeStyleID: ModelManager.activeStyleID,
+                styles: transcriptStore.styles
+            )
 
         // Fire the scribble sound the instant the user releases / second-taps,
         // before transcription runs. Gives immediate audible confirmation
@@ -599,23 +676,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 styleID: styleID
             )
 
-            print("[Shhhcribble] Inserting: \"\(text.prefix(80))\"")
+            if let sink = noteDictationSink {
+                // Dictation aimed at a note goes straight into that editor. No
+                // clipboard, no synthetic ⌘V, no AX guessing at the focused
+                // element: we own the view, and the button that started this
+                // took focus away from it, so the ordinary paste path would have
+                // nowhere sensible to land. The transcript is still stored above
+                // — Today is the record of what you said, wherever the words went.
+                setNoteDictationSink(nil)
+                print("[Shhhcribble] Dictated into a note: \"\(text.prefix(80))\"")
+                sink(text)
+                soundwavePanel.showCopied()
+            } else {
+                print("[Shhhcribble] Inserting: \"\(text.prefix(80))\"")
 
-            // Panel stays visible (nonactivating — target app keeps focus).
-            // Small delay lets any focus changes settle before the insert.
-            try? await Task.sleep(for: .milliseconds(150))
+                // Panel stays visible (nonactivating — target app keeps focus).
+                // Small delay lets any focus changes settle before the insert.
+                try? await Task.sleep(for: .milliseconds(150))
 
-            // Capture the target PID NOW (not at record-start) so the paste
-            // goes to whatever field the user has most recently focused —
-            // letting them start recording in Slack and finish by pasting
-            // into Notes.
-            let targetPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                // Capture the target PID NOW (not at record-start) so the paste
+                // goes to whatever field the user has most recently focused —
+                // letting them start recording in Slack and finish by pasting
+                // into Notes.
+                let targetPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
 
-            let _ = textInserter.insert(text: text, targetPid: targetPid)
+                let _ = textInserter.insert(text: text, targetPid: targetPid)
 
-            // Now that the paste has actually landed, flip the persistent
-            // "Transcribing…" pill to "Copied!" with its 1 s auto-hide.
-            soundwavePanel.showCopied()
+                // Now that the paste has actually landed, flip the persistent
+                // "Transcribing…" pill to "Copied!" with its 1 s auto-hide.
+                soundwavePanel.showCopied()
+            }
         } else if transcriptionFailed {
             soundwavePanel.showError("Transcription failed")
         } else {
@@ -624,6 +714,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         state = .idle
         transcriptionEngine.isBusy = false
+        // Belt and braces: the success path consumes this, but a failed or empty
+        // transcription must not leave it armed for the next dictation.
+        setNoteDictationSink(nil)
 
         // Pick up any files that were opened/queued while we were recording.
         fileTranscriber.drainIfIdle()

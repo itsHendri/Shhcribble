@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Speak into a note.** The microphone button on a note records and drops what
+  you said at the end of it — no clipboard involved, and ⌘Z takes it back out.
+  Notes always use the faithful clean-up rather than whichever writing style
+  happens to be active, so a note doesn't arrive shaped like a chat message. The
+  dictation still shows up in Today, since that's the record of what you said.
 - **Rewrite a note in one of your styles.** The wand button on a note applies any
   style you've written — Email, Bullets, your own — to what's already there,
   rather than only to what you just dictated. One ⌘Z puts the original back. If

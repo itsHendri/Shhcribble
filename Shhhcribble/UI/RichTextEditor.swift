@@ -621,6 +621,29 @@ final class NoteEditorProxy: ObservableObject {
         textView.didChangeText()
         return true
     }
+
+    /// Append to the end as one undoable edit, separating from existing content
+    /// with a blank line.
+    ///
+    /// **Reads the live text view rather than any captured copy.** Dictation
+    /// runs for as long as the user talks, and they may well keep typing while
+    /// it does — building the new value from the text as it was when recording
+    /// started would silently throw those keystrokes away.
+    @discardableResult
+    func append(_ addition: NSAttributedString, attributes: [NSAttributedString.Key: Any]) -> Bool {
+        guard let textView, let storage = textView.textStorage else { return false }
+        let existing = storage.string
+        let separator = existing.isEmpty ? "" : (existing.hasSuffix("\n") ? "" : "\n\n")
+        let piece = NSMutableAttributedString(string: separator, attributes: attributes)
+        piece.append(addition)
+
+        let end = NSRange(location: storage.length, length: 0)
+        guard textView.shouldChangeText(in: end, replacementString: piece.string) else { return false }
+        storage.replaceCharacters(in: end, with: piece)
+        textView.didChangeText()
+        textView.scrollRangeToVisible(NSRange(location: storage.length, length: 0))
+        return true
+    }
 }
 
 /// An editable rich-text view: bold/italic/underline via ⌘B/⌘I/⌘U, automatic

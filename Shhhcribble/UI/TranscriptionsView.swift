@@ -239,7 +239,7 @@ struct TranscriptionsView: View {
     // Full-width like the Today pane (it's the same master-detail template),
     // not the 620-capped Form panes.
     private var notesPane: some View {
-        NotesView(store: store, selectedID: $noteID)
+        NotesView(store: store, appDelegate: appDelegate, selectedID: $noteID)
     }
 
     /// Pinned — the cross-type board: what's on your screen right now above what

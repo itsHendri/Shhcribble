@@ -12,6 +12,8 @@ import AppKit
 /// plain note-taking for now.
 struct NotesView: View {
     @ObservedObject var store: TranscriptStore
+    /// Needed for dictation into a note — the Studio shell already holds it.
+    let appDelegate: AppDelegate
     /// Owned by the Studio shell, not by this view: the Pinned board opens a
     /// note by writing here and switching tabs, and a tab round-trip keeps the
     /// selection instead of snapping back to the newest note.
@@ -134,7 +136,8 @@ struct NotesView: View {
     @ViewBuilder
     private var detailColumn: some View {
         if let note = selected {
-            NoteDetail(note: note, store: store, toast: toast, onCopy: { copy(text: $0) })
+            NoteDetail(note: note, store: store, toast: toast, appDelegate: appDelegate,
+                       noteDictation: appDelegate.noteDictation, onCopy: { copy(text: $0) })
                 .id(note.id)
         } else {
             ContentUnavailableView(
@@ -278,6 +281,9 @@ private struct NoteDetail: View {
     /// The pane's toast, shared with the list so a pin from either side gets
     /// the same confirmation in the same place.
     @ObservedObject var toast: ToastState
+    let appDelegate: AppDelegate
+    /// Published flag so the microphone button reflects recording state.
+    @ObservedObject var noteDictation: NoteDictationState
     var onCopy: (String) -> Void
 
     @State private var attributed = NSAttributedString(string: "")
@@ -355,6 +361,7 @@ private struct NoteDetail: View {
             }
             Spacer()
             HStack(spacing: 6) {
+                dictateButton
                 transformMenu
                 pinButton
                 // Copies what's on screen: the store lags typing by the save
@@ -371,6 +378,63 @@ private struct NoteDetail: View {
             }
         }
         .padding(12)
+    }
+
+    /// Speak into the note. Click to start, click again to stop.
+    ///
+    /// The hotkey would *mostly* work here already — Shhhcribble is frontmost
+    /// and the paste path would find the note's text view — but only by
+    /// accident: it would be shaped by whichever per-app style happened to
+    /// resolve, it would go through the clipboard, and nothing would tell you it
+    /// was possible. This makes it deliberate, and routes the text straight into
+    /// the editor (see `AppDelegate.toggleNoteDictation`).
+    private var dictateButton: some View {
+        Button {
+            saveNow()
+            appDelegate.toggleNoteDictation { text in appendDictated(text) }
+        } label: {
+            Image(systemName: noteDictation.isActive ? "mic.fill" : "mic")
+                .foregroundStyle(noteDictation.isActive ? Color.red : Color.secondary)
+        }
+        .buttonStyle(.borderless)
+        .help(noteDictation.isActive ? "Stop dictating" : "Dictate into this note")
+        .accessibilityLabel(noteDictation.isActive ? "Stop dictating" : "Dictate into this note")
+    }
+
+    /// Append dictated text at the end of the note, as one undoable edit.
+    ///
+    /// **Appends rather than inserting at the caret**: clicking the microphone
+    /// button takes focus off the text view, so there is no caret to speak of by
+    /// the time the text arrives, and guessing at the last known position would
+    /// be worse than a predictable rule.
+    private func appendDictated(_ text: String) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: Self.editorFont,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: RichText.paragraphStyle(for: Self.editorFont),
+        ]
+        let addition = NSAttributedString(string: text, attributes: attributes)
+        // Through the proxy so ⌘Z takes the dictation back out, so the editor's
+        // own change callback schedules the save, and — the important part —
+        // so the append is computed from the text as it is *now*, not as it was
+        // when recording started. The user may have kept typing throughout.
+        if editorProxy.append(addition, attributes: attributes) { return }
+
+        // No live editor: the note was closed or another selected while we were
+        // still transcribing. Write the words to the row rather than dropping
+        // them, decoding and re-encoding so existing formatting survives.
+        guard let current = store.notes.first(where: { $0.id == note.id }) else { return }
+        let existing = RichText.attributed(from: current.richText, plain: current.text,
+                                           font: Self.editorFont)
+        let separator = current.text.isEmpty ? "" : (current.text.hasSuffix("\n") ? "" : "\n\n")
+        let combined = NSMutableAttributedString(attributedString: existing)
+        combined.append(NSAttributedString(string: separator, attributes: attributes))
+        combined.append(addition)
+
+        var updated = current
+        updated.text = combined.string
+        updated.richText = RichText.data(from: combined, font: Self.editorFont)
+        store.updateNote(updated)
     }
 
     /// Reshape the note with one of the user's own styles — the same styles that
