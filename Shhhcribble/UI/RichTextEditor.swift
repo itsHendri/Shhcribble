@@ -629,6 +629,19 @@ struct RichTextEditor: NSViewRepresentable {
     /// `setAttributedString`, which is exactly the distinction that was missing.
     var onUserEdit: (() -> Void)?
 
+    /// Drop the undo stack whenever content is pushed in programmatically.
+    ///
+    /// Set by the sticky panel, where **one editor is reused across tabs**: the
+    /// undo stack would otherwise still hold the previous note's edits, so ⌘Z
+    /// after switching tabs would replace *this* note's text with the other
+    /// note's — corruption, not a papercut. Reusing the view (rather than
+    /// rebuilding it per tab, which would also isolate the stack) is what keeps
+    /// keyboard focus alive across a switch, so you can keep typing.
+    ///
+    /// Off elsewhere: in the Notes pane a programmatic push is an external edit
+    /// arriving from a sticky, and there is no second document involved.
+    var resetsUndoOnExternalChange: Bool = false
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -709,6 +722,7 @@ struct RichTextEditor: NSViewRepresentable {
         context.coordinator.isApplyingProgrammaticChange = true
         textView.textStorage?.setAttributedString(attributed)
         context.coordinator.isApplyingProgrammaticChange = false
+        if resetsUndoOnExternalChange { textView.undoManager?.removeAllActions() }
     }
 
     @MainActor

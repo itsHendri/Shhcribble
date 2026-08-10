@@ -10,7 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.14.0] - 2026-08-10
+### Changed
+- **Sticky notes share one window now, as tabs.** Sticking several notes used to
+  scatter a separate card across your screen for each one. They now live in a
+  single floating panel with a tab per note, so a handful of stickies is one
+  tidy window instead of a pile. Click a tab to switch, **+** starts a new note
+  right there, and the tab bar doubles as the drag handle.
+- **Closing a tab is still just unsticking.** The ✕ on the active tab asks
+  first, exactly as before — the note stays in your Notes list — and the panel
+  disappears by itself once you've closed the last tab. Your existing stickies
+  become tabs automatically, and the window opens where your last sticky sat.
+
+
 
 ### Added
 - **Search everything.** The search box on Today now searches your whole

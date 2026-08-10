@@ -760,6 +760,18 @@ final class TranscriptStore: ObservableObject {
     /// `pinnedNotes` in practice, since sticking auto-pins.
     var stuckNotes: [Note] { Self.byRecency(notes.filter(\.stuck)) }
 
+    /// The same notes, in **stable tab order** for the sticky panel — creation
+    /// order, which is what `notes` already carries (`position` is dense and
+    /// assigned on insert, so a plain filter preserves it).
+    ///
+    /// **Deliberately not `stuckNotes`.** That one is recency-ordered for the
+    /// Pinned board, and recency changes on *every keystroke* — as tabs, they
+    /// would reshuffle under the pointer while you typed in one, and the tab you
+    /// were editing would jump to the front. Tabs must not move. New tabs
+    /// therefore append on the right, which is also what every tabbed interface
+    /// does.
+    var stuckNotesInTabOrder: [Note] { notes.filter(\.stuck) }
+
     /// Documents marked important, newest first (`transcripts` is already
     /// ordered by `createdAt DESC`, so this only filters).
     ///
