@@ -4,22 +4,27 @@ import AppKit
 /// The Today stream — **one timeline, two weights**, and the thing that replaced
 /// the transcripts master-detail (redesign phase 4).
 ///
+/// **Transcriptions only** (2026-08-10): this is the record of what you *said*
+/// today. Notes are something you *wrote* and live in their own tab — mixing
+/// them in made turning a transcription into a note look like the obvious move,
+/// which was the wrong shape for a log you mostly read and copy from.
+///
 /// A dictation is high-frequency and semi-throwaway: you keep it to recover a
 /// paste that missed or to re-use an old prompt. It never needed a reader, and
 /// it never needed a list row that hides four fifths of it behind an ellipsis —
-/// so dictations render as **borderless lines, always fully expanded**. Notes
-/// and documents are things you deliberately kept, so they **anchor** the day as
-/// bordered cards you can click through to.
+/// so dictations render as **borderless lines, always fully expanded**.
+/// Documents are long-form material you deliberately kept, so they **anchor**
+/// the day as bordered cards you can click through to.
 ///
 /// The stream is scoped to one day. Chevrons step a day; the day label opens a
 /// month popover with dots on the days that have anything, so finding older work
 /// doesn't mean clicking backwards through empty days.
 struct TodayView: View {
     @ObservedObject var store: TranscriptStore
-    /// Opening an anchored card hands it back to the shell, which knows which
-    /// tab that kind of item lives in.
+    /// Opening an anchored card hands it back to the shell, which moves to
+    /// Documents. Search can still surface a note, so opening one stays wired
+    /// even though the stream itself never shows notes.
     var onOpenNote: (UUID) -> Void
-    var onAddNote: () -> Void
     var onOpenTranscript: (UUID) -> Void
     var onUpload: () -> Void
 
@@ -31,9 +36,8 @@ struct TodayView: View {
 
     @State private var showingMonth = false
     @State private var hoveredID: UUID?
-    @State private var deleting: TimelineItem?
-    @State private var copiedToast = false
-    @State private var copiedToastTask: Task<Void, Never>?
+    @State private var deleting: Transcript?
+    @StateObject private var toast = ToastState()
 
     /// Whether the stream is on today. Asked of the calendar, never of the
     /// day *label* — that's user-facing text and will be localised.
@@ -42,8 +46,8 @@ struct TodayView: View {
     /// The day being shown, falling back to today until the opening pick lands.
     private var shownDay: Date { day ?? Calendar.current.startOfDay(for: Date()) }
 
-    private var items: [TimelineItem] {
-        Timeline.items(on: shownDay, transcripts: store.transcripts, notes: store.notes)
+    private var items: [Transcript] {
+        Timeline.items(on: shownDay, transcripts: store.transcripts)
     }
 
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -71,14 +75,13 @@ struct TodayView: View {
         // Esc clears the search and puts the day back — the other half of the
         // ✕ in the pill, and what anyone who has used a search field expects.
         .onExitCommand { if isSearching { search = "" } }
-        .overlay(alignment: .bottom) { copiedToastView }
+        .toast(toast)
         .onAppear {
             // Open on the last day that actually has something — a blank page on
             // a quiet morning is a worse first impression than yesterday's work.
             // `day` is the shell's, so this runs once per window, not per visit.
             guard day == nil else { return }
-            day = Timeline.openingDay(around: Date(),
-                                      transcripts: store.transcripts, notes: store.notes)
+            day = Timeline.openingDay(around: Date(), transcripts: store.transcripts)
                 ?? Calendar.current.startOfDay(for: Date())
         }
         // Follow new work to the day it landed on. Without this, dictating while
@@ -95,7 +98,6 @@ struct TodayView: View {
                 search = ""
             }
         }
-        .onDisappear { copiedToastTask?.cancel() }
         .alert("Delete this?", isPresented: Binding(
             get: { deleting != nil },
             set: { if !$0 { deleting = nil } }
@@ -182,41 +184,54 @@ struct TodayView: View {
         }
     }
 
-    private func row(_ item: TimelineItem) -> some View {
+    /// Width of the trailing slot — the time only, now that the actions live
+    /// inline in the meta line.
+    private let trailingWidth: CGFloat = 58
+
+    private func row(_ item: Transcript) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            // Fixed width with a hard line limit: a 12-hour locale's "10:42 PM"
-            // (and worse, "10:42 p. m.") wraps to two lines otherwise and ragged
-            // the whole gutter.
-            Text(item.occurredAt.formatted(date: .omitted, time: .shortened))
+            Group {
+                if item.source.isDocument { documentCard(item) } else { dictationLine(item) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Time far right, permanently. It puts every item's content on one
+            // left edge — a left time gutter indented the content past the day
+            // header and took the eye first, which was most of why the stream
+            // read as inactive — and keeps the timestamp where an activity feed
+            // puts it. Ruled with Hendri 2026-07-27.
+            Text(item.createdAt.formatted(date: .omitted, time: .shortened))
                 .font(.system(size: DesignSystem.ChromeText.secondary))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(width: 58, alignment: .trailing)
+                .frame(width: trailingWidth, alignment: .trailing)
                 .padding(.top, item.isAnchored ? 10 : 1)
-
-            Group {
-                switch item {
-                case .transcript(let t) where !t.source.isDocument: dictationLine(t)
-                case .transcript(let t):                            documentCard(t)
-                case .note(let n):                                  noteCard(n)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Delete is the one hover-revealed control left here, so the whole row
+        // has to be the hover target: `onHover` hit-tests *drawn* content, and
+        // a row whose right half is transparent dismisses itself as the pointer
+        // crosses towards the button. This shape is what makes it reachable.
+        .contentShape(Rectangle())
         .onHover { hoveredID = $0 ? item.id : (hoveredID == item.id ? nil : hoveredID) }
     }
 
     /// A dictation passes through: no border, no truncation, the whole thing.
+    ///
+    /// **Full-strength text, not secondary** (ruled 2026-07-27): a dictation is
+    /// the record of what you said and the reason to open this screen. Rendering
+    /// it in the dimmest colour in the app, under a timestamp that took the eye
+    /// first, was what made the whole stream read as inactive. The border on the
+    /// anchored cards is what carries the two-weights hierarchy — it doesn't
+    /// need the passing items greyed out as well.
     private func dictationLine(_ t: Transcript) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(t.text)
                 .font(.system(size: DesignSystem.ChromeText.body))
-                .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            metaRow(for: .transcript(t)) {
+            metaLine(for: t) {
                 Text(wordCount(t.text))
                 if let style = t.styleName, !style.isEmpty {
                     TagCapsule(style)
@@ -235,31 +250,8 @@ struct TodayView: View {
                 TagCapsule("Document")
                 if t.pinned { pinGlyph }
             }
-            metaRow(for: .transcript(t)) {
+            metaLine(for: t) {
                 Text(documentSubtitle(t))
-            }
-        }
-    }
-
-    private func noteCard(_ n: Note) -> some View {
-        card(open: { onOpenNote(n.id) }) {
-            HStack(spacing: 6) {
-                Text(NotesView.preview(n.text))
-                    .font(.system(size: DesignSystem.ChromeText.body, weight: .medium))
-                    .lineLimit(1)
-                TagCapsule("Note")
-                if n.stuck {
-                    Image(systemName: "macwindow")
-                        .font(.system(size: DesignSystem.ChromeText.micro))
-                        .foregroundStyle(.tertiary)
-                        .help("On your screen")
-                } else if n.pinned {
-                    pinGlyph
-                }
-            }
-            metaRow(for: .note(n)) {
-                Text(noteSubtitle(n))
-                    .lineLimit(1)
             }
         }
     }
@@ -289,53 +281,29 @@ struct TodayView: View {
             .onTapGesture(perform: open)
     }
 
-    /// The quiet line under an item: whatever it has to say about itself on the
-    /// left, and the per-item actions on hover at the right.
-    private func metaRow<Leading: View>(for item: TimelineItem,
-                                        @ViewBuilder leading: () -> Leading) -> some View {
-        HStack(spacing: 8) {
+    /// The quiet line under an item — **copy first, then what the item has to
+    /// say about itself, then delete out at the far right on hover** (Hendri,
+    /// 2026-08-10).
+    ///
+    /// The asymmetry is the point. Copy is the reason this screen exists, so it
+    /// leads the line and is always there. Delete is the one thing you'd hate to
+    /// hit by accident, so it stays out of the reading path and out of sight
+    /// until you're on the row — the opposite treatment, at the opposite end.
+    private func metaLine<Leading: View>(for item: Transcript,
+                                         @ViewBuilder leading: () -> Leading) -> some View {
+        HStack(spacing: 6) {
+            InlineAction("square.on.square", help: "Copy") { copy(item) }
             leading()
                 .font(.system(size: DesignSystem.ChromeText.secondary))
                 .foregroundStyle(.tertiary)
             Spacer(minLength: 0)
             if hoveredID == item.id {
-                actions(for: item)
+                InlineAction("trash", help: "Delete") { deleting = item }
             }
         }
-        // Reserve the row's height so revealing the actions doesn't nudge the
-        // stream — the same reason `TranscriptRow` fixes its trailing slot.
+        // Reserve the height either way, so revealing delete can't nudge the
+        // line it sits on.
         .frame(height: 18)
-    }
-
-    @ViewBuilder
-    private func actions(for item: TimelineItem) -> some View {
-        HStack(spacing: 10) {
-            Button { copy(item) } label: {
-                Image(systemName: "doc.on.doc").foregroundStyle(Color.accentColor)
-            }
-            .buttonStyle(.borderless)
-            .help("Copy")
-            .accessibilityLabel("Copy")
-
-            // Only a dictation can be sent into a note — a note is already one,
-            // and a document keeps its own reader.
-            if case .transcript(let t) = item, !t.source.isDocument {
-                Button { addToNote(t) } label: {
-                    Image(systemName: "note.text.badge.plus").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help("Add to a new note")
-                .accessibilityLabel("Add to a new note")
-            }
-
-            Button { deleting = item } label: {
-                Image(systemName: "trash").foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-            .help("Delete")
-            .accessibilityLabel("Delete")
-        }
-        .font(.system(size: DesignSystem.ChromeText.control))
     }
 
     // MARK: - Search results
@@ -372,15 +340,6 @@ struct TodayView: View {
 
     private func resultRow(_ result: SearchResult) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            // Same reason, plus a previous year's label carries its year.
-            Text(Timeline.dayLabel(for: result.date))
-                .font(.system(size: DesignSystem.ChromeText.secondary))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(width: 78, alignment: .trailing)
-                .padding(.top, result.isAnchored ? 9 : 1)
-
             Group {
                 if result.isAnchored {
                     card(open: { open(result) }) {
@@ -407,6 +366,16 @@ struct TodayView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Trailing, like the stream — one date edge across the whole pane.
+            // A result's label carries its year when it isn't this one's.
+            Text(Timeline.dayLabel(for: result.date))
+                .font(.system(size: DesignSystem.ChromeText.secondary))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: trailingWidth, alignment: .trailing)
+                .padding(.top, result.isAnchored ? 9 : 1)
         }
     }
 
@@ -455,15 +424,13 @@ struct TodayView: View {
             .font(.system(size: DesignSystem.ChromeText.control))
             .foregroundStyle(.secondary)
 
-            // Two capsules here, deliberately breaking the one-per-column rule
-            // (human's call, following the wireframe): an empty Today otherwise
-            // offers no way to start a note, and the hotkey line above already
-            // covers dictating.
-            HStack(spacing: 8) {
-                capsule("Add Note", icon: "square.and.pencil", action: onAddNote)
-                capsule("Upload Audio…", icon: "waveform.badge.plus", action: onUpload)
-            }
-            .padding(.top, 2)
+            // Back to **one** capsule (2026-08-10). The two-capsule carve-out
+            // existed because an empty Today had no route to a note — which
+            // stopped being Today's problem when notes left the stream. Upload
+            // is the pane's one primary verb again; the hotkey line above covers
+            // the other way to put something here.
+            capsule("Upload Audio…", icon: "waveform.badge.plus", action: onUpload)
+                .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
@@ -513,64 +480,29 @@ struct TodayView: View {
         return n.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty note" : "Note"
     }
 
-    private func copy(_ item: TimelineItem) {
-        let text: String
-        switch item {
-        case .transcript(let t): text = t.text
-        case .note(let n):       text = n.text
-        }
+    private func copy(_ item: Transcript) {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(text, forType: .string)
-        copiedToastTask?.cancel()
-        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
-        copiedToastTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.4))
-            guard !Task.isCancelled else { return }
-            withAnimation(DesignSystem.motion(.easeOut(duration: DesignSystem.motionStandard))) { copiedToast = false }
-        }
+        pb.setString(item.text, forType: .string)
+        toast.flash("Copied")
     }
 
-    /// Send a dictation into a fresh note as an embedded block, and open it.
-    /// Deliberately a *new* note: appending to "the current note" would mean
-    /// guessing which one, and a wrong guess edits something the user didn't ask
-    /// to touch.
-    private func addToNote(_ t: Transcript) {
-        let note = store.addNoteFromDictation(t)
-        onOpenNote(note.id)
+    // Add-to-note was removed from the stream 2026-08-10: turning a
+    // transcription into a note read as the wrong move here — Today is a log of
+    // what you said, and notes are their own environment. `addNoteFromDictation`
+    // stays on the store (still tested) so restoring the affordance is a view
+    // change, but don't put it back without re-deciding what Today is *for*.
+
+    private func delete(_ item: Transcript) {
+        store.delete(item.id)
     }
 
-    private func delete(_ item: TimelineItem) {
-        switch item {
-        case .transcript(let t): store.delete(t.id)
-        case .note(let n):       store.deleteNote(id: n.id)
-        }
+    private func deleteMessage(for item: Transcript) -> String {
+        item.source.isDocument
+            ? "“\(item.menuTitle)” will be removed from Shhhcribble. A transcribed file's .txt sidecar isn't affected."
+            : "This dictation will be removed from Shhhcribble. This can't be undone."
     }
 
-    private func deleteMessage(for item: TimelineItem) -> String {
-        switch item {
-        case .transcript(let t) where t.source.isDocument:
-            return "“\(t.menuTitle)” will be removed from Shhhcribble. A transcribed file's .txt sidecar isn't affected."
-        case .transcript:
-            return "This dictation will be removed from Shhhcribble. This can't be undone."
-        case .note(let n):
-            return "“\(NotesView.preview(n.text))” will be removed. This can't be undone."
-        }
-    }
-
-    @ViewBuilder
-    private var copiedToastView: some View {
-        if copiedToast {
-            Label("Copied", systemImage: "checkmark.circle.fill")
-                .font(.callout).fontWeight(.medium)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
-                .padding(.bottom, 18)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
 }
 
 // MARK: - Month popover
@@ -598,7 +530,6 @@ private struct MonthPicker: View {
     private var filled: Set<Int> {
         Timeline.daysWithContent(inMonthOf: visibleMonth,
                                  transcripts: store.transcripts,
-                                 notes: store.notes,
                                  calendar: calendar)
     }
 

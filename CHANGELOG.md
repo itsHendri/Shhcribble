@@ -16,9 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching words highlighted in place, so you can see why each result matched.
   Esc or the ✕ puts your day back.
 - **Today is a stream now.** The main screen is a single chronological feed of
-  your day. Dictations appear **in full — never cut off** — so you can read and
-  re-copy one without opening anything. Notes and documents appear as cards you
-  click through to. Hovering anything gives you copy, add-to-a-note, and delete.
+  everything you transcribed that day. Dictations appear **in full — never cut
+  off** — so you can read and re-copy one without opening anything; uploads and
+  calls appear as cards you click through to.
 - **Day headings in Notes and Documents.** Both lists now group under "Today",
   "Earlier this week" and so on beneath anything you've pinned, instead of one
   long undifferentiated column.
@@ -56,7 +56,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Feedback moved in from the main sidebar; Quit is still on the menu-bar icon's
   right-click menu too.
 
+- **Pin without opening.** Hovering a row in Notes or Documents now offers
+  **pin** as well as copy, so marking something important doesn't mean opening
+  it first.
+- **Today reads as a live feed.** Your dictations are shown at full strength
+  instead of greyed out, every item's text starts on the same left edge, and the
+  time has moved to the right.
+- **Copy leads every line on Today.** The copy button now sits at the head of
+  each item's meta line and is always visible — copying is what this screen is
+  for. Delete moved to the far right and appears only when you're on the row, so
+  it's nowhere near where you're reading or clicking.
+- Simpler copy and document icons throughout, matching the wireframes.
+- The **Transcript / Summary** switch in the document reader now spans the full
+  width of the reader instead of sitting stubby on the left.
+- **Pinning says so.** Pinning or unpinning anything now flashes the same
+  confirmation copying does. Pinned cards are also a uniform size and show a few
+  lines of what's actually in them, so the board reads as a wall of stickies
+  rather than a ragged grid.
+- Hover actions and the source icon in the reader are now plain grey. Colour is
+  reserved for links and for highlighting what your search matched.
+- The **Documents** sidebar icon is two offset squares — at that size the old
+  page icon was hard to tell apart from Notes.
+
+### Fixed
+- **Today's hover actions can actually be clicked.** Only the text of a row
+  counted as "hovered", so moving the pointer towards copy, add-to-note or
+  delete left the row and made them vanish on the way. The whole row is now the
+  target.
+
 ### Removed
+- **Notes no longer appear on Today.** Today is the record of what you *said*;
+  a note is something you *wrote*, and mixing the two made turning one into the
+  other look like the thing to do. Notes live in their own tab. Uploads and
+  calls stay on Today — they're transcriptions too. This also removed **Add to a
+  new note** from the stream.
 - **Save as .txt** on notes and transcripts, and **Reveal source in Finder** on
   transcripts. Copy covers the same ground, and every file you transcribe
   already gets a .txt written beside it automatically.

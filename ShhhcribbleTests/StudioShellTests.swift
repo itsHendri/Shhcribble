@@ -12,7 +12,7 @@ final class StudioShellTests: XCTestCase {
 
     func testRailIsTheFiveLockedDestinationsInOrder() {
         XCTAssertEqual(TranscriptionsView.RailSection.allCases,
-                       [.today, .notes, .documents, .pinned, .settings],
+                       [.today, .documents, .notes, .pinned, .settings],
                        "The rail's shape is locked in the wireframes decision record — "
                        + "update that first if this is a deliberate change.")
     }
@@ -43,7 +43,7 @@ final class StudioShellTests: XCTestCase {
     /// silently is how a saved selection stops matching.
     func testRailIdentifiersAreStable() {
         XCTAssertEqual(TranscriptionsView.RailSection.allCases.map(\.id),
-                       ["today", "notes", "documents", "pinned", "settings"])
+                       ["today", "documents", "notes", "pinned", "settings"])
         XCTAssertEqual(TranscriptionsView.SettingsPage.allCases.map(\.id),
                        ["preferences", "styles", "dictionary", "feedback"])
     }

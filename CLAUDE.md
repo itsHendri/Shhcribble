@@ -304,10 +304,17 @@ long-form source joins Documents by flipping `isDocument` — don't re-inline
 - Summaries stay a **Documents-only** affordance per the design contract; the
   reader is still shared with Today until phase 4 takes it out of the timeline.
 
-### Today is a stream, not a master-detail (redesign phase 4)
+### Today is a stream of transcriptions, not a master-detail (redesign phase 4)
 [TodayView.swift](Shhhcribble/UI/TodayView.swift) replaced the transcripts
-master-detail. **One timeline, two weights**: notes and documents *anchor* the
-day as bordered cards you click through to their own tab; dictations *pass
+master-detail. **Transcriptions only** (ruled 2026-08-10): Today is the record
+of what you *said*, and a note is something you *wrote* — mixing them made
+turning a transcription into a note look like the obvious move, which is the
+wrong shape for a log you mostly read and copy from. `Timeline` no longer takes
+notes **at all**, so the month dots and the opening day can't disagree with the
+stream (a note-only day used to light a dot and then open on an empty page).
+`addNoteFromDictation` stays on the store, tested but unused by any view.
+**One timeline, two weights** now runs along `isDocument`: documents *anchor*
+the day as bordered cards you click through to their own tab; dictations *pass
 through* as **borderless lines, always fully expanded — never truncated**. A
 dictation is kept for recovery and reuse, so hiding four fifths of it behind an
 ellipsis and making you open a reader to see it was the wrong shape. Don't add a
@@ -335,11 +342,13 @@ line limit to the dictation line without re-reading the decision record.
   `Calendar` — "which day did this land on" is wrong by an hour twice a year if
   the machine's zone decides. `TimelineTests` pins Europe/London and covers the
   23:59 boundary and a DST step.
-- **Hover actions are copy · add-to-note · delete.** Add-to-note makes a *new*
-  note from the dictation (`addNoteFromDictation`) rather than appending to
-  "the current note" — a wrong guess there edits something the user didn't ask
-  to touch. Deliberately **not** idempotent, unlike `promoteActionItem`: one
-  dictation can legitimately seed two notes.
+- **The meta line reads copy · word count · style tag … delete**, and the
+  asymmetry is deliberate: copy is the reason the screen exists, so it *leads*
+  the line and is always visible; delete is the one thing you'd hate to hit by
+  accident, so it sits at the far right and only on hover. That single hover
+  control is why the row still carries an explicit `contentShape` — without it
+  the pointer leaves the row on the way to the button and it can never be
+  clicked. Add-to-note was removed when notes left the stream.
 - The empty state teaches the hotkey with a keycap rather than apologising for
   being empty.
 
@@ -353,9 +362,11 @@ feel untrustworthy.
 
 **Standing rule from 2026-07-25: where the wireframes' drawings and their prose
 disagree, the drawing wins unless it's technically impossible** (the human's
-call). That settled three things — Today's empty state carries **two** capsules
+call). That settled three things — Today's empty state carried **two** capsules
 (Add Note + Upload Audio…) despite the one-capsule-per-column rule, because an
-empty app otherwise has no route to a note; **dictations cannot be pinned**
+empty app otherwise had no route to a note (**retired 2026-08-10**: notes left
+the Today stream, so that stopped being Today's problem and the capsule is one
+again — the tie-break rule itself stands); **dictations cannot be pinned**
 (`pinnedTranscripts` filters on `isDocument`, the reader's pin control only
 appears for a document, and a row pinned by an older build stays off the board);
 and these day groups, which the build had skipped.
@@ -383,7 +394,9 @@ spanning every day).
 
 ### Universal UI conventions (apply to every new affordance)
 Two rules established 2026-07-08, expected everywhere going forward:
-- **Any copy action shows the "Copied" toast.** The capsule toast (`.regularMaterial` in a `Capsule`, ~1.4 s auto-dismiss, cancellable task) is duplicated in `TranscriptDetail` (transcript + summary copy), `TranscriptionsView` (hover-to-copy on rows), and `DictionarySettingsView` (`flashCopied()`, prompt copy). New copy affordances must flash it too (candidate for extraction into one shared modifier later).
+- **Any action whose result isn't visible on screen shows a toast** — copy, and (since 2026-08-10) **pin/unpin**, which moves an item to another group *and* another tab, so a glyph quietly filling in was not feedback. The capsule (`.regularMaterial` in a `Capsule`, ~1.4 s auto-dismiss, cancellable task) had been hand-copied six times; it is now **one `ToastState` + `.toast(_:)` modifier in [DesignSystem.swift](Shhhcribble/UI/DesignSystem.swift)**. Own one `ToastState` per pane and pass it into the detail view, so a pin from the list and a pin from the reader confirm in the same place. `FeedbackView` and `DictionarySettingsView` still carry their own private copies — migrate them the next time either is touched.
+- **Prefer a permanent control to a hover-revealed one** for anything reached for repeatedly. Today's per-item actions were hover-revealed twice and failed twice: unreachable (see below), then unreadable — a glyph you must hover to identify, on a control that only exists while hovered, cannot be learned. They are now always visible inline (`InlineAction`), and **Today's rows have no hover state at all**.
+- **Where a row does reveal on hover, the whole row must be the hover target.** SwiftUI's `onHover` hit-tests *drawn* content, so a row with transparent space (a short line of text, an empty right half) dismisses itself as the pointer crosses it — the actions can never be reached. Add an explicit `.contentShape(Rectangle())`.
 - **Any destructive action confirms first** via a SwiftUI `.alert` with a `.destructive` primary + `.cancel` (the transcript-delete / Quit / dictionary-word-delete pattern). Current destructive actions all comply; keep it that way.
 
 ### Design tokens live in `DesignSystem.swift` — don't set section-title fonts inline

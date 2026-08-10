@@ -48,8 +48,13 @@ struct TranscriptionsView: View {
     /// master-detail environment (see `SettingsPage`) — Styles, Dictionary and
     /// Feedback were demoted into it, since quick style *switching* lives in the
     /// menu-bar submenu and per-app auto; the page is for authoring.
+    /// Declaration order **is** the rail order — `allCases` is what
+    /// `StudioShellTests` pins. Documents sits above Notes (2026-08-10): now
+    /// that Today is transcriptions only, Documents is the other half of the
+    /// same material and belongs next to it, while Notes is the separate
+    /// written environment.
     enum RailSection: String, CaseIterable, Identifiable {
-        case today, notes, documents, pinned, settings
+        case today, documents, notes, pinned, settings
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -64,7 +69,11 @@ struct TranscriptionsView: View {
             switch self {
             case .today:     return "calendar"
             case .notes:     return "note.text"
-            case .documents: return "doc.text"
+            // A stack rather than a lined page: at rail size the ruled-document
+            // glyph was nearly indistinguishable from the Notes one beside it.
+            // Not `square.on.square` — that is now the copy glyph, and a rail
+            // item sharing a shape with an action reads as a button.
+            case .documents: return "rectangle.stack"
             case .pinned:    return "pin"
             case .settings:  return "gearshape"
             }
@@ -137,8 +146,8 @@ struct TranscriptionsView: View {
     private var rail: some View {
         VStack(alignment: .leading, spacing: 2) {
             railTab(.today)
-            railTab(.notes)
             railTab(.documents)
+            railTab(.notes)
             railTab(.pinned)
 
             Spacer(minLength: 0)
@@ -194,12 +203,6 @@ struct TranscriptionsView: View {
             store: store,
             onOpenNote: { id in
                 noteID = id
-                section = .notes
-            },
-            onAddNote: {
-                let note = Note(text: "")
-                store.addNote(note)
-                noteID = note.id
                 section = .notes
             },
             onOpenTranscript: { id in
@@ -343,8 +346,7 @@ private struct TranscriptListPane: View {
     var onUpload: () -> Void
 
     @State private var hoveredID: UUID?
-    @State private var copiedToast = false
-    @State private var copiedToastTask: Task<Void, Never>?
+    @StateObject private var toast = ToastState()
 
     private var selected: Transcript? { store.transcripts.first { $0.id == selection } }
 
@@ -357,13 +359,12 @@ private struct TranscriptListPane: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .bottom) { copiedToastView }
+        .toast(toast)
         // Preselect the newest row the first time the list is shown; the `== nil`
         // guard means a later visit keeps whatever the user last picked.
         .onAppear {
             if selection == nil { selection = items.first?.id }
         }
-        .onDisappear { copiedToastTask?.cancel() }
     }
 
     private var listColumn: some View {
@@ -429,7 +430,10 @@ private struct TranscriptListPane: View {
     }
 
     private func row(_ t: Transcript) -> some View {
-        TranscriptRow(transcript: t, hovered: hoveredID == t.id, onCopy: { copy(t) })
+        TranscriptRow(transcript: t,
+                      hovered: hoveredID == t.id,
+                      onCopy: { copy(t) },
+                      onTogglePin: { togglePin(t) })
             .contentShape(Rectangle())
             .onTapGesture { selection = t.id }
             .onHover { hoveredID = $0 ? t.id : (hoveredID == t.id ? nil : hoveredID) }
@@ -448,7 +452,7 @@ private struct TranscriptListPane: View {
     @ViewBuilder
     private var detailColumn: some View {
         if let t = selected {
-            TranscriptDetail(transcript: t, store: store)
+            TranscriptDetail(transcript: t, store: store, toast: toast)
                 .id(t.id)
         } else {
             ContentUnavailableView(
@@ -478,34 +482,22 @@ private struct TranscriptListPane: View {
         }
     }
 
-    @ViewBuilder
-    private var copiedToastView: some View {
-        if copiedToast {
-            Label("Copied", systemImage: "checkmark.circle.fill")
-                .font(.callout).fontWeight(.medium)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
-                .padding(.bottom, 18)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
-
     /// Copy a row's text straight to the clipboard — the hover affordance so a
     /// transcript can be grabbed without selecting it first — and flash the same
-    /// "Copied" toast the detail pane uses.
+    /// toast the detail pane uses.
     private func copy(_ t: Transcript) {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(t.text, forType: .string)
-        copiedToastTask?.cancel()
-        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
-        copiedToastTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.4))
-            guard !Task.isCancelled else { return }
-            withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
-        }
+        toast.flash("Copied")
+    }
+
+    /// Pin/unpin plus its confirmation. A pin moves the row to another group and
+    /// onto the Pinned board — neither of which is on screen when you click it.
+    private func togglePin(_ t: Transcript) {
+        let nowPinned = !t.pinned
+        store.setTranscriptPinned(id: t.id, pinned: nowPinned)
+        toast.flash(nowPinned ? "Pinned" : "Unpinned")
     }
 }
 
@@ -525,7 +517,16 @@ private struct PinnedBoard: View {
     var onOpenNote: (UUID) -> Void
     var onOpenTranscript: (UUID) -> Void
 
-    private let columns = [GridItem(.adaptive(minimum: 200, maximum: 320), spacing: 10)]
+    /// Narrower and capped tighter than a list row would be: these are meant to
+    /// read as a wall of stickies, and a 320pt-wide card of body text doesn't.
+    private let columns = [GridItem(.adaptive(minimum: 186, maximum: 232), spacing: 10)]
+
+    /// Every card is the same height, roughly square at the grid's own widths.
+    /// Cards that sized to their content made the board look broken — a
+    /// one-line note next to a wrapped one left ragged holes in the grid — and
+    /// spent the space on nothing. A fixed height also buys room for real
+    /// preview text, which is the point of a board you're meant to scan.
+    private let cardHeight: CGFloat = 172
 
     var body: some View {
         // Read once per pass — every field filters and sorts.
@@ -601,11 +602,10 @@ private struct PinnedBoard: View {
     private func noteCard(_ note: Note, showsUnstick: Bool) -> some View {
         let title = NotesView.preview(note.text)
         // The strip is all notes, so a "Note" pill there says nothing; it earns
-        // its place in the grid, which mixes types. The strip spends that room
-        // on a preview line instead.
+        // its place in the grid, which mixes types.
         return card(title: title,
                     type: showsUnstick ? nil : "Note",
-                    preview: showsUnstick ? NotesView.bodyPreview(note.text, limit: 60) : "",
+                    preview: NotesView.bodyPreview(note.text, limit: 220),
                     // A pinned note that's also on screen carries the screen
                     // glyph, so the grid says which of the two it is.
                     badge: showsUnstick ? nil : (note.stuck ? "macwindow" : nil),
@@ -619,9 +619,21 @@ private struct PinnedBoard: View {
 
     private func transcriptCard(_ transcript: Transcript) -> some View {
         // Only documents reach the board — see `pinnedTranscripts`.
-        card(title: transcript.menuTitle, type: "Document", preview: "", badge: nil, action: nil,
+        card(title: transcript.menuTitle, type: "Document",
+             preview: Self.flattened(transcript.text),
+             badge: nil, action: nil,
              open: { onOpenTranscript(transcript.id) })
             .accessibilityLabel("Pinned document: \(transcript.menuTitle)")
+    }
+
+    /// A document's opening words as one readable line-wrapped block. Unlike a
+    /// note there's no title line to skip — the title is the file's name — so
+    /// this starts from the beginning of the transcript.
+    private static func flattened(_ text: String, limit: Int = 220) -> String {
+        let flat = text.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard flat.count > limit else { return flat }
+        return String(flat.prefix(limit)) + "…"
     }
 
     private func card(title: String, type: String?, preview: String, badge: String?,
@@ -633,12 +645,20 @@ private struct PinnedBoard: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !preview.isEmpty {
+                // Fills whatever the title leaves, and truncates at the fold —
+                // the card's job here is to show enough that you recognise the
+                // thing without opening it.
+                // Line-capped rather than left to the clip: clipping alone
+                // slices the last line through the middle of its letters, where
+                // a limit ends it on an ellipsis. Six lines is what the card
+                // has room for once a two-line title and the footer are in.
                 Text(preview)
                     .font(.system(size: DesignSystem.ChromeText.secondary))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(6)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            Spacer(minLength: 0)
             HStack(spacing: 6) {
                 if let type { TagCapsule(type) }
                 if let badge {
@@ -656,6 +676,10 @@ private struct PinnedBoard: View {
             }
         }
         .padding(10)
+        .frame(height: cardHeight, alignment: .topLeading)
+        // Clipped so a long preview stops at the card edge instead of spilling
+        // over the fill — the text view will happily lay out past a fixed frame.
+        .clipped()
         .background(
             RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
                 .fill(DesignSystem.boxFill)
@@ -673,16 +697,17 @@ private struct PinnedBoard: View {
 }
 
 /// One row in the transcripts list — source icon, a title (up to two lines), and
-/// a prominent trailing date. Hovering reveals a copy button in the *same
+/// a prominent trailing date. Hovering reveals pin + copy in the *same
 /// fixed-width slot* as the date, so the title never reflows on hover.
 private struct TranscriptRow: View {
     let transcript: Transcript
     var hovered: Bool = false
     var onCopy: () -> Void = {}
+    var onTogglePin: () -> Void = {}
 
     // Fixed trailing width keeps the title's truncation point constant whether the
-    // slot shows the date or the copy button; the fixed trailing HEIGHT keeps the
-    // row from growing on hover (the copy button is taller than the date).
+    // slot shows the date or the hover actions; the fixed trailing HEIGHT keeps the
+    // row from growing on hover (the buttons are taller than the date).
     private let trailingWidth: CGFloat = 72
 
     var body: some View {
@@ -711,16 +736,14 @@ private struct TranscriptRow: View {
     @ViewBuilder
     private var trailing: some View {
         if hovered {
-            Button(action: onCopy) {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 26, height: 24)
-                    .contentShape(Rectangle())
+            // Pin then copy — pin is the state-changing one, so it sits away
+            // from the row's edge where a stray click is likelier.
+            HStack(spacing: 2) {
+                RowHoverButton(transcript.pinned ? "pin.fill" : "pin",
+                               help: transcript.pinned ? "Unpin" : "Pin",
+                               action: onTogglePin)
+                RowHoverButton("square.on.square", help: "Copy transcript", action: onCopy)
             }
-            .buttonStyle(.borderless)
-            .help("Copy transcript")
-            .accessibilityLabel("Copy transcript")
         } else {
             VStack(alignment: .trailing, spacing: 1) {
                 Text(transcript.createdAt.formatted(date: .abbreviated, time: .omitted))
@@ -743,14 +766,15 @@ private struct TranscriptRow: View {
 private struct TranscriptDetail: View {
     let transcript: Transcript
     @ObservedObject var store: TranscriptStore
+    /// The pane's toast, shared with the list so a pin from either side gets
+    /// the same confirmation in the same place.
+    @ObservedObject var toast: ToastState
 
     @State private var tab: Tab = .transcript
     @State private var showingDeleteConfirm = false
     @State private var isSummarizing = false
     @State private var summaryError: String?
     @State private var didPrewarm = false
-    @State private var copiedToast = false
-    @State private var copiedToastTask: Task<Void, Never>?
     /// Notes became their own module 2026-07-23 — a transcript is a record of
     /// what was said, not a place to keep your own writing.
     enum Tab: Hashable { case transcript, summary }
@@ -768,6 +792,10 @@ private struct TranscriptDetail: View {
             // Neutral (adaptive gray) selected segment instead of the accent blue,
             // which read too heavy against the quiet neutral list/rail highlights.
             .tint(Color(nsColor: .secondaryLabelColor))
+            // Full width. Inside a leading-aligned stack a segmented picker
+            // takes its *ideal* width, so it sat stubby against a wide reader
+            // and read as a stray control rather than the pane's own switch.
+            .frame(maxWidth: .infinity)
             .padding(12)
             Divider()
             Group {
@@ -778,21 +806,6 @@ private struct TranscriptDetail: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .overlay(alignment: .bottom) {
-            if copiedToast {
-                Label("Copied", systemImage: "checkmark.circle.fill")
-                    .font(.callout).fontWeight(.medium)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
-                    .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                    .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
-                    .padding(.bottom, 18)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        // Tidy up the pending auto-dismiss when switching transcripts (the view
-        // is identity-keyed, so a stray task would write into dead state).
-        .onDisappear { copiedToastTask?.cancel() }
         .alert("Delete this transcript?", isPresented: $showingDeleteConfirm) {
             Button("Delete", role: .destructive) { store.delete(transcript.id) }
             Button("Cancel", role: .cancel) { }
@@ -805,8 +818,12 @@ private struct TranscriptDetail: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
+                    // Neutral for every source. The accent was doing no work
+                    // here — the meta line underneath already names the source,
+                    // and colouring an identity glyph made it read as a status
+                    // (human's call, 2026-07-27).
                     Image(systemName: transcript.source.icon)
-                        .foregroundStyle(transcript.source.isDocument ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(.secondary)
                     Text(transcript.menuTitle).font(.headline).lineLimit(1)
                     if let style = currentStyleName, !style.isEmpty {
                         // Shows the transform style a dictation was shaped with;
@@ -827,7 +844,9 @@ private struct TranscriptDetail: View {
                 // is read in the day stream and let go (human's call).
                 if transcript.source.isDocument {
                     Button {
-                        store.setTranscriptPinned(id: transcript.id, pinned: !transcript.pinned)
+                        let nowPinned = !transcript.pinned
+                        store.setTranscriptPinned(id: transcript.id, pinned: nowPinned)
+                        toast.flash(nowPinned ? "Pinned" : "Unpinned")
                     } label: {
                         Image(systemName: transcript.pinned ? "pin.fill" : "pin")
                             .foregroundStyle(transcript.pinned ? Color.accentColor : Color.secondary)
@@ -835,7 +854,7 @@ private struct TranscriptDetail: View {
                     .help(transcript.pinned ? "Unpin" : "Pin")
                     .accessibilityLabel(transcript.pinned ? "Unpin document" : "Pin document")
                 }
-                Button(action: copy) { Image(systemName: "doc.on.doc") }
+                Button(action: copy) { Image(systemName: "square.on.square") }
                     .help("Copy transcript")
                     .accessibilityLabel("Copy transcript")
                 Button(role: .destructive) { showingDeleteConfirm = true } label: { Image(systemName: "trash") }
@@ -920,7 +939,7 @@ private struct TranscriptDetail: View {
                         Label("Regenerate", systemImage: "arrow.clockwise")
                     }
                     Button(action: copySummary) {
-                        Label("Copy summary", systemImage: "doc.on.doc")
+                        Label("Copy summary", systemImage: "square.on.square")
                     }
                     Spacer()
                     if let at = transcript.summaryGeneratedAt {
@@ -1010,21 +1029,9 @@ private struct TranscriptDetail: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(transcript.text, forType: .string)
-        flashCopied()
+        toast.flash("Copied")
     }
 
-    /// Briefly show the "Copied" toast, auto-dismissing after ~1.4 s. Cancels any
-    /// in-flight dismissal so rapid re-copies keep the toast up rather than
-    /// flickering.
-    private func flashCopied() {
-        copiedToastTask?.cancel()
-        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
-        copiedToastTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.4))
-            guard !Task.isCancelled else { return }
-            withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
-        }
-    }
 
     private func copySummary() {
         guard let summary = transcript.summary else { return }
@@ -1035,7 +1042,7 @@ private struct TranscriptDetail: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(out, forType: .string)
-        flashCopied()
+        toast.flash("Copied")
     }
 
     private func generateSummary() {

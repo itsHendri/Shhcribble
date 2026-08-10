@@ -184,6 +184,132 @@ struct TagCapsule: View {
     }
 }
 
+/// The transient capsule confirmation, and the state that drives it.
+///
+/// **Every action whose result isn't otherwise visible on screen flashes one**
+/// — copy has always done it; pin joined 2026-08-10, because a glyph quietly
+/// filling in is not enough feedback for something that moves an item to
+/// another list and another tab.
+///
+/// This replaces what had become six hand-rolled copies of the same
+/// spring-in / 1.4s / fade-out dance. Own one `ToastState` per pane, call
+/// `flash(_:)`, and attach `.toast(state)` where you want it anchored.
+@MainActor
+final class ToastState: ObservableObject {
+    @Published private(set) var message: String?
+
+    private var task: Task<Void, Never>?
+
+    func flash(_ message: String) {
+        task?.cancel()
+        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) {
+            self.message = message
+        }
+        task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            withAnimation(DesignSystem.motion(.easeOut(duration: DesignSystem.motionStandard))) {
+                self.message = nil
+            }
+        }
+    }
+
+    /// Call from `.onDisappear`; the modifier does this for you.
+    func cancel() { task?.cancel() }
+}
+
+private struct ToastOverlay: ViewModifier {
+    @ObservedObject var state: ToastState
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottom) {
+                if let message = state.message {
+                    Label(message, systemImage: "checkmark.circle.fill")
+                        .font(.callout).fontWeight(.medium)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                        .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+                        .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
+                        .padding(.bottom, 18)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .onDisappear { state.cancel() }
+    }
+}
+
+extension View {
+    /// Anchor a pane's toast at its bottom edge. See `ToastState`.
+    func toast(_ state: ToastState) -> some View { modifier(ToastOverlay(state: state)) }
+}
+
+/// One always-visible action sitting inline in an item's meta line.
+///
+/// **Inline and permanent, not hover-revealed** (Hendri, 2026-08-10): having to
+/// hover a row *and then* travel to an action to find out what it does made the
+/// stream feel like a two-step. Quiet by default — tertiary, matching the meta
+/// text it sits beside — so three of them on every row read as punctuation
+/// rather than a toolbar. The hit area is the whole 20×18 slot, not the glyph.
+struct InlineAction: View {
+    let systemName: String
+    let help: String
+    let action: () -> Void
+
+    init(_ systemName: String, help: String, action: @escaping () -> Void) {
+        self.systemName = systemName
+        self.help = help
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: DesignSystem.ChromeText.control))
+                .foregroundStyle(.tertiary)
+                .frame(width: 20, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+/// One hover-revealed action in a list row's trailing slot.
+///
+/// **Neutral, never accent** (human's call, 2026-07-27): these appear under the
+/// pointer on every row, and an accent glyph made hovering read like a
+/// selection. Accent stays reserved for links and search-match highlights.
+///
+/// Sized so the hit area is the whole 26×24 slot rather than the glyph — a
+/// 13pt symbol is a small target for something you have to travel across a row
+/// to reach.
+struct RowHoverButton: View {
+    let systemName: String
+    let help: String
+    let action: () -> Void
+
+    init(_ systemName: String, help: String, action: @escaping () -> Void) {
+        self.systemName = systemName
+        self.help = help
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: DesignSystem.ChromeText.body))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
 /// The app's type scale, used for the content *inside* a note — one ramp,
 /// largest to smallest, applied per paragraph.
 ///

@@ -1,47 +1,18 @@
 import Foundation
 
-/// One thing that happened, on the Today stream.
-///
-/// The redesign's core claim is "**one timeline, two weights**": notes and
-/// documents *anchor* the day as bordered cards, while dictations *pass through*
-/// as borderless lines. That's a rendering difference, not a data one — so the
-/// timeline is a single ordered list and the weight is a property of the item.
-enum TimelineItem: Identifiable, Equatable {
-    case transcript(Transcript)
-    case note(Note)
+extension Transcript {
+    /// Anchored items get a card on the Today stream; passing items get a line.
+    ///
+    /// "**One timeline, two weights**" survives Today becoming
+    /// transcriptions-only (2026-08-10) — it just now runs along the line the
+    /// app already draws internally: a **document** is long-form material you
+    /// keep, so it anchors, while a **dictation** passes through. That's a
+    /// rendering difference, not a data one.
+    var isAnchored: Bool { source.isDocument }
 
-    var id: UUID {
-        switch self {
-        case .transcript(let t): return t.id
-        case .note(let n):       return n.id
-        }
-    }
-
-    /// When it landed — what the stream sorts by.
-    var occurredAt: Date {
-        switch self {
-        case .transcript(let t): return t.createdAt
-        case .note(let n):       return n.createdAt
-        }
-    }
-
-    /// Anchored items get a card; passing items get a line. A quick dictation is
-    /// the only passing weight — everything you deliberately kept anchors.
-    var isAnchored: Bool {
-        switch self {
-        case .transcript(let t): return t.source.isDocument
-        case .note:              return true
-        }
-    }
-
-    /// The type pill on an anchored card. `nil` for passing items, which carry
-    /// no pill (a dictation doesn't need to announce itself as a dictation).
-    var typeLabel: String? {
-        switch self {
-        case .transcript(let t): return t.source.isDocument ? "Document" : nil
-        case .note:              return "Note"
-        }
-    }
+    /// The type pill on an anchored card. `nil` for a dictation, which doesn't
+    /// need to announce itself as one.
+    var typeLabel: String? { source.isDocument ? "Document" : nil }
 }
 
 /// How recently something happened, coarsened into the headings a list uses.
@@ -74,20 +45,24 @@ enum RecencyGroup: String, CaseIterable, Identifiable {
 /// user's today rather than UTC's.
 enum Timeline {
 
-    /// Everything that happened on `day`, newest first.
+    /// Everything transcribed on `day`, newest first.
+    ///
+    /// **Transcriptions only — notes are not part of the stream** (Hendri,
+    /// 2026-08-10). Today is the record of what you *said*; a note is something
+    /// you *wrote*, and mixing the two made turning one into the other look
+    /// like the obvious move. Notes live in their own tab. If they ever come
+    /// back here, this signature is where it starts.
     ///
     /// Newest-first matches the rest of the app (the lists, the menu's recents)
     /// and puts what you just dictated where you're already looking.
     static func items(on day: Date,
                       transcripts: [Transcript],
-                      notes: [Note],
-                      calendar: Calendar = .current) -> [TimelineItem] {
-        let merged = transcripts.map(TimelineItem.transcript) + notes.map(TimelineItem.note)
-        return merged
-            .filter { calendar.isDate($0.occurredAt, inSameDayAs: day) }
+                      calendar: Calendar = .current) -> [Transcript] {
+        transcripts
+            .filter { calendar.isDate($0.createdAt, inSameDayAs: day) }
             // Tie-break on id so equal timestamps can't reorder between renders
             // and churn `ForEach` identity — same reason as `pinnedNotes`.
-            .sorted { ($0.occurredAt, $0.id.uuidString) > ($1.occurredAt, $1.id.uuidString) }
+            .sorted { ($0.createdAt, $0.id.uuidString) > ($1.createdAt, $1.id.uuidString) }
     }
 
     /// The days in `month` that have anything on them — the dots in the month
@@ -95,9 +70,8 @@ enum Timeline {
     /// where your work is.
     static func daysWithContent(inMonthOf month: Date,
                                 transcripts: [Transcript],
-                                notes: [Note],
                                 calendar: Calendar = .current) -> Set<Int> {
-        let stamps = transcripts.map(\.createdAt) + notes.map(\.createdAt)
+        let stamps = transcripts.map(\.createdAt)
         var days: Set<Int> = []
         for stamp in stamps where calendar.isDate(stamp, equalTo: month, toGranularity: .month) {
             days.insert(calendar.component(.day, from: stamp))
@@ -114,13 +88,12 @@ enum Timeline {
     /// opens on an empty today and tells the user to start speaking.
     static func openingDay(around now: Date,
                            transcripts: [Transcript],
-                           notes: [Note],
                            calendar: Calendar = .current) -> Date? {
         if let past = mostRecentDayWithContent(atOrBefore: now, transcripts: transcripts,
-                                               notes: notes, calendar: calendar) {
+                                               calendar: calendar) {
             return past
         }
-        let stamps = transcripts.map(\.createdAt) + notes.map(\.createdAt)
+        let stamps = transcripts.map(\.createdAt)
         guard let soonest = stamps.min() else { return nil }
         return calendar.startOfDay(for: soonest)
     }
@@ -131,12 +104,10 @@ enum Timeline {
     /// everything is in the future.
     static func mostRecentDayWithContent(atOrBefore day: Date,
                                          transcripts: [Transcript],
-                                         notes: [Note],
                                          calendar: Calendar = .current) -> Date? {
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: day))
             ?? day
-        let stamps = (transcripts.map(\.createdAt) + notes.map(\.createdAt))
-            .filter { $0 < endOfDay }
+        let stamps = transcripts.map(\.createdAt).filter { $0 < endOfDay }
         guard let latest = stamps.max() else { return nil }
         return calendar.startOfDay(for: latest)
     }

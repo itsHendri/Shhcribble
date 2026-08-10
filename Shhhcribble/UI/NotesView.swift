@@ -19,8 +19,7 @@ struct NotesView: View {
 
     @State private var hoveredID: UUID?
     @State private var searchText = ""
-    @State private var copiedToast = false
-    @State private var copiedToastTask: Task<Void, Never>?
+    @StateObject private var toast = ToastState()
 
     /// Newest first, like the transcripts list.
     private var ordered: [Note] {
@@ -49,13 +48,12 @@ struct NotesView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .bottom) { copiedToastView }
+        .toast(toast)
         // Preselect the newest note the first time the list is shown; the
         // `== nil` guard means a later visit keeps whatever the user last picked.
         .onAppear {
             if selectedID == nil { selectedID = filtered.first?.id }
         }
-        .onDisappear { copiedToastTask?.cancel() }
     }
 
     // MARK: - List column
@@ -119,7 +117,8 @@ struct NotesView: View {
     private func row(_ note: Note) -> some View {
         NoteRow(note: note,
                 hovered: hoveredID == note.id,
-                onCopy: { copyNote(note) })
+                onCopy: { copyNote(note) },
+                onTogglePin: { togglePin(note) })
             .contentShape(Rectangle())
             .onTapGesture { selectedID = note.id }
             .onHover { hoveredID = $0 ? note.id : (hoveredID == note.id ? nil : hoveredID) }
@@ -135,7 +134,7 @@ struct NotesView: View {
     @ViewBuilder
     private var detailColumn: some View {
         if let note = selected {
-            NoteDetail(note: note, store: store, onCopy: { copy(text: $0) })
+            NoteDetail(note: note, store: store, toast: toast, onCopy: { copy(text: $0) })
                 .id(note.id)
         } else {
             ContentUnavailableView(
@@ -143,20 +142,6 @@ struct NotesView: View {
                 systemImage: "text.cursor",
                 description: Text("Pick a note from the list, or add a new one.")
             )
-        }
-    }
-
-    @ViewBuilder
-    private var copiedToastView: some View {
-        if copiedToast {
-            Label("Copied", systemImage: "checkmark.circle.fill")
-                .font(.callout).fontWeight(.medium)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 8, y: 2)
-                .padding(.bottom, 18)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -177,13 +162,16 @@ struct NotesView: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
-        copiedToastTask?.cancel()
-        withAnimation(DesignSystem.motion(.spring(response: 0.3, dampingFraction: 0.8))) { copiedToast = true }
-        copiedToastTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.4))
-            guard !Task.isCancelled else { return }
-            withAnimation(DesignSystem.motion(.easeOut(duration: 0.25))) { copiedToast = false }
-        }
+        toast.flash("Copied")
+    }
+
+    /// Pin/unpin plus its confirmation. A pin moves the note to another group
+    /// and onto the Pinned board — neither of which is on screen when you click
+    /// it, so the glyph filling in isn't feedback enough.
+    private func togglePin(_ note: Note) {
+        let nowPinned = !note.pinned
+        store.setNotePinned(id: note.id, pinned: nowPinned)
+        toast.flash(nowPinned ? "Pinned" : "Unpinned")
     }
 
     /// What the note says *after* its first line — the preview that goes under a
@@ -215,12 +203,13 @@ struct NotesView: View {
 // MARK: - List row
 
 /// One row in the notes list — mirrors `TranscriptRow`: a single-line title
-/// with a fixed-width trailing slot that shows the date normally and a copy
-/// button on hover, so the title never reflows.
+/// with a fixed-width trailing slot that shows the date normally and pin + copy
+/// on hover, so the title never reflows.
 private struct NoteRow: View {
     let note: Note
     var hovered: Bool = false
     var onCopy: () -> Void = {}
+    var onTogglePin: () -> Void = {}
 
     private let trailingWidth: CGFloat = 72
 
@@ -256,16 +245,14 @@ private struct NoteRow: View {
     @ViewBuilder
     private var trailing: some View {
         if hovered {
-            Button(action: onCopy) {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 26, height: 24)
-                    .contentShape(Rectangle())
+            // Pin then copy, same order and same neutral glyphs as the
+            // transcripts list — the two lists are the same affordance.
+            HStack(spacing: 2) {
+                RowHoverButton(note.pinned ? "pin.fill" : "pin",
+                               help: note.pinned ? "Unpin" : "Pin",
+                               action: onTogglePin)
+                RowHoverButton("square.on.square", help: "Copy note", action: onCopy)
             }
-            .buttonStyle(.borderless)
-            .help("Copy note")
-            .accessibilityLabel("Copy note")
         } else {
             Text(note.createdAt.formatted(date: .abbreviated, time: .omitted))
                 .font(.footnote)
@@ -288,6 +275,9 @@ private struct NoteRow: View {
 private struct NoteDetail: View {
     let note: Note
     @ObservedObject var store: TranscriptStore
+    /// The pane's toast, shared with the list so a pin from either side gets
+    /// the same confirmation in the same place.
+    @ObservedObject var toast: ToastState
     var onCopy: (String) -> Void
 
     @State private var attributed = NSAttributedString(string: "")
@@ -363,7 +353,7 @@ private struct NoteDetail: View {
                 // Copies what's on screen: the store lags typing by the save
                 // debounce, so a copy sourced from the stored row would hand
                 // back the text as it was up to 700 ms ago.
-                Button(action: { saveNow(); onCopy(attributed.string) }) { Image(systemName: "doc.on.doc") }
+                Button(action: { saveNow(); onCopy(attributed.string) }) { Image(systemName: "square.on.square") }
                     .buttonStyle(.borderless)
                     .help("Copy note")
                     .accessibilityLabel("Copy note")
@@ -387,7 +377,9 @@ private struct NoteDetail: View {
             // so an unflushed keystroke would show up blank on the new sticky
             // and then be overwritten by it.
             saveNow()
-            store.setNotePinned(id: note.id, pinned: !note.pinned)
+            let nowPinned = !note.pinned
+            store.setNotePinned(id: note.id, pinned: nowPinned)
+            toast.flash(nowPinned ? "Pinned" : "Unpinned")
         } label: {
             Image(systemName: note.pinned ? "pin.fill" : "pin")
                 .foregroundStyle(note.pinned ? Color.accentColor : Color.secondary)

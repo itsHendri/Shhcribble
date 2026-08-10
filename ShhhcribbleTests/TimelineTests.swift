@@ -28,10 +28,6 @@ final class TimelineTests: XCTestCase {
                    title: text, text: text, rawText: text)
     }
 
-    private func note(_ at: String, text: String = "a note") -> Note {
-        Note(createdAt: date(at), modifiedAt: date(at), text: text)
-    }
-
     // MARK: - Bucketing
 
     func testItemsOnlyIncludesThatDay() {
@@ -39,9 +35,9 @@ final class TimelineTests: XCTestCase {
                            transcript("2026-07-25 09:00"),
                            transcript("2026-07-26 09:00")]
         let items = Timeline.items(on: date("2026-07-25 13:00"),
-                                   transcripts: transcripts, notes: [], calendar: calendar)
+                                   transcripts: transcripts, calendar: calendar)
         XCTAssertEqual(items.count, 1)
-        XCTAssertEqual(items.first?.occurredAt, date("2026-07-25 09:00"))
+        XCTAssertEqual(items.first?.createdAt, date("2026-07-25 09:00"))
     }
 
     /// A dictation at 23:59 belongs to that day, not the next one — the classic
@@ -49,23 +45,27 @@ final class TimelineTests: XCTestCase {
     func testLateNightItemStaysOnItsOwnDay() {
         let late = transcript("2026-07-25 23:59")
         XCTAssertEqual(Timeline.items(on: date("2026-07-25 00:30"),
-                                      transcripts: [late], notes: [], calendar: calendar).count, 1)
+                                      transcripts: [late], calendar: calendar).count, 1)
         XCTAssertTrue(Timeline.items(on: date("2026-07-26 12:00"),
-                                     transcripts: [late], notes: [], calendar: calendar).isEmpty)
+                                     transcripts: [late], calendar: calendar).isEmpty)
     }
 
-    func testItemsMergesNotesAndTranscriptsNewestFirst() {
+    /// Dictations and documents share one stream, newest first. **Notes do
+    /// not appear at all** — Today is transcriptions only (2026-08-10), and
+    /// this is the test that fails if they are ever merged back in by accident.
+    func testItemsMergesDictationsAndDocumentsNewestFirstAndExcludesNotes() {
         let items = Timeline.items(
             on: date("2026-07-25 12:00"),
             transcripts: [transcript("2026-07-25 09:00", text: "early"),
+                          transcript("2026-07-25 14:00", source: .file, text: "middle"),
                           transcript("2026-07-25 18:00", text: "late")],
-            notes: [note("2026-07-25 14:00", text: "middle")],
             calendar: calendar)
 
         XCTAssertEqual(items.count, 3)
-        XCTAssertEqual(items.map(\.occurredAt), [date("2026-07-25 18:00"),
-                                                 date("2026-07-25 14:00"),
-                                                 date("2026-07-25 09:00")])
+        XCTAssertEqual(items.map { $0.createdAt }, [date("2026-07-25 18:00"),
+                                                    date("2026-07-25 14:00"),
+                                                    date("2026-07-25 09:00")])
+        XCTAssertEqual(items.map { $0.text }, ["late", "middle", "early"])
     }
 
     /// Equal timestamps must produce a stable order, or `ForEach` identity
@@ -74,9 +74,9 @@ final class TimelineTests: XCTestCase {
         let a = transcript("2026-07-25 10:00", text: "a")
         let b = transcript("2026-07-25 10:00", text: "b")
         let first = Timeline.items(on: date("2026-07-25 10:00"),
-                                   transcripts: [a, b], notes: [], calendar: calendar)
+                                   transcripts: [a, b], calendar: calendar)
         let second = Timeline.items(on: date("2026-07-25 10:00"),
-                                    transcripts: [b, a], notes: [], calendar: calendar)
+                                    transcripts: [b, a], calendar: calendar)
         XCTAssertEqual(first.map(\.id), second.map(\.id))
     }
 
@@ -84,25 +84,27 @@ final class TimelineTests: XCTestCase {
 
     /// The "two weights" claim, encoded: only a quick dictation passes through.
     func testOnlyDictationsAreUnanchored() {
-        XCTAssertFalse(TimelineItem.transcript(transcript("2026-07-25 10:00", source: .dictation)).isAnchored)
-        XCTAssertTrue(TimelineItem.transcript(transcript("2026-07-25 10:00", source: .file)).isAnchored)
-        XCTAssertTrue(TimelineItem.transcript(transcript("2026-07-25 10:00", source: .call)).isAnchored)
-        XCTAssertTrue(TimelineItem.note(note("2026-07-25 10:00")).isAnchored)
+        XCTAssertFalse(transcript("2026-07-25 10:00", source: .dictation).isAnchored)
+        XCTAssertTrue(transcript("2026-07-25 10:00", source: .file).isAnchored)
+        XCTAssertTrue(transcript("2026-07-25 10:00", source: .call).isAnchored)
     }
 
     func testTypeLabelIsAbsentForDictations() {
-        XCTAssertNil(TimelineItem.transcript(transcript("2026-07-25 10:00", source: .dictation)).typeLabel)
-        XCTAssertEqual(TimelineItem.transcript(transcript("2026-07-25 10:00", source: .call)).typeLabel, "Document")
-        XCTAssertEqual(TimelineItem.note(note("2026-07-25 10:00")).typeLabel, "Note")
+        XCTAssertNil(transcript("2026-07-25 10:00", source: .dictation).typeLabel)
+        XCTAssertEqual(transcript("2026-07-25 10:00", source: .call).typeLabel, "Document")
+        XCTAssertEqual(transcript("2026-07-25 10:00", source: .file).typeLabel, "Document")
     }
 
     // MARK: - Month dots
 
-    func testDaysWithContentCoversBothKindsAndIgnoresOtherMonths() {
+    /// The dots have to agree with the stream: a day is "filled" only when a
+    /// *transcript* landed on it. A note-only day used to light a dot and then
+    /// open on an empty page.
+    func testDaysWithContentIgnoresOtherMonths() {
         let days = Timeline.daysWithContent(
             inMonthOf: date("2026-07-15 12:00"),
-            transcripts: [transcript("2026-07-03 10:00"), transcript("2026-06-30 10:00")],
-            notes: [note("2026-07-28 10:00"), note("2026-08-01 10:00")],
+            transcripts: [transcript("2026-07-03 10:00"), transcript("2026-06-30 10:00"),
+                          transcript("2026-07-28 10:00"), transcript("2026-08-01 10:00")],
             calendar: calendar)
         XCTAssertEqual(days, [3, 28])
     }
@@ -110,7 +112,7 @@ final class TimelineTests: XCTestCase {
     func testDaysWithContentIsEmptyForAQuietMonth() {
         XCTAssertTrue(Timeline.daysWithContent(inMonthOf: date("2026-02-10 12:00"),
                                                transcripts: [transcript("2026-07-03 10:00")],
-                                               notes: [], calendar: calendar).isEmpty)
+                                                calendar: calendar).isEmpty)
     }
 
     // MARK: - Opening day
@@ -118,8 +120,7 @@ final class TimelineTests: XCTestCase {
     func testMostRecentDayWithContentSkipsQuietDays() {
         let day = Timeline.mostRecentDayWithContent(
             atOrBefore: date("2026-07-25 09:00"),
-            transcripts: [transcript("2026-07-22 16:00")],
-            notes: [note("2026-07-20 10:00")],
+            transcripts: [transcript("2026-07-22 16:00"), transcript("2026-07-20 10:00")],
             calendar: calendar)
         XCTAssertEqual(day, calendar.startOfDay(for: date("2026-07-22 16:00")))
     }
@@ -130,7 +131,7 @@ final class TimelineTests: XCTestCase {
         let day = Timeline.mostRecentDayWithContent(
             atOrBefore: date("2026-07-25 09:00"),
             transcripts: [transcript("2026-07-25 18:00")],
-            notes: [], calendar: calendar)
+             calendar: calendar)
         XCTAssertEqual(day, calendar.startOfDay(for: date("2026-07-25 00:00")))
     }
 
@@ -138,13 +139,13 @@ final class TimelineTests: XCTestCase {
         XCTAssertNil(Timeline.mostRecentDayWithContent(
             atOrBefore: date("2026-07-25 09:00"),
             transcripts: [transcript("2026-07-27 10:00")],
-            notes: [], calendar: calendar))
+             calendar: calendar))
     }
 
     func testMostRecentDayIsNilForAnEmptyLibrary() {
         XCTAssertNil(Timeline.mostRecentDayWithContent(
             atOrBefore: date("2026-07-25 09:00"),
-            transcripts: [], notes: [], calendar: calendar))
+            transcripts: [], calendar: calendar))
     }
 
     /// A library stamped entirely in the future (clock skew, an import dated
@@ -154,7 +155,7 @@ final class TimelineTests: XCTestCase {
         let day = Timeline.openingDay(
             around: date("2026-07-25 09:00"),
             transcripts: [transcript("2026-07-30 10:00"), transcript("2026-07-27 10:00")],
-            notes: [], calendar: calendar)
+             calendar: calendar)
         XCTAssertEqual(day, calendar.startOfDay(for: date("2026-07-27 00:00")))
     }
 
@@ -162,13 +163,13 @@ final class TimelineTests: XCTestCase {
         let day = Timeline.openingDay(
             around: date("2026-07-25 09:00"),
             transcripts: [transcript("2026-07-30 10:00"), transcript("2026-07-22 10:00")],
-            notes: [], calendar: calendar)
+             calendar: calendar)
         XCTAssertEqual(day, calendar.startOfDay(for: date("2026-07-22 00:00")))
     }
 
     func testOpeningDayIsNilOnlyForAnEmptyLibrary() {
         XCTAssertNil(Timeline.openingDay(around: date("2026-07-25 09:00"),
-                                         transcripts: [], notes: [], calendar: calendar))
+                                         transcripts: [], calendar: calendar))
     }
 
     // MARK: - Recency groups (the list headings)
