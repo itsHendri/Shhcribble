@@ -1,4 +1,6 @@
 import XCTest
+import AppKit
+import SwiftUI
 @testable import Shhhcribble
 
 /// Tests for the tabbed sticky panel's model — the half of the feature that can
@@ -283,6 +285,99 @@ final class StickyTabsTests: XCTestCase {
 
         XCTAssertEqual(model.attributed.string, "edited here")
         XCTAssertFalse(model.hasPendingEdit)
+    }
+
+    // MARK: - Through the real editor
+
+    /// Everything above drives the model directly. These two drive a **real
+    /// `NSTextView`, in a real window, through the SwiftUI wrapper the app
+    /// actually builds** — the layer where the interesting bugs were, and the
+    /// one that can't be reached by clicking, because a menu-bar-only
+    /// (`LSUIElement`) app isn't visible to UI automation at all.
+
+    private func hostEditor(
+        model: StickyTabsModel,
+        proxy: NoteEditorProxy? = nil
+    ) throws -> (RichTextView, NSWindow) {
+        let editor = RichTextEditor(
+            attributed: Binding(get: { model.attributed }, set: { model.attributed = $0 }),
+            hasPendingEdit: Binding(get: { model.hasPendingEdit }, set: { model.hasPendingEdit = $0 }),
+            font: StickyTabsModel.font,
+            onUserEdit: { model.scheduleSave() },
+            resetsUndoOnExternalChange: true,
+            proxy: proxy
+        )
+        let hosting = NSHostingView(rootView: editor)
+        hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        let window = NSWindow(contentRect: hosting.frame,
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        let view = try XCTUnwrap(firstRichTextView(in: hosting), "no RichTextView was built")
+        return (view, window)
+    }
+
+    private func firstRichTextView(in view: NSView) -> RichTextView? {
+        if let match = view as? RichTextView { return match }
+        for child in view.subviews {
+            if let match = firstRichTextView(in: child) { return match }
+        }
+        return nil
+    }
+
+    /// **The end-to-end version of the data-loss risk.** A real keystroke, then
+    /// a real tab switch: the words typed since the last debounce tick must be
+    /// committed to the tab being left, not overwritten by the incoming note.
+    @MainActor
+    func testTypingInTheRealEditorSurvivesATabSwitch() throws {
+        let model = StickyTabsModel()
+        let notes = [stuck("first"), stuck("second")]
+        model.apply(notes: notes)
+        let commits = recording(model)
+
+        let (view, window) = try hostEditor(model: model)
+        XCTAssertTrue(window.makeFirstResponder(view))
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        view.insertText(" and more", replacementRange: view.selectedRange())
+
+        XCTAssertTrue(model.hasPendingEdit, "a real keystroke must arm the save")
+
+        model.selectTab(notes[1].id)
+
+        XCTAssertEqual(commits.entries.count, 1)
+        XCTAssertEqual(commits.entries.first?.id, notes[0].id,
+                       "the commit belongs to the tab being left")
+        XCTAssertEqual(commits.entries.first?.text, "first and more")
+        XCTAssertEqual(model.attributed.string, "second")
+    }
+
+    /// **Pins the append bug.** Dictation runs for as long as you talk, and you
+    /// may keep typing throughout — so the append has to be computed from the
+    /// text as it is when the words arrive, not as it was when recording
+    /// started. Building it from a captured copy silently wiped the typing.
+    @MainActor
+    func testDictatedAppendUsesLiveEditorTextNotAStaleCopy() throws {
+        let model = StickyTabsModel()
+        model.apply(notes: [stuck("start")])
+        let proxy = NoteEditorProxy()
+
+        let (view, window) = try hostEditor(model: model, proxy: proxy)
+        XCTAssertTrue(window.makeFirstResponder(view))
+
+        // Snapshot the way the buggy version did — before the user types on.
+        let staleCopy = model.attributed.string
+
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        view.insertText(" typed while recording", replacementRange: view.selectedRange())
+
+        let attributes: [NSAttributedString.Key: Any] = [.font: StickyTabsModel.font]
+        XCTAssertTrue(proxy.append(NSAttributedString(string: "dictated words",
+                                                      attributes: attributes),
+                                   attributes: attributes))
+
+        XCTAssertEqual(view.string, "start typed while recording\n\ndictated words")
+        XCTAssertNotEqual(staleCopy, "start typed while recording",
+                          "sanity: the stale copy really was out of date")
     }
 
     // MARK: - Tab labels

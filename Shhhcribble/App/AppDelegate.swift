@@ -325,6 +325,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Hidden diagnostic: `defaults write com.shhhcribble.app debugCallCaptureProbe -bool true`
+        // (optionally `debugCallCaptureSeconds -float 25`) runs a full call
+        // capture at launch **without needing a real call** — two-stream capture,
+        // windowed transcription, echo removal, merge and store. Detection is the
+        // one part it skips, and that already shipped verified. Play both halves
+        // of a conversation while it runs: speak into the mic and play the "other
+        // side" through the speakers.
+        if UserDefaults.standard.bool(forKey: "debugCallCaptureProbe") {
+            let seconds = UserDefaults.standard.object(forKey: "debugCallCaptureSeconds") as? Double ?? 20
+            Task { @MainActor in
+                // The model loads asynchronously; a capture started before it is
+                // ready is rejected by `beginCallCapture`'s own guard.
+                for _ in 0..<120 where !self.transcriptionEngine.isReady {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+                guard self.transcriptionEngine.isReady else {
+                    print("[Shhhcribble] Call-capture probe: model never became ready"); fflush(stdout); return
+                }
+                print("[Shhhcribble] Call-capture probe: capturing \(Int(seconds))s — talk, and play the other side out loud")
+                fflush(stdout)
+                self.beginCallCapture(appName: "Probe", isProbe: true)
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                self.endCallCapture()
+                // endCallCapture transcribes on its own Task; wait for the row.
+                let before = self.transcriptStore.transcripts.first?.id
+                for _ in 0..<240 {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    if let newest = self.transcriptStore.transcripts.first, newest.id != before {
+                        print("[Shhhcribble] Call-capture probe result ──────────")
+                        print(newest.text)
+                        print("[Shhhcribble] ──────────────────────────────────")
+                        fflush(stdout)
+                        return
+                    }
+                }
+                print("[Shhhcribble] Call-capture probe: no transcript was produced"); fflush(stdout)
+            }
+        }
+
         #if canImport(Sparkle)
         // Start Sparkle. Reads SUFeedURL + SUPublicEDKey from Info.plist; runs
         // automatic background update checks. `userDriverDelegate: self` opts
@@ -948,7 +987,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// captures), no music pause (fiddling with Spotify mid-call is a surprise,
     /// and resuming it after a 30-minute call would be a worse one), and no
     /// Escape monitor (Escape belongs to dictation).
-    private func beginCallCapture(appName: String) {
+    /// True when the current capture was started by the diagnostic probe rather
+    /// than a real call. Suppresses the auto-stop poll, which would otherwise
+    /// end it after ~6 s because no call app is holding the mic.
+    private var callCaptureIsProbe = false
+
+    private func beginCallCapture(appName: String, isProbe: Bool = false) {
         guard state == .idle, !isCallCapturing, !fileTranscriber.isRunning,
               !dictationStarting else {
             // The user explicitly accepted — silence here would read as a bug.
@@ -974,7 +1018,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Notifications outlive calls: a click on a banner from hours ago must
         // not start recording room noise. Only capture while the call app is
         // actually still using the mic.
-        guard CallDetector.anyKnownCallAppRunningInput() else {
+        guard isProbe || CallDetector.anyKnownCallAppRunningInput() else {
             notifyCall(title: "That call has ended",
                        body: "There's nothing to transcribe any more.")
             return
@@ -986,6 +1030,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         print("[Shhhcribble] Call capture started (\(appName))")
         callCapturePhase = .recording
+        callCaptureIsProbe = isProbe
         callCaptureAppName = appName
         callCaptureStartedAt = Date()
         callEndIdlePolls = 0
@@ -1049,7 +1094,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             endCallCapture()
             return
         }
-        if CallDetector.anyKnownCallAppRunningInput() {
+        // A probe capture has no call app holding the mic, so the idle signal
+        // would end it almost immediately. The duration cap above still applies.
+        if callCaptureIsProbe || CallDetector.anyKnownCallAppRunningInput() {
             callEndIdlePolls = 0
         } else {
             callEndIdlePolls += 1
@@ -1170,6 +1217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func resetCallCaptureState() {
         callCapturePhase = .idle
+        callCaptureIsProbe = false
         // Catch-all for the paths that never reach the transcribe — a capture
         // too short to use, a mic error, a stale-offer rejection. Leaving the
         // system stream running would keep recording the speakers after the call
