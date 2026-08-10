@@ -592,6 +592,37 @@ final class RichTextView: NSTextView {
     }
 }
 
+/// A handle onto a live `RichTextEditor`, for edits that have to be applied to
+/// the text view itself rather than through the `attributed` binding.
+///
+/// **Why the binding isn't enough.** Assigning to the binding lands via
+/// `setAttributedString`, which is not an undoable operation — and in the sticky
+/// panel it deliberately clears the undo stack. An AI transform replaces the
+/// user's whole note, so it is exactly the edit that most needs ⌘Z to work.
+/// Routing it through `shouldChangeText`/`didChangeText` registers it as one
+/// undo group, so a single ⌘Z puts the original back.
+@MainActor
+final class NoteEditorProxy: ObservableObject {
+    fileprivate weak var textView: RichTextView?
+
+    /// Is an editor currently attached? False while no note is open.
+    var isAttached: Bool { textView != nil }
+
+    /// Replace the entire contents as **one** undoable edit. Returns false if
+    /// there's no editor attached or the text system refused the change.
+    @discardableResult
+    func replaceAll(with replacement: NSAttributedString) -> Bool {
+        guard let textView, let storage = textView.textStorage else { return false }
+        let whole = NSRange(location: 0, length: storage.length)
+        guard textView.shouldChangeText(in: whole, replacementString: replacement.string) else {
+            return false
+        }
+        storage.replaceCharacters(in: whole, with: replacement)
+        textView.didChangeText()
+        return true
+    }
+}
+
 /// An editable rich-text view: bold/italic/underline via ⌘B/⌘I/⌘U, automatic
 /// link detection, and clickable links.
 ///
@@ -641,6 +672,9 @@ struct RichTextEditor: NSViewRepresentable {
     /// Off elsewhere: in the Notes pane a programmatic push is an external edit
     /// arriving from a sticky, and there is no second document involved.
     var resetsUndoOnExternalChange: Bool = false
+
+    /// Optional handle for edits that must be undoable — see `NoteEditorProxy`.
+    var proxy: NoteEditorProxy? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -706,6 +740,7 @@ struct RichTextEditor: NSViewRepresentable {
 
         scroll.documentView = textView
         context.coordinator.textView = textView
+        proxy?.textView = textView
         return scroll
     }
 

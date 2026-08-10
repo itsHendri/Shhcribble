@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Rewrite a note in one of your styles.** The wand button on a note applies any
+  style you've written — Email, Bullets, your own — to what's already there,
+  rather than only to what you just dictated. One ⌘Z puts the original back. If
+  the result wouldn't be a faithful rewrite, the note is left exactly as it was
+  and nothing is silently mangled. Note that a rewrite returns plain text, so
+  bold and highlights in the original are flattened.
 - **Calls can now include the other person.** Turn on "Include the other side of
   the call" in Settings and a transcribed call captures the audio coming out of
   your speakers as well as your microphone, so the transcript reads as a

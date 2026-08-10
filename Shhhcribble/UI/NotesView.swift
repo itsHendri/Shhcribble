@@ -293,6 +293,11 @@ private struct NoteDetail: View {
     @State private var lastSyncedText: String?
     @State private var lastSyncedRich: Data?
 
+    /// Handle onto the live text view, so a transform lands as one undoable
+    /// edit instead of through the binding (which isn't undoable).
+    @StateObject private var editorProxy = NoteEditorProxy()
+    @State private var isTransforming = false
+
     private static let editorFont = RichText.baseFont
 
     var body: some View {
@@ -306,7 +311,8 @@ private struct NoteDetail: View {
                 // Room to scroll the last line clear of the stick capsule.
                 bottomInset: 52,
                 onFocusChange: { focused in if !focused { saveNow() } },
-                onUserEdit: { scheduleSave() }
+                onUserEdit: { scheduleSave() },
+                proxy: editorProxy
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // The column's single primary verb, as a floating capsule over the
@@ -349,6 +355,7 @@ private struct NoteDetail: View {
             }
             Spacer()
             HStack(spacing: 6) {
+                transformMenu
                 pinButton
                 // Copies what's on screen: the store lags typing by the save
                 // debounce, so a copy sourced from the stored row would hand
@@ -364,6 +371,75 @@ private struct NoteDetail: View {
             }
         }
         .padding(12)
+    }
+
+    /// Reshape the note with one of the user's own styles — the same styles that
+    /// shape dictation, pointed at something already written.
+    ///
+    /// **Deliberately reuses `Style` rather than offering a free-text
+    /// instruction box.** Note text can arrive from a transcript or an
+    /// AI-extracted action item, so it is not necessarily something the user
+    /// wrote; a free-text prompt over untrusted content is the widest injection
+    /// surface in the app. Styles are authored once, in one place, and go
+    /// through `TranscriptCleaner.transform`, which is already fenced and
+    /// output-validated by `StyleGuard`.
+    @ViewBuilder
+    private var transformMenu: some View {
+        let styles = store.stylesAlphabetical
+        if TranscriptCleaner.availability.isAvailable && !styles.isEmpty {
+            Menu {
+                ForEach(styles) { style in
+                    Button(style.name) { applyTransform(style) }
+                }
+            } label: {
+                Image(systemName: isTransforming ? "hourglass" : "wand.and.stars")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(isTransforming || attributed.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Rewrite this note in one of your styles")
+            .accessibilityLabel("Rewrite note in a style")
+        }
+    }
+
+    /// Run the style over the whole note and replace it in one undoable edit.
+    ///
+    /// **Whole note, not the selection** — v1. **Formatting is flattened**: the
+    /// model returns plain text, so bold/highlights in the original are lost.
+    /// Both of those are why the replacement goes through `NoteEditorProxy`
+    /// rather than the binding: ⌘Z has to bring the original back intact, and
+    /// through the binding it wouldn't be an undoable edit at all.
+    ///
+    /// A `nil` result means the model was unavailable *or* `StyleGuard` rejected
+    /// the output as unfaithful. Either way the note is **left exactly as it
+    /// was** — unlike the dictation path, which falls back to the filler filter,
+    /// there is no sensible degraded rewrite of something already written.
+    private func applyTransform(_ style: Style) {
+        saveNow()
+        let source = attributed.string
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        isTransforming = true
+        Task { @MainActor in
+            defer { isTransforming = false }
+            let result = await TranscriptCleaner.transform(source, style: style)
+            guard let result, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                toast.flash("Couldn't apply \(style.name)")
+                return
+            }
+            let styled = NSAttributedString(string: result, attributes: [
+                .font: Self.editorFont,
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: RichText.paragraphStyle(for: Self.editorFont),
+            ])
+            // Falls through to the editor's own `onUserEdit`, which schedules
+            // the save — no need to write the row here.
+            guard editorProxy.replaceAll(with: styled) else {
+                toast.flash("Couldn't apply \(style.name)")
+                return
+            }
+            toast.flash("\(style.name) applied — ⌘Z to undo")
+        }
     }
 
     /// Pin = *importance*, a quiet glyph toggle in the action row. Filled when
