@@ -132,6 +132,11 @@ final class StickyNotePanel: NSPanel {
     /// from the Notes pane, which no user-initiated callback would cover.
     var activeTabID: UUID? { model.activeID }
 
+    /// Commit any unsaved edit. Called before the panel is torn down, because
+    /// `onDisappear` is not a reliable last word when a window is ordered out
+    /// and released.
+    func flushPendingEdit() { model.flushSave() }
+
     /// Show at the saved frame (clamped to a visible screen), or at
     /// `preferredOrigin`, or centred-ish on the main screen.
     func present(at origin: CGPoint?, size restoredSize: CGSize?) {
@@ -243,6 +248,10 @@ final class StickyPanelManager {
         let stuck = store.stuckNotesInTabOrder
 
         guard !stuck.isEmpty else {
+            // Unsticking the last note from the Notes pane tears the panel down
+            // from the outside, so commit before it goes — `onDisappear` does
+            // not reliably fire for a window being ordered out and released.
+            panel?.flushPendingEdit()
             panel?.orderOut(nil)
             panel = nil
             return
@@ -438,6 +447,10 @@ final class StickyTabsModel: ObservableObject {
         // A debounce still armed here belongs to the outgoing tab; `flushSave`
         // is a no-op once `hasPendingEdit` clears below, so drop it outright.
         saveTask?.cancel()
+        // A confirmation left open belongs to the tab being left. Carrying it
+        // over would leave "Close this sticky?" hanging over a *different*
+        // note, and pressing Unstick would then unstick the wrong one.
+        showingCloseConfirm = false
         activeID = id
         guard let note = activeNote else {
             attributed = NSAttributedString(string: "")
@@ -476,6 +489,14 @@ final class StickyTabsModel: ObservableObject {
             activate(preferredActive)
             return
         }
+        // The active tab is going away — commit its unsaved edit before we load
+        // another note over the top of it. This is the *other* half of the tab
+        // switch flush: here the switch is forced on us from outside (the note
+        // was unstuck or deleted from the Notes pane), so nothing has been
+        // through `selectTab`. Without it, unsticking the note you are typing in
+        // silently discards the last words. Harmless when the row was deleted —
+        // the commit finds no row and does nothing.
+        flushSave()
         // The tab that took its index, or the new last one if it was rightmost.
         let landing = previousIndex.map { min($0, incoming.count - 1) } ?? 0
         activate(incoming.indices.contains(landing) ? incoming[landing].id : incoming.first?.id)

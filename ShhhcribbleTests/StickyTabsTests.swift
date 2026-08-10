@@ -217,6 +217,52 @@ final class StickyTabsTests: XCTestCase {
         XCTAssertFalse(model.hasPendingEdit)
     }
 
+    /// The other half of the flush: here the switch is forced from outside —
+    /// the note you are typing in gets unstuck from the Notes pane — so nothing
+    /// goes through `selectTab` and the edit would otherwise be overwritten by
+    /// the next tab's content.
+    func testATabRemovedWhileBeingEditedStillCommitsItsEdit() {
+        let model = StickyTabsModel()
+        let notes = [stuck("a"), stuck("b")]
+        model.apply(notes: notes)
+        let commits = recording(model)
+
+        model.attributed = NSAttributedString(string: "a, typed then unstuck elsewhere")
+        model.hasPendingEdit = true
+
+        model.apply(notes: [notes[1]])   // tab A unstuck from the Notes pane
+
+        XCTAssertEqual(commits.entries.count, 1)
+        XCTAssertEqual(commits.entries.first?.id, notes[0].id)
+        XCTAssertEqual(commits.entries.first?.text, "a, typed then unstuck elsewhere")
+        XCTAssertEqual(model.attributed.string, "b")
+    }
+
+    /// A confirmation left open belongs to the tab being left — carrying it over
+    /// would leave "Close this sticky?" hanging over a different note, and
+    /// pressing Unstick would unstick the wrong one.
+    func testSwitchingTabsDismissesAnOpenCloseConfirmation() {
+        let model = StickyTabsModel()
+        let notes = [stuck("a"), stuck("b")]
+        model.apply(notes: notes)
+
+        model.showingCloseConfirm = true
+        model.selectTab(notes[1].id)
+
+        XCTAssertFalse(model.showingCloseConfirm)
+    }
+
+    func testATabRemovedElsewhereAlsoDismissesTheCloseConfirmation() {
+        let model = StickyTabsModel()
+        let notes = [stuck("a"), stuck("b")]
+        model.apply(notes: notes)
+
+        model.showingCloseConfirm = true
+        model.apply(notes: [notes[1]])
+
+        XCTAssertFalse(model.showingCloseConfirm)
+    }
+
     /// After a commit, the model must recognise its own value coming back from
     /// the store rather than treating it as an external edit.
     func testStoreEchoOfOurOwnWriteIsNotTreatedAsExternal() {
