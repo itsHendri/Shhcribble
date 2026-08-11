@@ -142,19 +142,19 @@ final class TranscriptStoreTests: XCTestCase {
             id = t.id
             store.updateSummary(id: id,
                                 summary: "The team discussed the Q3 launch and its budget.",
-                                actionItems: ["Draft the launch plan", "Confirm the budget"],
+                                actionItems: [ActionItem(text: "Draft the launch plan"), ActionItem(text: "Confirm the budget")],
                                 generatedAt: Date(timeIntervalSince1970: 5000))
             // In-memory copy reflects the update immediately.
             let mem = store.transcripts.first { $0.id == id }
             XCTAssertEqual(mem?.summary, "The team discussed the Q3 launch and its budget.")
-            XCTAssertEqual(mem?.actionItems, ["Draft the launch plan", "Confirm the budget"])
+            XCTAssertEqual(mem?.actionItems.map(\.text), ["Draft the launch plan", "Confirm the budget"])
             XCTAssertEqual(mem?.summaryGeneratedAt, Date(timeIntervalSince1970: 5000))
         }
         // Fresh store on the same file → data must survive a reload.
         let reopened = TranscriptStore(path: path)
         let row = reopened.transcripts.first { $0.id == id }
         XCTAssertEqual(row?.summary, "The team discussed the Q3 launch and its budget.")
-        XCTAssertEqual(row?.actionItems, ["Draft the launch plan", "Confirm the budget"])
+        XCTAssertEqual(row?.actionItems.map(\.text), ["Draft the launch plan", "Confirm the budget"])
         XCTAssertEqual(row?.summaryGeneratedAt, Date(timeIntervalSince1970: 5000))
     }
 
@@ -187,7 +187,7 @@ final class TranscriptStoreTests: XCTestCase {
     func testUpdateSummaryUnknownIDIsNoOp() {
         let store = makeStore()
         store.addDictation(text: "one", rawText: "one")
-        store.updateSummary(id: UUID(), summary: "orphan", actionItems: ["x"])
+        store.updateSummary(id: UUID(), summary: "orphan", actionItems: [ActionItem(text: "x")])
         XCTAssertTrue(store.transcripts.allSatisfy { $0.summary == nil })
     }
 
@@ -279,11 +279,11 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertEqual(userVersion(at: path), latestSchemaVersion)
 
         // And the migrated DB is fully writable via the new column paths.
-        store.updateSummary(id: existingID, summary: "now summarized", actionItems: ["do it"])
+        store.updateSummary(id: existingID, summary: "now summarized", actionItems: [ActionItem(text: "do it")])
         store.updateNotes(id: existingID, notes: "my note")
         let reopened = TranscriptStore(path: path)
         XCTAssertEqual(reopened.transcripts.first?.summary, "now summarized")
-        XCTAssertEqual(reopened.transcripts.first?.actionItems, ["do it"])
+        XCTAssertEqual(reopened.transcripts.first?.actionItems.map(\.text), ["do it"])
         XCTAssertEqual(reopened.transcripts.first?.notes, "my note")
     }
 
@@ -301,11 +301,11 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertEqual(store.transcripts.count, 1)
         XCTAssertEqual(userVersion(at: path), latestSchemaVersion)
         // All columns now usable end to end.
-        store.updateSummary(id: existingID, summary: "healed", actionItems: ["a", "b"])
+        store.updateSummary(id: existingID, summary: "healed", actionItems: [ActionItem(text: "a"), ActionItem(text: "b")])
         store.updateNotes(id: existingID, notes: "healed note")
         let reopened = TranscriptStore(path: path)
         XCTAssertEqual(reopened.transcripts.first?.summary, "healed")
-        XCTAssertEqual(reopened.transcripts.first?.actionItems, ["a", "b"])
+        XCTAssertEqual(reopened.transcripts.first?.actionItems.map(\.text), ["a", "b"])
         XCTAssertEqual(reopened.transcripts.first?.notes, "healed note")
     }
 
@@ -574,6 +574,99 @@ final class TranscriptStoreTests: XCTestCase {
         // Second call is a no-op (flag set) — no duplicate seeding.
         store.seedBuiltInStylesIfNeeded()
         XCTAssertEqual(store.styles.count, Style.seededPresets.count)
+    }
+
+    // MARK: - The v3 built-in style migration (2026-08-11)
+
+    private let v3Flag = "didMigrateBuiltInStylesV3"
+
+    /// Puts a store into the state an existing install is in *before* the v3
+    /// pass: presets under their old names, with old prompt bodies.
+    private func makeStoreWithPreV3Styles() -> TranscriptStore {
+        UserDefaults.standard.removeObject(forKey: "didSeedBuiltInStyles")
+        UserDefaults.standard.removeObject(forKey: v3Flag)
+        let store = makeStore()
+        store.seedBuiltInStylesIfNeeded()
+        // Rewind: "Agent" was called "Coding", every prompt was the old body,
+        // and "Action items" didn't exist yet.
+        if let agent = store.styles.first(where: { $0.name == "Agent" }) {
+            store.updateStyle(id: agent.id, name: "Coding", prompt: "OLD CODING PROMPT",
+                              activationApps: agent.activationApps)
+        }
+        for style in store.styles where style.name != "Coding" {
+            store.updateStyle(id: style.id, name: style.name, prompt: "OLD PROMPT",
+                              activationApps: style.activationApps)
+        }
+        if let actions = store.styles.first(where: { $0.name == "Action items" }) {
+            store.deleteStyle(id: actions.id)
+        }
+        return store
+    }
+
+    /// The rename must keep the row's **id**, or `ModelManager.activeStyleID`
+    /// and every transcript's stored `styleID` stop resolving.
+    func testV3RenamesCodingToAgentKeepingItsID() {
+        let store = makeStoreWithPreV3Styles()
+        let codingID = store.styles.first { $0.name == "Coding" }?.id
+        XCTAssertNotNil(codingID)
+
+        store.migrateBuiltInStylesV3IfNeeded()
+
+        XCTAssertNil(store.styles.first { $0.name == "Coding" }, "Coding should be gone.")
+        let agent = store.styles.first { $0.name == "Agent" }
+        XCTAssertEqual(agent?.id, codingID, "The rename must not create a new row.")
+    }
+
+    func testV3ReplacesPromptsAndAppliesGuardProfiles() {
+        let store = makeStoreWithPreV3Styles()
+        store.migrateBuiltInStylesV3IfNeeded()
+
+        XCTAssertFalse(store.styles.contains { $0.prompt.hasPrefix("OLD") },
+                       "Every built-in prompt should have been replaced.")
+        XCTAssertEqual(store.styles.first { $0.name == "Action items" }?.guardProfile, .extract)
+        XCTAssertEqual(store.styles.first { $0.name == "Email" }?.guardProfile, .reshape)
+    }
+
+    func testV3SeedsActionItemsAndIsIdempotent() {
+        let store = makeStoreWithPreV3Styles()
+        store.migrateBuiltInStylesV3IfNeeded()
+        XCTAssertEqual(store.styles.filter { $0.name == "Action items" }.count, 1)
+
+        // Flag is set, so a second run changes nothing — no duplicate seed.
+        store.migrateBuiltInStylesV3IfNeeded()
+        XCTAssertEqual(store.styles.filter { $0.name == "Action items" }.count, 1)
+    }
+
+    /// Deleting a preset is a decision we don't undo. Only presets that are
+    /// genuinely *new* in this version get seeded — a Bullets the user removed
+    /// must not reappear.
+    func testV3DoesNotResurrectADeletedPreset() {
+        let store = makeStoreWithPreV3Styles()
+        if let bullets = store.styles.first(where: { $0.name == "Bullets" }) {
+            store.deleteStyle(id: bullets.id)
+        }
+        store.migrateBuiltInStylesV3IfNeeded()
+        XCTAssertNil(store.styles.first { $0.name == "Bullets" },
+                     "A preset the user deleted must stay deleted.")
+    }
+
+    /// A user's own styles are not built-in, so nothing here may touch them.
+    func testV3LeavesUserAuthoredStylesAlone() {
+        let store = makeStoreWithPreV3Styles()
+        store.addStyle(Style(name: "Coding", prompt: "MY OWN PROMPT", isBuiltIn: false))
+        store.migrateBuiltInStylesV3IfNeeded()
+
+        let mine = store.styles.first { !$0.isBuiltIn }
+        XCTAssertEqual(mine?.name, "Coding", "A user's style named Coding must not be renamed.")
+        XCTAssertEqual(mine?.prompt, "MY OWN PROMPT")
+        XCTAssertEqual(mine?.guardProfile, .reshape)
+    }
+
+    func testSchemaIsAtLeastV13() {
+        let path = tempDBPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        _ = TranscriptStore(path: path)
+        XCTAssertEqual(userVersion(at: path), TranscriptStore.latestSchemaVersion)
     }
 
     // MARK: - Helpers

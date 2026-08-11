@@ -1,0 +1,1 @@
+yeah um I had a look at the the PR this morning. mostly looks good, the only thing I'd change is uh the error handling in the parser, like right now if the file is malformed it just throws and the whole batch dies. could we catch it per file and carry on? other than that ship it. oh and I won't be around tomorrow morning, dentist, but I'll be back after lunch

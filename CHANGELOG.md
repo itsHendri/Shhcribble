@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Action items, a new writing style.** Where Bullets reformats everything you
+  said into points, Action items keeps only the commitments — the things you or
+  someone else said would get done — and drops the background, the opinions and
+  anything you talked about and decided against. If there was nothing to commit
+  to, it produces nothing rather than falling back to pasting your whole
+  transcript.
+- **Summaries say who committed to what.** Action items in a call summary are
+  now marked **You** or **Them**, and each one shows the sentence it came from.
+  Nothing can be attributed to a person who wasn't on the call: someone merely
+  *mentioned* in the conversation can appear in the task itself, but never as its
+  owner.
+- **Every action item has to cite the transcript.** An item is only kept if the
+  words behind it were genuinely said — anything the model made up is dropped
+  before you ever see it, rather than sitting in a summary looking as
+  trustworthy as the real ones.
 - **Speak into a note.** The microphone button on a note records and drops what
   you said at the end of it — no clipboard involved, and ⌘Z takes it back out.
   Notes always use the faithful clean-up rather than whichever writing style
@@ -30,6 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "right" are always kept as yours.
 
 ### Changed
+- **The writing styles were rebuilt to be far more consistent.** Every style was
+  asking for around thirty separate things at once, and repeating a dozen of them
+  differently in each style — well past the point where a small on-device model
+  reliably follows all of them. The shared rules are now stated once, and each
+  style says only what makes it different. Your own custom styles get those
+  shared rules for free, so they behave better without you changing anything.
+- **"Coding" is now "Agent"**, and it works differently: instead of tidying up
+  what you said, it turns a rambling request into a well-formed one for a coding
+  assistant — the outcome you want and the constraints you gave, with the
+  approach left open. Existing installs keep their place; if Coding was your
+  active style, Agent still is.
+- **Emails stop inventing "[Name]" placeholders**, and a one-line request stays
+  a one-line request instead of being inflated into a formal letter.
+- **Call transcripts keep their speaker labels** through clean-up. The **Me** and
+  **Others** labels could previously be merged away, which quietly undid the
+  point of recording both sides.
 - **Sticky notes share one window now, as tabs.** Sticking several notes used to
   scatter a separate card across your screen for each one. They now live in a
   single floating panel with a tab per note, so a handful of stickies is one

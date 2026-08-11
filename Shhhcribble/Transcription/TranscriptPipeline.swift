@@ -34,8 +34,17 @@ enum TranscriptPipeline {
                 return cleaned
             }
         case .custom(let s):
-            if let styled = await TranscriptCleaner.transform(corrected, style: s), !styled.isEmpty {
+            switch await TranscriptCleaner.transform(corrected, style: s) {
+            case .styled(let styled) where !styled.isEmpty:
                 return styled
+            case .empty where s.guardProfile == .extract:
+                // An extraction style found nothing to extract, and that IS the
+                // answer. Dropping to the filler floor here would paste the
+                // user's entire raw transcript — the exact opposite of asking
+                // for just the action items.
+                return ""
+            case .styled, .empty, .failed:
+                break
             }
         }
         return FillerWordFilter.filter(corrected)

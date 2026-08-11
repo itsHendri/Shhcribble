@@ -26,6 +26,7 @@
 		CFE000B5000000000000001A /* CallTranscriptMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE000B4000000000000001A /* CallTranscriptMerger.swift */; };
 		CFE000B7000000000000001A /* CallTranscriptMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE000B6000000000000001A /* CallTranscriptMergerTests.swift */; };
 		CF00020C000000000000001A /* StudioShellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF00020B000000000000001A /* StudioShellTests.swift */; };
+		CF00030B000000000000001A /* PromptBenchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF00030A000000000000001A /* PromptBenchTests.swift */; };
 		CF000106000000000000001A /* StickyNotePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000105000000000000001A /* StickyNotePanel.swift */; };
 		CF000116000000000000001A /* RichTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000115000000000000001A /* RichTextEditor.swift */; };
 		CF000108000000000000001A /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000107000000000000001A /* NotesView.swift */; };
@@ -103,6 +104,7 @@
 		CFE000B4000000000000001A /* CallTranscriptMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallTranscriptMerger.swift; sourceTree = "<group>"; };
 		CFE000B6000000000000001A /* CallTranscriptMergerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallTranscriptMergerTests.swift; sourceTree = "<group>"; };
 		CF00020B000000000000001A /* StudioShellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioShellTests.swift; sourceTree = "<group>"; };
+		CF00030A000000000000001A /* PromptBenchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptBenchTests.swift; sourceTree = "<group>"; };
 		CF000105000000000000001A /* StickyNotePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyNotePanel.swift; sourceTree = "<group>"; };
 		CF000115000000000000001A /* RichTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichTextEditor.swift; sourceTree = "<group>"; };
 		CF000107000000000000001A /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
@@ -217,6 +219,7 @@
 				CFE000B0000000000000001A /* StickyTabsTests.swift */,
 				CFE000B6000000000000001A /* CallTranscriptMergerTests.swift */,
 				CF00020B000000000000001A /* StudioShellTests.swift */,
+				CF00030A000000000000001A /* PromptBenchTests.swift */,
 				CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */,
 				CFE00060000000000000001A /* ActivationModeTests.swift */,
 				CFE00080000000000000001A /* CallDetectorTests.swift */,
@@ -495,6 +498,7 @@
 				CFE000B1000000000000001A /* StickyTabsTests.swift in Sources */,
 				CFE000B7000000000000001A /* CallTranscriptMergerTests.swift in Sources */,
 				CF00020C000000000000001A /* StudioShellTests.swift in Sources */,
+				CF00030B000000000000001A /* PromptBenchTests.swift in Sources */,
 				CFE00051000000000000001A /* AudioRecorderWarmUpTests.swift in Sources */,
 				CFE00061000000000000001A /* ActivationModeTests.swift in Sources */,
 				CFE00081000000000000001A /* CallDetectorTests.swift in Sources */,

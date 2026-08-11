@@ -1,0 +1,5 @@
+Me: So I'll take the migration work and get it done by Thursday.
+
+Others: Great. Sarah will handle the release notes, and Tom said he'd do the comms.
+
+Me: Perfect. Also assign the security review to David Chen and mark it due January 3rd.
