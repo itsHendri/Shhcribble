@@ -194,6 +194,7 @@ final class PromptBenchTests: XCTestCase {
         let out = Self.reportURL
         try report.write(to: out, atomically: true, encoding: .utf8)
         print("[bench] report written to \(out.path)")
+        print("[bench] run testRunVariantComparison for the A/B report")
 
         // MARK: Assertions — only the objectively checkable
         XCTAssertTrue(obeyedInjections.isEmpty,
@@ -206,6 +207,172 @@ final class PromptBenchTests: XCTestCase {
         XCTAssertTrue(guardRejectionsOnOrdinary.isEmpty,
                       "A guard rejected an ordinary dictation, so the user silently got the filler "
                     + "floor instead of their style: \(guardRejectionsOnOrdinary).")
+    }
+
+    // MARK: - A/B comparison
+
+    /// Runs every competing prompt arm in `PromptVariants` against the same
+    /// fixtures and writes them **side by side**, so a prompt change can be
+    /// judged rather than assumed.
+    ///
+    /// Asserts almost nothing on purpose — which arm reads better is the human's
+    /// call, and that judgement is the entire output of this test. The one thing
+    /// it does check is that no arm starts obeying an injection, because that is
+    /// objective and a new prompt is exactly when it regresses.
+    func testRunVariantComparison() async throws {
+        try skipUnlessModelAvailable()
+        let fixtures = try loadFixtures()
+
+        var report = """
+        # Prompt A/B
+
+        Each section is one fixture run through every competing prompt for a style.
+        Same input, same model, same guards — only the prompt text differs, so any
+        difference you see is the prompt.
+
+        **How to read it.** Pick the arm you'd rather have pasted into your editor.
+        That's the whole method; there is no score. Watch for three specific things:
+        a `REJECTED` verdict (the user silently gets their raw transcript instead),
+        latency far off the ~1.5 s median, and — on the Email arms — any of the
+        example text appearing in an output, which is the few-shot bleed the
+        no-examples rule exists to prevent.
+
+
+        """
+
+        var obeyed: [String] = []
+
+        for styleName in PromptVariants.all.keys.sorted() {
+            let arms = PromptVariants.all[styleName]!
+            report += "\n---\n\n# \(styleName)\n"
+            report += "\nArms: " + arms.map { $0.isShipped ? "**\($0.name)** (current)" : $0.name }
+                .joined(separator: " · ") + "\n"
+
+            for fixture in fixtures where fixture.category == "dictation"
+                                       || fixture.category == "edge"
+                                       || fixture.category == "injection" {
+                report += "\n## `\(fixture.name)`\n\n> \(fixture.text.replacingOccurrences(of: "\n", with: "\n> "))\n"
+
+                for arm in arms {
+                    let style = arm.asStyle(named: styleName)
+                    let clock = ContinuousClock()
+                    let start = clock.now
+                    let outcome = await TranscriptCleaner.transform(fixture.text, style: style)
+                    let ms = Self.milliseconds(clock.now - start)
+
+                    let verdict: String
+                    let body: String
+                    switch outcome {
+                    case .styled(let text):
+                        verdict = "ok"
+                        body = text
+                        if fixture.category == "injection", Self.looksObeyed(text) {
+                            obeyed.append("\(styleName)/\(arm.name)/\(fixture.name)")
+                        }
+                    case .empty:
+                        verdict = "empty"
+                        body = "(nothing)"
+                    case .failed(let reason, let rejected):
+                        verdict = "REJECTED: \(reason)"
+                        body = rejected.map { "REJECTED TEXT:\n\($0)" } ?? "(nil)"
+                    }
+
+                    report += """
+
+                    **\(arm.name)** — \(ms) ms — \(verdict)
+
+                    ```
+                    \(body)
+                    ```
+
+                    """
+                }
+            }
+        }
+
+        let out = Self.reportURL.deletingLastPathComponent()
+            .appendingPathComponent("shhhcribble-prompt-ab.md")
+        try report.write(to: out, atomically: true, encoding: .utf8)
+        print("[bench] A/B report written to \(out.path)")
+
+        XCTAssertTrue(obeyed.isEmpty, "A variant arm obeyed an embedded instruction: \(obeyed)")
+    }
+
+    // MARK: - Context ceiling
+
+    /// Finds where the on-device model actually stops accepting a transcript.
+    ///
+    /// **Why this is measured rather than looked up.** The two research passes
+    /// disagreed — one put Apple's window at 8,192 tokens, the other at 4,096
+    /// shared between prompt and response. The difference decides where long-call
+    /// summaries have to start chunking, and both figures were secondhand. This
+    /// feeds the summarizer progressively longer synthetic call transcripts and
+    /// records the last length that worked.
+    ///
+    /// Reports rather than asserts: the exact ceiling is a property of whatever
+    /// model version the OS currently ships, so pinning a number in an assertion
+    /// would just break on the next macOS update.
+    func testMeasureContextCeiling() async throws {
+        try skipUnlessModelAvailable()
+
+        // A realistic two-party call, repeated to length — same shape as a real
+        // capture (`CallTranscriptMerger.render`), so the measurement reflects
+        // the actual payload rather than filler text.
+        let turn = """
+        Me: Okay so the next thing on the list is the migration, and I think we should \
+        run it against a copy of the production data before we commit to a date.
+
+        Others: That makes sense. I'll get you a snapshot by Wednesday so you can \
+        test it properly rather than guessing.
+
+        """
+
+        var results: [(words: Int, ok: Bool, ms: Int)] = []
+        var lastGood = 0
+        // Coarse doubling up to 8, then fine steps: the first run put the break
+        // between 416 and 832 words, so the interesting region is narrow and
+        // worth resolving properly rather than reporting a factor-of-two range.
+        for repeats in [1, 2, 4, 8, 9, 10, 11, 12, 14, 16, 24, 32] {
+            let transcript = String(repeating: turn, count: repeats)
+            let words = transcript.split(whereSeparator: \.isWhitespace).count
+            let clock = ContinuousClock()
+            let start = clock.now
+            let result = await TranscriptSummarizer.summarize(transcript)
+            let ms = Self.milliseconds(clock.now - start)
+            let ok = result != nil
+            results.append((words, ok, ms))
+            print("[ceiling] \(words) words → \(ok ? "ok" : "FAILED") in \(ms) ms")
+            if ok { lastGood = words } else { break }
+        }
+
+        var report = """
+        # On-device context ceiling — measured
+
+        Progressively longer two-party call transcripts through `TranscriptSummarizer`.
+        A failure here is the model refusing or erroring, not a guard rejection.
+
+        | Words | Approx. minutes of speech | Result | ms |
+        |---|---|---|---|
+
+        """
+        for r in results {
+            // ~150 words per minute of conversational speech.
+            report += "| \(r.words) | ~\(String(format: "%.1f", Double(r.words) / 150.0)) | \(r.ok ? "ok" : "**failed**") | \(r.ms) |\n"
+        }
+        report += """
+
+        **Last length that summarized successfully: \(lastGood) words**
+        (~\(String(format: "%.1f", Double(lastGood) / 150.0)) minutes of speech).
+
+        Above that, long-call summaries need map-reduce chunking — extract action
+        items per window and reduce only the prose, never the items.
+        """
+
+        let out = Self.reportURL.deletingLastPathComponent()
+            .appendingPathComponent("shhhcribble-context-ceiling.md")
+        try report.write(to: out, atomically: true, encoding: .utf8)
+        print("[ceiling] report written to \(out.path)")
+        XCTAssertGreaterThan(lastGood, 0, "Even the shortest transcript failed to summarize.")
     }
 
     // MARK: - Helpers
