@@ -255,37 +255,46 @@ final class PromptBenchTests: XCTestCase {
 
                 for arm in arms {
                     let style = arm.asStyle(named: styleName)
-                    let clock = ContinuousClock()
-                    let start = clock.now
-                    let outcome = await TranscriptCleaner.transform(fixture.text, style: style)
-                    let ms = Self.milliseconds(clock.now - start)
+                    // Repeat each arm. Greedy sampling is *supposed* to be
+                    // deterministic, but this bench has already caught the same
+                    // fixture and prompt landing on opposite sides of a guard in
+                    // two consecutive runs — so a single generation cannot tell a
+                    // real prompt difference from sampling noise, and a
+                    // recommendation built on one sample isn't worth making.
+                    for run in 1...Self.runsPerArm {
+                        let clock = ContinuousClock()
+                        let start = clock.now
+                        let outcome = await TranscriptCleaner.transform(fixture.text, style: style)
+                        let ms = Self.milliseconds(clock.now - start)
 
-                    let verdict: String
-                    let body: String
-                    switch outcome {
-                    case .styled(let text):
-                        verdict = "ok"
-                        body = text
-                        if fixture.category == "injection", Self.looksObeyed(text) {
-                            obeyed.append("\(styleName)/\(arm.name)/\(fixture.name)")
+                        let verdict: String
+                        let body: String
+                        switch outcome {
+                        case .styled(let text):
+                            verdict = "ok"
+                            body = text
+                            if fixture.category == "injection", Self.looksObeyed(text) {
+                                obeyed.append("\(styleName)/\(arm.name)/\(fixture.name)")
+                            }
+                        case .empty:
+                            verdict = "empty"
+                            body = "(nothing)"
+                        case .failed(let reason, let rejected):
+                            verdict = "REJECTED: \(reason)"
+                            body = rejected.map { "REJECTED TEXT:\n\($0)" } ?? "(nil)"
                         }
-                    case .empty:
-                        verdict = "empty"
-                        body = "(nothing)"
-                    case .failed(let reason, let rejected):
-                        verdict = "REJECTED: \(reason)"
-                        body = rejected.map { "REJECTED TEXT:\n\($0)" } ?? "(nil)"
+
+                        let label = Self.runsPerArm > 1 ? "\(arm.name) · run \(run)" : arm.name
+                        report += """
+
+                        **\(label)** — \(ms) ms — \(verdict)
+
+                        ```
+                        \(body)
+                        ```
+
+                        """
                     }
-
-                    report += """
-
-                    **\(arm.name)** — \(ms) ms — \(verdict)
-
-                    ```
-                    \(body)
-                    ```
-
-                    """
                 }
             }
         }
@@ -376,6 +385,10 @@ final class PromptBenchTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Generations per arm in the A/B. Three is enough to see whether a
+    /// difference holds or was a coin flip, without the run taking all morning.
+    private static let runsPerArm = 3
 
     private static var reportURL: URL {
         if let override = ProcessInfo.processInfo.environment["SHHHCRIBBLE_BENCH_OUT"] {

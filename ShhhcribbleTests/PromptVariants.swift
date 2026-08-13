@@ -72,11 +72,31 @@ enum PromptVariants {
             // 2. What currently ships: outcome first, approach left open.
             shipped("Agent"),
 
-            // 3. Same, plus an explicit verifiable finish line. The open question
-            //    is whether a small model can state a stop condition without
-            //    *inventing* one — acceptance criteria the speaker never gave are
-            //    the obvious failure mode, and StyleGuard should catch them.
-            Variant(name: "C · goal + stop condition", prompt: """
+            // 2. Superseded, kept as the losing arm. Led with the outcome and
+            //    said nothing about voice — and across 12 generations it restated
+            //    the speaker in first person in **9** of them. Keep it here so the
+            //    finding can be re-checked rather than taken on trust.
+            Variant(name: "B · goal-and-scope (superseded — narrates)", prompt: """
+            Reformat it as a request to a coding agent.
+
+            - Lead with the outcome the speaker wants. Then any constraints they gave, then \
+            the files, symbols, or areas they named.
+            - Leave the approach to the agent: describe what "done" looks like, never the \
+            steps to get there.
+            - Do not write code, propose a solution, or add a requirement they didn't state.
+            - If they described several separate pieces of work, give each its own numbered item.
+            """),
+
+            // 3. What now ships: B's goal-first ordering with A's imperative voice
+            //    put back. 0/12 first-person, matching A, at B's ordering.
+            shipped("Agent"),
+
+            // 4. Adds an explicit finish line. Rejected on the evidence: it emitted
+            //    "Done when:" on one fixture in four, and on that one *also*
+            //    invented an "Approach:" section telling the agent how to proceed —
+            //    the exact step-list anti-pattern the prompt forbids. It also
+            //    inherited B's narration (3/12).
+            Variant(name: "C · goal + stop condition (rejected)", prompt: """
             Reformat it as a request to a coding agent.
 
             - Lead with the outcome the speaker wants. Then any constraints they gave, then \
