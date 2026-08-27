@@ -47,6 +47,41 @@ Everything through **v1.8.1** shipped (Sparkle; Personal Dictionary; Transcripti
 
 ---
 
+## Local LLM spike — 2026-08-11. Fast enough; the prompts are the problem
+
+> Throwaway spike, no shipping code touched (the 2026-07-05 music-pause precedent). Ran **Qwen3.5-2B Q4_K_M (1.19 GB)** under `llama-server` against the app's **real** prompts — extracted from the Swift, not retyped — and the real `Testing/prompts/fixtures`, with the same nonce fence, the same `{lines: [String]}` constrained output, and greedy sampling. Hardware: **M3 Max / 64 GB**, which is the *optimistic* end; an M1 Air with 8 GB will be materially slower.
+
+**The latency fear was wrong, and it was the thing gating the whole decision.**
+
+| | Apple FoundationModels | Qwen3.5-2B Q4_K_M |
+|---|---|---|
+| Median | 1574 ms | **578 ms** |
+| p90 | 2849 ms | 1564 ms |
+| Mean | — | 909 ms |
+| Cold model load | n/a (OS-resident) | **1.0 s** |
+| Meeting summary | 3554 ms | 4644 ms |
+
+The research had put comparable apps at ~4–5 s at 2B and warned the dictation path might be dead on latency alone. On measurement it is roughly **3× faster than what we ship today**. Do not carry the 4–5 s figure forward.
+
+**⚠ But it is NOT a drop-in, and this is the finding that actually decides it: our prompts do not transfer.** They were tuned against Apple's model, and against Qwen **19 of 60 style outputs (32%) came back empty or unparseable**:
+
+| Style | Failed |
+|---|---|
+| Bullets | **10 / 12** |
+| Agent | 6 / 12 |
+| Action items | 3 / 12 |
+| Email, Message | 0 / 12 |
+
+Bullets returns a valid, well-formed `{"lines": []}` — the model simply declines the task. That is real model behaviour, not a harness artefact (27 completion tokens, valid JSON, verified directly). And on the summary, Qwen listed **the explicitly-rejected skip button as an action item** — the exact trap `meeting-product-sync` exists to catch, and the one Apple's model passes.
+
+**Two traps worth recording so nobody re-hits them:**
+1. **Qwen3.5 is a reasoning model by default.** Left alone it emits a thinking process into `reasoning_content` and never reaches an answer — the first run burned the full 700-token cap on *every* call and returned empty content, at a uniform ~5 s that looked exactly like "the model is slow". `enable_thinking: false` is mandatory, not tuning. The research flagged this as a disqualifier for LFM2 and missed it for Qwen.
+2. **Match the schema to the job.** An early summariser run appeared to echo the transcript verbatim; that was the harness forcing the *styled* `{lines:[…]}` shape onto the summariser. With `{summary, actionItems[]}` it produces a real summary. A wrong schema looks like a catastrophic model failure.
+
+**Where this leaves the decision.** Latency no longer blocks it, so the honest cost is now prompt maintenance: a second backend means every style authored and validated twice, which is precisely the trap the plan named for the *hybrid* — and it turns out to apply to a full replacement too, because the prompts are model-specific either way. The next step, if this is pursued, is re-tuning the failing prompts against Qwen and re-running the same bench, **not** integration work. Nothing about the runtime, the download, or the packaging has been tested.
+
+---
+
 ## Candidate backlog — 2026-07-26 competitive re-audit
 
 > **Prioritized 2026-08-10** — the deferral (*"we'll re-prioritize features another time"*, 2026-07-26) is discharged; see the **Running order** at the top of this file. **C3 (+C2) is #1**; the tabbed sticky panel and dictate-into-note joined the order from the Wispr 1.6.447 re-audit. Everything else here stays parked, with its pros and cons intact so a future session doesn't have to re-derive them. **C4 is the designated pick-up item** when #1 is blocked on a design call.
