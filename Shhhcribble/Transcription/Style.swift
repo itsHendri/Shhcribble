@@ -67,7 +67,7 @@ struct Style: Codable, Identifiable, Equatable {
         Style(
             name: "Email",
             prompt: """
-            Reformat it as a professional email body: short paragraphs grouped by topic, \
+            Reformat the transcript as a professional email body: short paragraphs grouped by topic, \
             polite and businesslike rather than flowery.
 
             - Add a greeting only if the speaker named a recipient, and a sign-off only if \
@@ -82,7 +82,7 @@ struct Style: Codable, Identifiable, Equatable {
         Style(
             name: "Message",
             prompt: """
-            Reformat it as a casual chat message: sentence case, light punctuation, no \
+            Reformat the transcript as a casual chat message: sentence case, light punctuation, no \
             greeting or sign-off.
 
             - Keep it conversational, in the speaker's own voice, and about as long as what \
@@ -103,7 +103,7 @@ struct Style: Codable, Identifiable, Equatable {
             // dictation preserved, not an instruction a coding agent can act on.
             // The prompt it replaced never did it once. See PromptVariants.
             prompt: """
-            Reformat it as an instruction to a coding agent.
+            Reformat the transcript as an instruction to a coding agent.
 
             - Write every line as a direct instruction in the imperative — "Add…", \
             "Update…", "Keep…". Never narrate what the speaker wants ("I want…", \
@@ -121,7 +121,7 @@ struct Style: Codable, Identifiable, Equatable {
         Style(
             name: "Bullets",
             prompt: """
-            Reformat it as bullet-point notes: one point per line starting with "- ", in the \
+            Reformat the transcript as bullet-point notes: one point per line starting with "- ", in the \
             order spoken.
 
             - Keep every distinct point they made. Never merge two points into one bullet, \
@@ -136,7 +136,7 @@ struct Style: Codable, Identifiable, Equatable {
         Style(
             name: "Action items",
             prompt: """
-            Extract only the commitments — things the speaker, or someone in the transcript, \
+            From the transcript, extract only the commitments — things the speaker, or someone in the transcript, \
             said would be done.
 
             - One per line starting with "- ", each beginning with a verb, in the order spoken.
