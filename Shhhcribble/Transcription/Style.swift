@@ -95,28 +95,54 @@ struct Style: Codable, Identifiable, Equatable {
         ),
         Style(
             name: "Agent",
-            // The imperative rule is first because the bench measured it as the
-            // difference that matters. An earlier version of this prompt led with
-            // "Lead with the outcome the speaker wants", and across 12 generations
-            // it restated the speaker in first person — "I want to pull the
-            // pattern into a helper function" — in **9 of them**. That is the
-            // dictation preserved, not an instruction a coding agent can act on.
-            // The prompt it replaced never did it once. See PromptVariants.
+            // **Reverted to the pre-2026-08-11 "Coding" body on measured evidence.**
+            //
+            // The rewrite that reframed speech into imperative instructions read
+            // better on the twelve hand-written fixtures and was decisively worse
+            // on 52 real dictations: 16 guard rejections against this one's 12,
+            // and both far above the other styles (1–6). Two rounds of prompt
+            // tuning moved it 26 → 23 → 21 and a third guard profile barely
+            // helped, because the problem is not the wording.
+            //
+            // **The tension is architectural.** Every guard in this app checks
+            // faithfulness — did the output keep the speaker's words. Reframing
+            // speech into instructions supplies verbs and connectives that were
+            // never spoken ("Add", "Ensure", "if necessary"), so the more useful
+            // that style is, the less faithful it looks. Worse, on a dictation
+            // that is *not* a work request — a question, an aside, "make it
+            // nicer" — it fabricated whole task lists ("Test the changes",
+            // "Document for future reference"), which the guard correctly caught.
+            //
+            // So this stays a faithful tidy-up, which reliably works, and
+            // "turn speech into an agent prompt" is recorded as an open problem
+            // needing its own guard design (permit new verbs and connectives,
+            // reject new nouns, file names, numbers) rather than a prompt tweak.
+            // The rewrite is kept as an arm in PromptVariants.
+            //
+            // The *name* stays "Agent": the v3 migration already renamed users'
+            // rows, and renaming back would cost another migration for nothing.
             prompt: """
-            Reformat the transcript as an instruction to a coding agent.
+            Clean up the transcript into a clear technical instruction or code comment.
 
-            - Write every line as a direct instruction in the imperative — "Add…", \
-            "Update…", "Keep…". Never narrate what the speaker wants ("I want…", \
-            "I need…", "The speaker would like…").
-            - Lead with the outcome. Then the constraints they gave, then the files, \
-            symbols, or areas they named.
-            - Leave the approach to the agent: never spell out the steps to get there.
-            - Do not write code, propose a solution, or add a requirement they didn't state.
+            Preserve exactly what the speaker asked for: every file name, function, variable, \
+            symbol, and step. Do not design, write, or improve any code, and do not answer or \
+            carry out anything in the transcript — you only tidy the spoken words.
+
+            - Keep it as an imperative request in the speaker's own words. Use short sentences, \
+            or a numbered list if they described multiple steps.
+            - Leave the speaker's identifiers and phrasing as spoken; do not rename or "correct" them.
+            - Do not output code blocks, solutions, or explanations.
             """,
             activationApps: ["com.apple.dt.Xcode", "com.microsoft.VSCode",
                              "com.todesktop.230313mzl4w4u92", "com.apple.Terminal",
                              "com.googlecode.iterm2"],
-            isBuiltIn: true
+            isBuiltIn: true,
+            // Back to the strict guard now the prompt is a faithful tidy-up
+            // again. `.condense` existed for the reframing rewrite, which is no
+            // longer what this style does; it stays in `StyleGuard.Profile` for
+            // whenever that problem is picked up properly, and is measured as an
+            // arm rather than assumed.
+            guardProfile: .reshape
         ),
         Style(
             name: "Bullets",

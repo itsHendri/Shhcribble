@@ -162,12 +162,33 @@ enum StyleGuard {
     /// profiles are anti-fabrication checks, so that can only ever trade one
     /// faithfulness test for another, never remove the guard.)
     enum Profile: String, Codable, Equatable {
-        /// Re-express the speaker's material — the default, and what every
-        /// preset except Action items uses.
+        /// Re-express the speaker's material — the default, and what Email,
+        /// Message and Bullets use.
         case reshape
-        /// Discard most of the input and keep a subset — guarded by per-line
-        /// citation instead of a coverage floor.
+        /// Discard most of the input and keep a subset — guarded by list format
+        /// plus per-line citation instead of a coverage floor.
         case extract
+        /// Compress the speaker's material into far fewer words while keeping
+        /// its substance. Per-line citation, plus a low collapse floor.
+        ///
+        /// **Added on measured evidence (2026-08-11), and it is not a
+        /// hypothetical.** Run over **52 real dictations from the library**, the
+        /// Agent style was rejected **26 times — exactly half** — and 22 of those
+        /// were the coverage floor. The rejected outputs sat at 0.08–0.29
+        /// coverage, median **0.23**, against a floor of 0.30. Every one of them
+        /// silently dropped the user to the filler floor: they picked a style and
+        /// got a plain transcript, with no indication why.
+        ///
+        /// The twelve hand-written fixtures showed **zero** of this. They were
+        /// tidier than real speech, so the style looked fine on them — which is
+        /// the whole argument for benching against the real library.
+        ///
+        /// Lowering `minCoverage` was not the fix: a total-collapse hijack
+        /// measures ~0.14, and real Agent output reaches 0.08, so the two
+        /// populations *overlap* and no single threshold separates them. Citation
+        /// does, because it asks a different question — not "how much survived"
+        /// but "did these words come from the speaker".
+        case condense
     }
 
     /// Hard floor on the expansion ceiling so short inputs (a one-line dictation)
@@ -203,6 +224,18 @@ enum StyleGuard {
     /// `.extract` only — below this many words a line is too short to cite
     /// meaningfully ("Ship it.", "Book the offsite").
     private static let minWordsForCitation = 3
+    /// `.condense` only — a floor purely against total collapse, well below any
+    /// real output. Measured: real Agent outputs bottom out around 0.08 and a
+    /// hijack collapse sits near 0.14, so the two overlap and this floor cannot
+    /// be the discriminator — citation is. It exists to stop a one-word obeyed
+    /// payload, nothing more.
+    private static let minCondenseCoverage = 0.05
+    /// `.condense` only — share of a line's words that must have been said.
+    /// Looser than `.extract`'s 0.7 because a condensing rewrite legitimately
+    /// supplies connective words ("to", "so that") the speaker never uttered,
+    /// whereas an extractor mostly quotes.
+    private static let minCondenseCitation = 0.5
+
     /// List markers an extracted line may open with. **Requiring one is what
     /// catches the total-collapse hijack** — see `evaluate`.
     private static let listMarkers = ["- ", "* ", "• ", "[ ] ", "[] "]
@@ -249,6 +282,30 @@ enum StyleGuard {
             let retained = inWords.filter { outWords.contains($0) }.count
             guard Double(retained) / Double(inWords.count) >= minCoverage else {
                 return .lowCoverage(retained: retained, total: inWords.count)
+            }
+            return .ok
+
+        case .condense:
+            // Compression is the job, so the reshape floor rejects correct work.
+            // Citation asks the question that actually distinguishes a tight
+            // rewrite from an invention, and a much lower floor still catches a
+            // total collapse to an injected payload.
+            guard inWords.count >= minWordsForCoverage else { return .ok }
+            let outWords = contentWords(output)
+            let retained = inWords.filter { outWords.contains($0) }.count
+            guard Double(retained) / Double(inWords.count) >= minCondenseCoverage else {
+                return .lowCoverage(retained: retained, total: inWords.count)
+            }
+            let stems = Set(inWords.map(stem))
+            for rawLine in output.split(whereSeparator: \.isNewline) {
+                let line = String(rawLine).trimmingCharacters(in: .whitespaces)
+                guard !line.isEmpty else { continue }
+                let lineWords = citableWords(of: line)
+                guard lineWords.count >= minWordsForCitation else { continue }
+                let cited = lineWords.filter { stems.contains(stem($0)) }.count
+                guard Double(cited) / Double(lineWords.count) >= minCondenseCitation else {
+                    return .uncited(line: line)
+                }
             }
             return .ok
 

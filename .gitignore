@@ -19,3 +19,6 @@ build/
 
 # Coverage artefacts left behind by `xcodebuild test`
 *.profraw
+
+# Sampled real dictations — personal content, never committed.
+*.jsonl

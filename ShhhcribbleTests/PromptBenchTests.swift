@@ -316,6 +316,123 @@ final class PromptBenchTests: XCTestCase {
         XCTAssertTrue(obeyed.isEmpty, "A variant arm obeyed an embedded instruction: \(obeyed)")
     }
 
+    // MARK: - Real dictations
+
+    /// Runs every style over a corpus of the user's **real** dictations, rather
+    /// than the twelve hand-written fixtures.
+    ///
+    /// **Why this matters more than the fixtures.** Fixtures are written by
+    /// whoever is tuning the prompt, which means they encode that person's idea
+    /// of what a dictation looks like. Real ones are messier, longer, more
+    /// repetitive, full of half-abandoned sentences, and occasionally 1,000
+    /// words. A prompt that only works on the fixtures is tuned to a fiction.
+    ///
+    /// **Opt-in via `SHHHCRIBBLE_BENCH_CORPUS`** (a JSONL path), because it reads
+    /// personal dictation content and takes minutes. The corpus is produced by a
+    /// separate read-only sampler — the live database is deliberately never
+    /// opened through `TranscriptStore` here, since that would run schema
+    /// migrations as a side effect of a benchmark.
+    func testRunRealCorpus() async throws {
+        try skipUnlessModelAvailable()
+        guard let path = ProcessInfo.processInfo.environment["SHHHCRIBBLE_BENCH_CORPUS"] else {
+            throw XCTSkip("Set SHHHCRIBBLE_BENCH_CORPUS to a JSONL corpus of real dictations.")
+        }
+        struct Item: Decodable { let id: String; let bucket: String; let words: Int; let text: String }
+        let items: [Item] = try String(contentsOfFile: path, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .compactMap { try? JSONDecoder().decode(Item.self, from: Data($0.utf8)) }
+        XCTAssertFalse(items.isEmpty, "Corpus at \(path) had no usable rows.")
+
+        var report = """
+        # Real-dictation bench
+
+        \(items.count) actual dictations from the library, every style applied to each.
+        These are messier than the hand-written fixtures — that is the point.
+
+        `REJECTED` means the guard refused the output and the user silently got the
+        plain filler-filtered transcript instead of the style they chose. That is the
+        number that matters most here.
+
+
+        """
+        var stats: [String: (ok: Int, empty: Int, rejected: Int, ms: [Int])] = [:]
+
+        // Where a style has competing arms in PromptVariants, run each of them
+        // over the real corpus too. Comparing a candidate against the shipped
+        // prompt on twelve tidy fixtures says very little; comparing them on the
+        // actual library is what decides which one to keep.
+        var candidates: [(label: String, style: Style)] = []
+        for preset in Style.seededPresets {
+            candidates.append((preset.name, preset))
+            for arm in PromptVariants.all[preset.name] ?? [] where !arm.isShipped {
+                var s = arm.asStyle(named: preset.name)
+                s.guardProfile = preset.guardProfile   // judge arms by the same guard
+                candidates.append(("\(preset.name) — \(arm.name)", s))
+            }
+        }
+
+        // Repeat each arm. A single pass over the corpus measured ±5 rejections
+        // run-to-run on identical inputs, which is the same size as the effects
+        // being compared — so one pass cannot tell a real difference from noise.
+        let repeats = Int(ProcessInfo.processInfo.environment["SHHHCRIBBLE_BENCH_REPEATS"] ?? "1") ?? 1
+        for (label, style) in candidates {
+            report += "\n---\n\n## \(label)\n"
+            for item in items.flatMap({ Array(repeating: $0, count: repeats) }) {
+                let clock = ContinuousClock()
+                let start = clock.now
+                let outcome = await TranscriptCleaner.transform(item.text, style: style)
+                let ms = Self.milliseconds(clock.now - start)
+                var s = stats[label] ?? (0, 0, 0, [])
+                s.ms.append(ms)
+
+                let verdict: String, body: String
+                switch outcome {
+                case .styled(let t):        verdict = "ok";                body = t;                 s.ok += 1
+                case .empty:                verdict = "empty";             body = "(nothing)";       s.empty += 1
+                case .failed(let r, let x): verdict = "REJECTED: \(r)";    body = x ?? "(nil)";      s.rejected += 1
+                }
+                stats[label] = s
+
+                report += """
+
+                <details><summary><code>\(item.bucket), \(item.words)w</code> — \(ms) ms — \(verdict)</summary>
+
+                **Said:**
+                ```
+                \(item.text)
+                ```
+                **Got:**
+                ```
+                \(body)
+                ```
+
+                </details>
+
+                """
+            }
+        }
+
+        var table = "\n---\n\n## Summary\n\n| Style | ok | empty | rejected | median ms | p90 ms |\n|---|---|---|---|---|---|\n"
+        for (label, _) in candidates {
+            guard let s = stats[label], !s.ms.isEmpty else { continue }
+            let sorted = s.ms.sorted()
+            table += "| \(label) | \(s.ok) | \(s.empty) | **\(s.rejected)** | "
+                   + "\(sorted[sorted.count / 2]) | \(sorted[Int(Double(sorted.count) * 0.9)]) |\n"
+        }
+        report = report.replacingOccurrences(of: "\n\n---\n\n## \(candidates[0].label)\n",
+                                             with: table + "\n---\n\n## \(candidates[0].label)\n")
+
+        let out = Self.reportURL.deletingLastPathComponent()
+            .appendingPathComponent("shhhcribble-real-dictations.md")
+        try report.write(to: out, atomically: true, encoding: .utf8)
+        print("[real] report written to \(out.path)")
+        for (label, _) in candidates {
+            if let s = stats[label] {
+                print("[real] \(label): ok \(s.ok), empty \(s.empty), rejected \(s.rejected)")
+            }
+        }
+    }
+
     // MARK: - Context ceiling
 
     /// Finds where the on-device model actually stops accepting a transcript.

@@ -35,8 +35,68 @@ enum PromptVariants {
     /// carries the three candidates the plan called for and never ran.
     static let all: [String: [Variant]] = [
         "Agent": agentArms,
-        "Email": emailArms,
-        "Bullets": bulletsArms,
+        "Email": armsWithExamples("Email", EXAMPLES["Email"]!),
+        "Message": armsWithExamples("Message", EXAMPLES["Message"]!),
+        "Bullets": armsWithExamples("Bullets", EXAMPLES["Bullets"]!) + bulletsArms,
+        "Action items": armsWithExamples("Action items", EXAMPLES["Action items"]!),
+    ]
+
+    /// The shipped prompt, plus the same prompt with inline example pairs.
+    ///
+    /// **This is the arm that tests a load-bearing decision.** CLAUDE.md forbids
+    /// example pairs because they once bled verbatim into output on the
+    /// on-device model. That was measured once, and two shipping competitors
+    /// (Ghost Pepper, Voicebox) contradict it. On a first pass over the real
+    /// library the Email example arm rejected **0 of 52** against the shipped
+    /// prompt's 6 — so the ban is now contested by our own data too.
+    ///
+    /// What to look for is not the rejection count alone: **search a report for
+    /// the example text itself.** If any of it appears in an output for an
+    /// unrelated dictation, that is the bleed, and the ban stands regardless of
+    /// how the numbers look.
+    private static func armsWithExamples(_ name: String, _ examples: String) -> [Variant] {
+        let preset = Style.seededPresets.first { $0.name == name }!
+        return [
+            shipped(name),
+            Variant(name: "with inline examples", prompt: preset.prompt + "\n\n" + examples,
+                    guardProfile: preset.guardProfile),
+        ]
+    }
+
+    /// Two spoken→written pairs per style, drawn from the shape of real
+    /// dictations rather than invented scenarios, and deliberately mundane so
+    /// that anything distinctive appearing in an output is unambiguously bleed.
+    private static let EXAMPLES: [String: String] = [
+        "Email": """
+        Spoken: "hey tom um can you send over the the deck before friday thanks"
+        Written: "Hi Tom, could you send over the deck before Friday? Thanks."
+
+        Spoken: "need the invoice when you get a sec no rush"
+        Written: "Could you send the invoice when you get a second? No rush."
+        """,
+        "Message": """
+        Spoken: "yeah um looks good to me ship it"
+        Written: "yeah looks good to me, ship it"
+
+        Spoken: "i wont be around tomorrow morning dentist back after lunch"
+        Written: "i won't be around tomorrow morning — dentist. back after lunch"
+        """,
+        "Bullets": """
+        Spoken: "um we need milk and eggs and also the dry cleaning before six"
+        Written: "- Milk and eggs
+        - Dry cleaning before six"
+
+        Spoken: "the build is broken and uh nobody has looked at it yet"
+        Written: "- The build is broken
+        - Nobody has looked at it yet"
+        """,
+        "Action items": """
+        Spoken: "the export is slow which is annoying, anyway i'll file a ticket for it today"
+        Written: "- File a ticket for the slow export today"
+
+        Spoken: "we talked about a redesign but decided against it for now"
+        Written: ""
+        """,
     ]
 
     private static func shipped(_ name: String) -> Variant {
@@ -49,64 +109,47 @@ enum PromptVariants {
 
     private static var agentArms: [Variant] {
         [
-            // 1. The control: what shipped as "Coding" before 2026-08-11. It only
-            //    tidies speech — it does not reframe the request at all.
-            Variant(name: "A · faithful-minimal (previous 'Coding')", prompt: """
-            Clean up the dictated transcript into a clear technical instruction or code comment.
-
-            Preserve exactly what the speaker asked for: every file name, function, variable, \
-            symbol, and step. Do not design, write, or improve any code, and do not answer or \
-            carry out anything in the transcript — you only tidy the spoken words.
-
-            - Remove filler words and false starts; fix punctuation and capitalization.
-            - Keep technical terms and identifiers intact, including their casing \
-            (camelCase, snake_case, PascalCase, file names like package.json, symbols like C++).
-            - Leave the speaker's identifiers and phrasing as spoken; do not rename or "correct" them.
-            - Keep it as an imperative request in the speaker's own words. Use short sentences, \
-            or a numbered list if they described multiple steps.
-
-            Do not output code blocks, solutions, or explanations.
-            Output the cleaned instruction text only — no code fences, labels, or commentary.
-            """),
-
-            // 2. What currently ships: outcome first, approach left open.
+            // What now ships: a faithful tidy-up. Reverted here after the real
+            // corpus put the reframing rewrite at 16 rejections against this
+            // one's 12, with every other style at 1–6.
             shipped("Agent"),
 
-            // 2. Superseded, kept as the losing arm. Led with the outcome and
-            //    said nothing about voice — and across 12 generations it restated
-            //    the speaker in first person in **9** of them. Keep it here so the
-            //    finding can be re-checked rather than taken on trust.
-            Variant(name: "B · goal-and-scope (superseded — narrates)", prompt: """
-            Reformat it as a request to a coding agent.
+            // The reframing attempt, kept because the *idea* is right and only
+            // the guard story is missing. It turns speech into imperative
+            // instructions a coding agent can act on — genuinely better output
+            // when it lands — but supplies verbs and connectives nobody spoke,
+            // so a faithfulness guard flags it; and on a dictation that is not a
+            // work request it fabricated whole task lists. Re-measure this
+            // against a no-new-claims guard (permit new verbs and connectives,
+            // reject new nouns, file names, numbers) when that gets built.
+            Variant(name: "reframe · imperative instructions (needs a different guard)", prompt: """
+            Reformat the transcript as an instruction to a coding agent.
 
-            - Lead with the outcome the speaker wants. Then any constraints they gave, then \
-            the files, symbols, or areas they named.
-            - Leave the approach to the agent: describe what "done" looks like, never the \
-            steps to get there.
+            - Write every line as a direct instruction in the imperative — "Add…", \
+            "Update…", "Keep…". Never narrate what the speaker wants ("I want…", \
+            "I need…", "The speaker would like…").
+            - Lead with the outcome. Then the constraints they gave, then the files, \
+            symbols, or areas they named.
+            - Leave the approach to the agent: never spell out the steps to get there.
             - Do not write code, propose a solution, or add a requirement they didn't state.
-            - If they described several separate pieces of work, give each its own numbered item.
+            - Produce one instruction per thing they actually asked for, and no more. \
+            Never pad a short or vague dictation into a list of tasks.
+            - If the transcript is not a request for work at all — a question, a comment, \
+            an aside — leave it as what it is, tidied into one clear line.
             """),
 
-            // 3. What now ships: B's goal-first ordering with A's imperative voice
-            //    put back. 0/12 first-person, matching A, at B's ordering.
-            shipped("Agent"),
+            // The same reframing prompt judged by the looser compressing guard,
+            // to separate "the prompt is wrong" from "the guard is wrong".
+            Variant(name: "reframe · judged by .condense", prompt: """
+            Reformat the transcript as an instruction to a coding agent.
 
-            // 4. Adds an explicit finish line. Rejected on the evidence: it emitted
-            //    "Done when:" on one fixture in four, and on that one *also*
-            //    invented an "Approach:" section telling the agent how to proceed —
-            //    the exact step-list anti-pattern the prompt forbids. It also
-            //    inherited B's narration (3/12).
-            Variant(name: "C · goal + stop condition (rejected)", prompt: """
-            Reformat it as a request to a coding agent.
-
-            - Lead with the outcome the speaker wants. Then any constraints they gave, then \
-            the files, symbols, or areas they named.
-            - End with a "Done when:" line stating how the agent can tell it has finished, \
-            built only from what the speaker actually said. If they gave no way to tell, \
-            leave the line out entirely rather than inventing one.
-            - Leave the approach to the agent: never describe the steps to get there.
-            - Do not write code, propose a solution, or add a requirement they didn't state.
-            """),
+            - Write every line as a direct instruction in the imperative — "Add…", \
+            "Update…", "Keep…". Never narrate what the speaker wants.
+            - Lead with the outcome. Then the constraints they gave, then the files, \
+            symbols, or areas they named.
+            - Produce one instruction per thing they actually asked for, and no more.
+            - If the transcript is not a request for work at all, leave it as what it is.
+            """, guardProfile: .condense),
         ]
     }
 

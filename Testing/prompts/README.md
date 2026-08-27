@@ -67,6 +67,36 @@ The filename prefix is the category, and the bench uses it to decide what to run
   style must not inflate it into a formal letter with a greeting nobody asked
   for, or insert `[Name]` placeholders.
 
+## Running it against your own real dictations
+
+The twelve fixtures are hand-written, which means they encode whoever wrote
+them's idea of what a dictation looks like. Real ones are messier, longer, and
+full of half-abandoned sentences. **A prompt that only works on the fixtures is
+tuned to a fiction**, so validate against the real library before believing a
+result.
+
+```bash
+python3 Testing/prompts/sample-real-corpus.py 52          # → real-corpus.jsonl
+TEST_RUNNER_SHHHCRIBBLE_BENCH_CORPUS="$PWD/real-corpus.jsonl" \
+  xcodebuild -scheme Shhhcribble -configuration Debug -destination 'platform=macOS' \
+  -only-testing:ShhhcribbleTests/PromptBenchTests/testRunRealCorpus test
+```
+
+Writes `~/Desktop/shhhcribble-real-dictations.md`. The number to read is
+**rejected** — how often a guard refused the styled output, meaning the user
+silently got a plain filler-filtered transcript instead of the style they chose.
+
+Three things that will bite you:
+
+- **The `TEST_RUNNER_` prefix is required.** `xcodebuild` does not pass ordinary
+  environment variables through to the test process; without the prefix the test
+  skips silently and looks like it passed.
+- **The sampler reads the live database read-only, and deliberately not through
+  `TranscriptStore`** — opening it through the store would run schema migrations
+  as a side effect of a benchmark.
+- **The corpus is personal dictation content.** `*.jsonl` is gitignored; keep it
+  that way.
+
 ## How to judge a report
 
 Read it against these, in order — the first three are cheap and catch most
