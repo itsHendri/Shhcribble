@@ -19,6 +19,7 @@
 		CF000102000000000000001A /* FirstMouseHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000101000000000000001A /* FirstMouseHostingView.swift */; };
 		CF000301000000000000001A /* NotesLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000300000000000000001A /* NotesLibrary.swift */; };
 		CF000303000000000000001A /* TranscriptDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000302000000000000001A /* TranscriptDetail.swift */; };
+		CF000309000000000000001A /* StickyPanelGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000308000000000000001A /* StickyPanelGeometry.swift */; };
 		CF000202000000000000001A /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000201000000000000001A /* TodayView.swift */; };
 		CF000204000000000000001A /* Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000203000000000000001A /* Timeline.swift */; };
 		CF000208000000000000001A /* Search.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000207000000000000001A /* Search.swift */; };
@@ -67,6 +68,7 @@
 		CFE00033000000000000001A /* SkillFileParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00032000000000000001A /* SkillFileParserTests.swift */; };
 		CFE00031000000000000001A /* StyleResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00030000000000000001A /* StyleResolverTests.swift */; };
 		CF000306000000000000001A /* NotesLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000305000000000000001A /* NotesLibraryTests.swift */; };
+		CF000311000000000000001A /* StickyPanelGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000310000000000000001A /* StickyPanelGeometryTests.swift */; };
 		CF000206000000000000001A /* TimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF000205000000000000001A /* TimelineTests.swift */; };
 		CFE00051000000000000001A /* AudioRecorderWarmUpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */; };
 		CFE00061000000000000001A /* ActivationModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE00060000000000000001A /* ActivationModeTests.swift */; };
@@ -101,6 +103,7 @@
 		CF000101000000000000001A /* FirstMouseHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstMouseHostingView.swift; sourceTree = "<group>"; };
 		CF000300000000000000001A /* NotesLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesLibrary.swift; sourceTree = "<group>"; };
 		CF000302000000000000001A /* TranscriptDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptDetail.swift; sourceTree = "<group>"; };
+		CF000308000000000000001A /* StickyPanelGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyPanelGeometry.swift; sourceTree = "<group>"; };
 		CF000201000000000000001A /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		CF000203000000000000001A /* Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Timeline.swift; sourceTree = "<group>"; };
 		CF000207000000000000001A /* Search.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search.swift; sourceTree = "<group>"; };
@@ -150,6 +153,7 @@
 		CFE00032000000000000001A /* SkillFileParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillFileParserTests.swift; sourceTree = "<group>"; };
 		CFE00030000000000000001A /* StyleResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleResolverTests.swift; sourceTree = "<group>"; };
 		CF000305000000000000001A /* NotesLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesLibraryTests.swift; sourceTree = "<group>"; };
+		CF000310000000000000001A /* StickyPanelGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyPanelGeometryTests.swift; sourceTree = "<group>"; };
 		CF000205000000000000001A /* TimelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineTests.swift; sourceTree = "<group>"; };
 		CFE00050000000000000001A /* AudioRecorderWarmUpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorderWarmUpTests.swift; sourceTree = "<group>"; };
 		CFE00060000000000000001A /* ActivationModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationModeTests.swift; sourceTree = "<group>"; };
@@ -224,6 +228,7 @@
 				CFE00032000000000000001A /* SkillFileParserTests.swift */,
 				CFE00030000000000000001A /* StyleResolverTests.swift */,
 				CF000305000000000000001A /* NotesLibraryTests.swift */,
+				CF000310000000000000001A /* StickyPanelGeometryTests.swift */,
 				CF000205000000000000001A /* TimelineTests.swift */,
 				CF000209000000000000001A /* SearchTests.swift */,
 				CFE000B0000000000000001A /* StickyTabsTests.swift */,
@@ -318,6 +323,7 @@
 				CF000115000000000000001A /* RichTextEditor.swift */,
 				CF000107000000000000001A /* NotesView.swift */,
 				CF000302000000000000001A /* TranscriptDetail.swift */,
+				CF000308000000000000001A /* StickyPanelGeometry.swift */,
 				CF000201000000000000001A /* TodayView.swift */,
 			);
 			path = UI;
@@ -469,6 +475,7 @@
 				CF000102000000000000001A /* FirstMouseHostingView.swift in Sources */,
 				CF000301000000000000001A /* NotesLibrary.swift in Sources */,
 				CF000303000000000000001A /* TranscriptDetail.swift in Sources */,
+				CF000309000000000000001A /* StickyPanelGeometry.swift in Sources */,
 				CF000202000000000000001A /* TodayView.swift in Sources */,
 				CF000204000000000000001A /* Timeline.swift in Sources */,
 				CF000208000000000000001A /* Search.swift in Sources */,
@@ -508,6 +515,7 @@
 				CFE00033000000000000001A /* SkillFileParserTests.swift in Sources */,
 				CFE00031000000000000001A /* StyleResolverTests.swift in Sources */,
 				CF000306000000000000001A /* NotesLibraryTests.swift in Sources */,
+				CF000311000000000000001A /* StickyPanelGeometryTests.swift in Sources */,
 				CF000206000000000000001A /* TimelineTests.swift in Sources */,
 				CF00020A000000000000001A /* SearchTests.swift in Sources */,
 				CFE000B1000000000000001A /* StickyTabsTests.swift in Sources */,

@@ -608,6 +608,26 @@ final class NoteEditorProxy: ObservableObject {
     /// Is an editor currently attached? False while no note is open.
     var isAttached: Bool { textView != nil }
 
+    /// The styling a floating capsule can apply. Named rather than passed as a
+    /// selector so the call site can't reach an arbitrary action.
+    enum Style { case bold, italic, underline, highlight }
+
+    /// Apply `style` to the current selection.
+    ///
+    /// Goes through the text view's own actions — the same ones ⌘B/⌘I/⌘U and
+    /// the right-click menu use — so all three routes share one implementation
+    /// and one set of `shouldChangeText`/`didChangeText` calls, which is what
+    /// keeps undo and the save debounce working.
+    func apply(_ style: Style) {
+        guard let textView else { return }
+        switch style {
+        case .bold:      textView.toggleBoldTrait(nil)
+        case .italic:    textView.toggleItalicTrait(nil)
+        case .underline: textView.toggleUnderlineTrait(nil)
+        case .highlight: textView.toggleHighlight(nil)
+        }
+    }
+
     /// Replace the entire contents as **one** undoable edit. Returns false if
     /// there's no editor attached or the text system refused the change.
     @discardableResult
@@ -698,6 +718,12 @@ struct RichTextEditor: NSViewRepresentable {
 
     /// Optional handle for edits that must be undoable — see `NoteEditorProxy`.
     var proxy: NoteEditorProxy? = nil
+
+    /// Where the selection is on screen, in the editor's own coordinate space,
+    /// or `nil` when nothing is selected. Drives the sticky panel's floating
+    /// formatting capsule; unset everywhere else, so nothing is computed for
+    /// the surfaces that don't want it.
+    var onSelectionChange: ((CGRect?) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -800,6 +826,30 @@ struct RichTextEditor: NSViewRepresentable {
             guard !isApplyingProgrammaticChange else { return }
             parent.hasPendingEdit = true
             parent.onUserEdit?()
+        }
+
+        /// Report where a non-empty selection sits, so a floating control can
+        /// be positioned over it. Fires for programmatic selection changes too,
+        /// which is what clears the rect when a tab switch swaps the content.
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard parent.onSelectionChange != nil else { return }
+            guard let textView = notification.object as? NSTextView else { return }
+            let range = textView.selectedRange()
+            guard range.length > 0, let layout = textView.layoutManager,
+                  let container = textView.textContainer else {
+                parent.onSelectionChange?(nil)
+                return
+            }
+            let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            rect.origin.x += textView.textContainerOrigin.x
+            rect.origin.y += textView.textContainerOrigin.y
+            // Into the enclosing scroll view's space, so scrolling moves the
+            // capsule with the text rather than leaving it behind.
+            if let scroll = textView.enclosingScrollView {
+                rect = textView.convert(rect, to: scroll)
+            }
+            parent.onSelectionChange?(rect)
         }
 
         /// Focus gained/lost, from `RichTextView`'s first-responder overrides.

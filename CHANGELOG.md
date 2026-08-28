@@ -86,6 +86,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   single floating panel with a tab per note, so a handful of stickies is one
   tidy window instead of a pile. Click a tab to switch, **+** starts a new note
   right there, and the tab bar doubles as the drag handle.
+- **Sticky notes got quieter, and come in two sizes.** The tab strip is the
+  only chrome now — your writing runs to the edges of the card — and formatting
+  appears as a small bar over the text only when you've selected something,
+  rather than sitting there while you read. ⌘B, ⌘I, ⌘U and right-click all still
+  work exactly as before. Dragging the edges to resize is gone, replaced by one
+  button that swaps between a compact card and a roomier one; the panel keeps
+  its top-left corner where it was, so the tab you're reading doesn't jump.
 - **Closing a tab is still just unsticking.** The ✕ on the active tab asks
   first, exactly as before — the note stays in your Notes list — and the panel
   disappears by itself once you've closed the last tab. Your existing stickies

@@ -3,8 +3,10 @@ import SwiftUI
 import Combine
 import os
 
-/// A single floating, resizable sticky panel holding **every stuck note as a
-/// tab** (borrowed from Wispr's Scratchpad, 2026-08-10).
+/// A single floating sticky panel holding **every stuck note as a tab**
+/// (borrowed from Wispr's Scratchpad, 2026-08-10), in Trace's chrome discipline
+/// (2026-08-28): the tab strip is the only chrome, the text runs to the edges,
+/// and formatting is summoned over a selection rather than sitting on screen.
 ///
 /// **Tabs are presentation; stick/unstick is still the only lifecycle.** That
 /// is what makes the window's behaviour fall out for free: closing a *tab*
@@ -23,11 +25,13 @@ import os
 ///
 /// **The shadow is the window's, not SwiftUI's.** A SwiftUI `.shadow` needs
 /// transparent panel margins to draw into and clips as soon as the blur
-/// exceeds them (the CallOfferPanel lesson) — and margins fight resizing,
-/// because the resize edge would sit in transparent space. With `hasShadow`
-/// on, AppKit draws the shadow around the card's opaque rounded shape, it can
-/// never clip, and the panel edge == the visible card edge, which is exactly
-/// where `.resizable` puts the resize cursors.
+/// exceeds them (the CallOfferPanel lesson). With `hasShadow` on, AppKit draws
+/// the shadow around the card's opaque rounded shape and it can never clip.
+///
+/// **Two sizes, not free resize** (2026-08-28). `.resizable` and the per-pixel
+/// persisted size are gone; one toggle in the tab strip swaps compact ⇄ expanded
+/// via `StickyPanelGeometry`, holding the top-left corner so the tab you are
+/// reading doesn't move.
 ///
 /// **The frame lives in UserDefaults, not the note row.** With one panel for
 /// all stickies the per-note `pinX/pinY/pinW/pinH` columns no longer describe
@@ -51,19 +55,22 @@ final class StickyNotePanel: NSPanel {
     var onDelete: ((UUID) -> Void)?
     var onNewTab: (() -> Void)?
     var onActiveTabChange: ((UUID?) -> Void)?
+    var onModeChange: ((StickyPanelMode) -> Void)?
 
     private static let log = Logger(subsystem: "com.shhhcribble.app", category: "sticky")
 
     /// Bigger than the pre-tabs default (260×200) because a tab bar needs
     /// horizontal room before it starts scrolling.
-    static let defaultSize = NSSize(width: 320, height: 260)
-    static let minStickySize = NSSize(width: 240, height: 170)
-    static let maxStickySize = NSSize(width: 640, height: 640)
+    static let defaultSize = NSSize(width: StickyPanelMode.compact.size.width,
+                                    height: StickyPanelMode.compact.size.height)
+
+    /// Which of the two sizes the panel is at. Changing it re-frames the window.
+    private(set) var mode: StickyPanelMode = .compact
 
     init() {
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.defaultSize),
-            styleMask:   [.borderless, .nonactivatingPanel, .resizable],
+            styleMask:   [.borderless, .nonactivatingPanel],
             backing:     .buffered,
             defer:       false
         )
@@ -79,8 +86,6 @@ final class StickyNotePanel: NSPanel {
         // drags in its own area); background-drag makes the whole card
         // grabbable wherever SwiftUI doesn't swallow the mouse.
         isMovableByWindowBackground = true
-        minSize = Self.minStickySize
-        maxSize = Self.maxStickySize
         // The manager holds the only strong reference; NSPanel defaults
         // releasedWhenClosed to true, which under ARC risks an over-release if
         // anything ever close()s instead of orderOut()s.
@@ -90,10 +95,11 @@ final class StickyNotePanel: NSPanel {
 
         let content = FirstMouseHostingView(rootView: StickyView(
             model: model,
-            onUnstick:  { [weak self] id in self?.onUnstick?(id) },
-            onDelete:   { [weak self] id in self?.onDelete?(id) },
-            onNewTab:   { [weak self] in self?.onNewTab?() },
-            onActivate: { [weak self] id in self?.onActiveTabChange?(id) }
+            onUnstick:   { [weak self] id in self?.onUnstick?(id) },
+            onDelete:    { [weak self] id in self?.onDelete?(id) },
+            onNewTab:    { [weak self] in self?.onNewTab?() },
+            onActivate:  { [weak self] id in self?.onActiveTabChange?(id) },
+            onToggleSize:{ [weak self] in self?.toggleMode() }
         ))
         content.frame = NSRect(origin: .zero, size: Self.defaultSize)
         // Track the panel as it resizes so the SwiftUI card always fills it.
@@ -137,12 +143,13 @@ final class StickyNotePanel: NSPanel {
     /// and released.
     func flushPendingEdit() { model.flushSave() }
 
-    /// Show at the saved frame (clamped to a visible screen), or at
-    /// `preferredOrigin`, or centred-ish on the main screen.
-    func present(at origin: CGPoint?, size restoredSize: CGSize?) {
-        var size = restoredSize ?? Self.defaultSize
-        size.width = min(max(size.width, minSize.width), maxSize.width)
-        size.height = min(max(size.height, minSize.height), maxSize.height)
+    /// Show at the saved origin (clamped to a visible screen) in `mode`, or
+    /// centred-ish on the main screen. The *size* comes from the mode now, never
+    /// from what was saved.
+    func present(at origin: CGPoint?, mode restoredMode: StickyPanelMode) {
+        mode = restoredMode
+        model.mode = restoredMode
+        let size = mode.size
 
         var point: CGPoint
         if let origin {
@@ -155,12 +162,25 @@ final class StickyNotePanel: NSPanel {
         }
         // Clamp so a panel saved on a disconnected display comes back on-screen.
         if let screen = screenContaining(point) ?? NSScreen.main ?? NSScreen.screens.first {
-            let f = screen.visibleFrame
-            point.x = min(max(point.x, f.minX), f.maxX - size.width)
-            point.y = min(max(point.y, f.minY), f.maxY - size.height)
+            point = StickyPanelGeometry.clamp(origin: point, size: size,
+                                              in: screen.visibleFrame)
         }
         setFrame(NSRect(origin: point, size: size), display: true)
         orderFront(nil)
+    }
+
+    /// Swap compact ⇄ expanded, holding the top-left corner. The resulting
+    /// `didResizeNotification` persists the new origin through the existing
+    /// debounce, so there is no separate save path.
+    func toggleMode() {
+        let screen = screenContaining(frame.origin) ?? self.screen
+            ?? NSScreen.main ?? NSScreen.screens.first
+        mode = mode.toggled
+        model.mode = mode
+        let visible = screen?.visibleFrame ?? frame
+        let next = StickyPanelGeometry.frame(frame, at: mode, in: visible)
+        setFrame(next, display: true, animate: false)
+        onModeChange?(mode)
     }
 
     /// Bring a tab to the front and focus its editor — the quick-add and
@@ -200,6 +220,7 @@ final class StickyPanelManager {
     private enum Key {
         static let frame = "stickyPanelFrame"
         static let activeNote = "stickyActiveNoteID"
+        static let mode = "stickyPanelMode"
     }
 
     private let store: TranscriptStore
@@ -313,26 +334,36 @@ final class StickyPanelManager {
             if let id { self.defaults.set(id.uuidString, forKey: Key.activeNote) }
             else { self.defaults.removeObject(forKey: Key.activeNote) }
         }
-        let (origin, size) = restoredPlacement(for: stuck)
-        panel.present(at: origin, size: size)
+        panel.onModeChange = { [weak self] mode in
+            self?.defaults.set(mode.rawValue, forKey: Key.mode)
+        }
+        panel.present(at: restoredOrigin(for: stuck), mode: restoredMode())
         return panel
     }
 
-    /// Where to put a freshly-created panel: the saved panel frame, else — for
-    /// someone upgrading from one-panel-per-note — the frame of their most
+    private func restoredMode() -> StickyPanelMode {
+        guard let raw = defaults.string(forKey: Key.mode),
+              let mode = StickyPanelMode(rawValue: raw) else { return .compact }
+        return mode
+    }
+
+    /// Where to put a freshly-created panel: the saved panel origin, else — for
+    /// someone upgrading from one-panel-per-note — the origin of their most
     /// recently touched sticky, so the panel appears roughly where they left
     /// their stickies rather than jumping to the middle of the screen.
-    private func restoredPlacement(for stuck: [Note]) -> (CGPoint?, CGSize?) {
+    ///
+    /// Only the **origin** is restored. The saved frame's size (and the legacy
+    /// `pinW`/`pinH`) described a freely-resized panel, which no longer exists;
+    /// the size now comes from the mode. Both are still written/read for
+    /// rollback, same discipline as the retired columns.
+    private func restoredOrigin(for stuck: [Note]) -> CGPoint? {
         if let raw = defaults.string(forKey: Key.frame) {
             let frame = NSRectFromString(raw)
-            if frame.width > 0 && frame.height > 0 { return (frame.origin, frame.size) }
+            if frame.width > 0 && frame.height > 0 { return frame.origin }
         }
-        guard let legacy = store.stuckNotes.first, let x = legacy.pinX, let y = legacy.pinY else {
-            return (nil, nil)
-        }
-        let size: CGSize? = (legacy.pinW != nil && legacy.pinH != nil)
-            ? CGSize(width: legacy.pinW!, height: legacy.pinH!) : nil
-        return (CGPoint(x: x, y: y), size)
+        guard let legacy = store.stuckNotes.first,
+              let x = legacy.pinX, let y = legacy.pinY else { return nil }
+        return CGPoint(x: x, y: y)
     }
 }
 
@@ -360,6 +391,16 @@ final class StickyTabsModel: ObservableObject {
     /// Closing a tab always confirms; this drives the in-card overlay (an
     /// NSAlert/sheet looks absurd on a small floating card).
     @Published var showingCloseConfirm: Bool = false
+    /// Which of the two sizes the panel is at — the tab strip's toggle glyph
+    /// reads this so it always names the size you'd get by clicking.
+    @Published var mode: StickyPanelMode = .compact
+    /// Where the selection sits, for the floating formatting capsule. Nil when
+    /// nothing is selected, which is also what hides the capsule.
+    @Published var selectionRect: CGRect?
+
+    /// Reaches the live text view, so the capsule's buttons run the same
+    /// styling actions ⌘B/⌘I/⌘U do.
+    let editor = NoteEditorProxy()
 
     /// Set by the panel — this is how a write reaches the store.
     var onCommit: ((UUID, NSAttributedString) -> Void)?
@@ -523,6 +564,7 @@ private struct StickyView: View {
     let onDelete: (UUID) -> Void
     let onNewTab: () -> Void
     let onActivate: (UUID?) -> Void
+    let onToggleSize: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -531,7 +573,10 @@ private struct StickyView: View {
                 attributed: $model.attributed,
                 hasPendingEdit: $model.hasPendingEdit,
                 font: StickyTabsModel.font,
-                insets: NSSize(width: 8, height: 4),
+                // Nearly to the edge, Trace-style — the words are the interface.
+                // Not zero: a rounded card clips descenders into its corner
+                // radius, and the caret needs somewhere to sit on line one.
+                insets: NSSize(width: 5, height: 3),
                 onFocusChange: { focused in
                     if focused {
                         // ⌘V/⌘Z/⌘B route through the active app's main menu; as
@@ -548,9 +593,12 @@ private struct StickyView: View {
                 // otherwise ⌘Z would paste the previous note over this one.
                 // Reusing it (rather than rebuilding per tab) is what keeps the
                 // caret alive across a switch, so typing continues uninterrupted.
-                resetsUndoOnExternalChange: true
+                resetsUndoOnExternalChange: true,
+                proxy: model.editor,
+                onSelectionChange: { rect in model.selectionRect = rect }
             )
             .padding(.bottom, 6)
+            .overlay(alignment: .topLeading) { formattingCapsule }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -562,6 +610,9 @@ private struct StickyView: View {
                 .strokeBorder(.white.opacity(DesignSystem.strokeSubtle), lineWidth: 1)
         )
         .overlay { closeConfirmOverlay }
+        // A swapped-in tab keeps the old tab's selection rect for an instant
+        // otherwise, so the capsule flashes over the wrong note's text.
+        .onChange(of: model.activeID) { _, _ in model.selectionRect = nil }
         .onDisappear { model.flushSave() }
     }
 
@@ -587,11 +638,70 @@ private struct StickyView: View {
             .buttonStyle(.plain)
             .help("New note")
             .accessibilityLabel("New note")
+
+            // Trailing corner, away from the tabs: it acts on the window, not
+            // on any one note. The glyph names the size you'd get by clicking.
+            Button(action: onToggleSize) {
+                Image(systemName: model.mode.toggleIcon)
+                    .font(.system(size: DesignSystem.ChromeText.micro, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(model.mode.toggleHelp)
+            .accessibilityLabel(model.mode.toggleHelp)
         }
         .padding(.horizontal, 8)
         .padding(.top, 7)
         .padding(.bottom, 5)
         .contentShape(Rectangle())
+    }
+
+    /// Formatting, **summoned over the selection** rather than resident (Trace's
+    /// discipline): a small card has no room for a permanent toolbar, and a
+    /// control you only need while styling shouldn't be on screen while you
+    /// read.
+    ///
+    /// ⌘B/⌘I/⌘U and the right-click menu are untouched and remain the primary
+    /// routes — this is a third way in, for the times your hands are on the
+    /// mouse. All three call the same actions through `NoteEditorProxy`.
+    @ViewBuilder
+    private var formattingCapsule: some View {
+        if let rect = model.selectionRect {
+            HStack(spacing: 2) {
+                styleButton("bold", "Bold", .bold)
+                styleButton("italic", "Italic", .italic)
+                styleButton("underline", "Underline", .underline)
+                styleButton("highlighter", "Highlight", .highlight)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+            .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 6, y: 2)
+            // Above the selection where it doesn't cover what you just picked;
+            // `max` keeps it inside the card when the selection is on line one.
+            .offset(x: max(rect.midX - 74, 6), y: max(rect.minY - 34, 4))
+            .transition(.opacity)
+            .allowsHitTesting(true)
+        }
+    }
+
+    private func styleButton(_ icon: String, _ label: String,
+                             _ style: NoteEditorProxy.Style) -> some View {
+        Button {
+            model.editor.apply(style)
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: DesignSystem.ChromeText.secondary, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 
     /// One tab. The close control sits on the **active** tab only: a row of ✕s
