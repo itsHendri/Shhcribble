@@ -1,10 +1,15 @@
 import SwiftUI
 import AppKit
 
-/// The Notes module — a master-detail environment deliberately templated on
-/// the Transcriptions pane (same searchable list on the left, same
-/// detail-with-actions on the right, same floating glass action button, same
-/// toast and confirm conventions).
+/// The Notes shelf — **one master-detail over everything you keep**: written
+/// notes and transcribed documents (imports, call captures) in a single list.
+///
+/// They were two rail items until 2026-08-28, and they were the same
+/// master-detail with different nouns. A note and a document differ in how they
+/// were made and how they're read, not in what they're *for* — so the list is
+/// one, and only the detail forks: a note opens the rich-text editor, a document
+/// opens the Transcript | Summary reader. That fork is why the selection is a
+/// `NoteListSelection` rather than a bare id.
 ///
 /// Notes are rich text: **⌘B/⌘I/⌘U** style the selection (handled by
 /// `RichTextView` itself — see why there is no Format menu) and URLs become
@@ -12,34 +17,44 @@ import AppKit
 /// plain note-taking for now.
 struct NotesView: View {
     @ObservedObject var store: TranscriptStore
+    @ObservedObject var fileTranscriber: FileTranscriber
     /// Needed for dictation into a note — the Studio shell already holds it.
     let appDelegate: AppDelegate
     /// Owned by the Studio shell, not by this view: a search result opens a
-    /// note by writing here and switching tabs, and a tab round-trip keeps the
-    /// selection instead of snapping back to the newest note.
-    @Binding var selectedID: UUID?
+    /// note *or a document* by writing here and switching tabs, and a rail
+    /// round-trip keeps the selection instead of snapping back to the newest.
+    @Binding var selection: NoteListSelection?
+    @Binding var search: String
+    var onUpload: () -> Void
 
     @State private var hoveredID: UUID?
-    @State private var searchText = ""
     @StateObject private var toast = ToastState()
 
-    /// Newest first, like the transcripts list.
-    private var ordered: [Note] {
-        store.notes.sorted { $0.createdAt > $1.createdAt }
+    /// The merged shelf, newest first — pure and tested in `NotesLibrary`.
+    private var rows: [NoteOrDocument] {
+        NotesLibrary.merged(notes: store.notes(matching: search),
+                            documents: store.documents(matching: search))
     }
 
-    private var filtered: [Note] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return ordered }
-        return ordered.filter { $0.text.lowercased().contains(q) }
+    private var selectedNote: Note? {
+        guard case .note(let id) = selection else { return nil }
+        return store.notes.first { $0.id == id }
     }
 
-    private var selected: Note? { store.notes.first { $0.id == selectedID } }
+    private var selectedDocument: Transcript? {
+        guard case .document(let id) = selection else { return nil }
+        return store.transcripts.first { $0.id == id }
+    }
 
     /// Notes currently on screen group at the top of the list; everything else
-    /// follows in date order. Both halves respect the search.
-    private var stuckMatches: [Note] { filtered.filter(\.stuck) }
-    private var unstuckMatches: [Note] { filtered.filter { !$0.stuck } }
+    /// follows in date order. Both halves respect the search. Only notes can be
+    /// stuck — a document isn't something you put on your screen.
+    private var stuckMatches: [NoteOrDocument] {
+        rows.filter { if case .note(let n) = $0 { return n.stuck } else { return false } }
+    }
+    private var unstuckMatches: [NoteOrDocument] {
+        rows.filter { if case .note(let n) = $0 { return !n.stuck } else { return true } }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -51,10 +66,10 @@ struct NotesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toast(toast)
-        // Preselect the newest note the first time the list is shown; the
+        // Preselect the newest item the first time the list is shown; the
         // `== nil` guard means a later visit keeps whatever the user last picked.
         .onAppear {
-            if selectedID == nil { selectedID = filtered.first?.id }
+            if selection == nil { selection = rows.first?.id }
         }
     }
 
@@ -62,8 +77,13 @@ struct NotesView: View {
 
     private var listColumn: some View {
         VStack(spacing: 0) {
-            SearchPill(text: $searchText, prompt: "Search notes")
+            SearchPill(text: $search, prompt: "Search notes and documents")
             List {
+                if case let .running(name, index, total, progress) = fileTranscriber.status {
+                    progressBanner(name: name, index: index, total: total, progress: progress)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+                        .listRowSeparator(.hidden)
+                }
                 // Always two sections, so sticking the first item doesn't
                 // restructure the whole list and churn every row's identity.
                 // An empty section draws nothing; the header appears only when
@@ -80,7 +100,7 @@ struct NotesView: View {
                 // Then day groups, per the wireframe: fifty notes in one
                 // undifferentiated column is a list you scroll past rather than
                 // read.
-                ForEach(Timeline.grouped(unstuckMatches, by: \.createdAt), id: \.group) { bucket in
+                ForEach(Timeline.grouped(unstuckMatches, by: \.date), id: \.group) { bucket in
                     Section {
                         ForEach(bucket.items) { row($0) }
                     } header: {
@@ -89,14 +109,17 @@ struct NotesView: View {
                 }
             }
             .overlay {
-                if filtered.isEmpty && searchText.isEmpty {
+                // The shelf holds two kinds of thing, so the empty state has to
+                // speak for both — otherwise it reads as "notes only" and the
+                // Upload route looks like it belongs somewhere else.
+                if rows.isEmpty && search.isEmpty {
                     ContentUnavailableView(
-                        "No notes yet",
+                        "Nothing kept yet",
                         systemImage: "note.text",
-                        description: Text("Keep what's worth keeping. Start one from scratch, or send a dictation here from Today.")
+                        description: Text("This is the shelf for what you keep — notes you write, and the files and calls you transcribe.")
                     )
-                } else if filtered.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
+                } else if rows.isEmpty {
+                    ContentUnavailableView.search(text: search)
                 }
             }
             // Floating glass action hovering over the bottom of the list —
@@ -117,33 +140,55 @@ struct NotesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func row(_ note: Note) -> some View {
-        NoteRow(note: note,
-                hovered: hoveredID == note.id,
-                onCopy: { copyNote(note) })
+    private func row(_ item: NoteOrDocument) -> some View {
+        let rowID = item.id.id
+        return LibraryRow(item: item,
+                          hovered: hoveredID == rowID,
+                          onCopy: { copyRow(item) })
             .contentShape(Rectangle())
-            .onTapGesture { selectedID = note.id }
-            .onHover { hoveredID = $0 ? note.id : (hoveredID == note.id ? nil : hoveredID) }
+            .onTapGesture { selection = item.id }
+            .onHover { hoveredID = $0 ? rowID : (hoveredID == rowID ? nil : hoveredID) }
             .listRowSeparator(.hidden)
             .listRowBackground(
                 RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous)
-                    .fill(selectedID == note.id || hoveredID == note.id ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
+                    .fill(selection == item.id || hoveredID == rowID ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
             )
     }
 
     @ViewBuilder
+    private func progressBanner(name: String, index: Int, total: Int, progress: Double) -> some View {
+        HStack(spacing: 8) {
+            ProgressView(value: progress > 0 ? progress : nil)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(total > 1 ? "Transcribing \(index) of \(total)" : "Transcribing…")
+                    .font(.caption).fontWeight(.medium)
+                Text(name).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button("Cancel") { fileTranscriber.cancel() }
+                .controlSize(.small)
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// The fork the merged list exists to hide: same row, two readers.
+    @ViewBuilder
     private var detailColumn: some View {
-        if let note = selected {
+        if let note = selectedNote {
             NoteDetail(note: note, store: store, toast: toast, appDelegate: appDelegate,
                        noteDictation: appDelegate.noteDictation, onCopy: { copy(text: $0) })
                 .id(note.id)
+        } else if let document = selectedDocument {
+            TranscriptDetail(transcript: document, store: store, toast: toast)
+                .id(document.id)
         } else {
             ContentUnavailableView(
-                "Select a note",
+                "Select something to read",
                 systemImage: "text.cursor",
-                description: Text("Pick a note from the list, or add a new one.")
+                description: Text("Pick a note or a document from the list, or add a new note.")
             )
         }
     }
@@ -155,11 +200,16 @@ struct NotesView: View {
     private func addNote() {
         let note = Note(text: "")
         store.addNote(note)
-        searchText = ""
-        selectedID = note.id
+        search = ""
+        selection = .note(note.id)
     }
 
-    private func copyNote(_ note: Note) { copy(text: note.text) }
+    private func copyRow(_ item: NoteOrDocument) {
+        switch item {
+        case .note(let n):     copy(text: n.text)
+        case .document(let t): copy(text: t.text)
+        }
+    }
 
     private func copy(text: String) {
         let pb = NSPasteboard.general
@@ -196,11 +246,16 @@ struct NotesView: View {
 
 // MARK: - List row
 
-/// One row in the notes list — a single-line title with a fixed-width trailing
+/// One row of the merged shelf — a single-line title with a fixed-width trailing
 /// slot that shows the date normally and copy on hover, so the title never
 /// reflows.
-private struct NoteRow: View {
-    let note: Note
+///
+/// A document is told apart by a **quiet leading glyph** and nothing else: the
+/// list's whole argument is that these are the same kind of thing to you, so a
+/// document row that shouted would undo it. The glyph is `source.icon`, the same
+/// one its reader shows.
+private struct LibraryRow: View {
+    let item: NoteOrDocument
     var hovered: Bool = false
     var onCopy: () -> Void = {}
 
@@ -209,11 +264,16 @@ private struct NoteRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             HStack(spacing: 5) {
-                Text(NotesView.preview(note.text))
+                if case .document(let t) = item {
+                    Image(systemName: t.source.icon)
+                        .font(.system(size: DesignSystem.ChromeText.micro))
+                        .foregroundStyle(.tertiary)
+                }
+                Text(item.title)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if note.stuck {
+                if case .note(let n) = item, n.stuck {
                     Image(systemName: "macwindow")
                         .font(.system(size: DesignSystem.ChromeText.micro))
                         .foregroundStyle(.tertiary)
@@ -230,12 +290,19 @@ private struct NoteRow: View {
     @ViewBuilder
     private var trailing: some View {
         if hovered {
-            RowHoverButton("square.on.square", help: "Copy note", action: onCopy)
+            RowHoverButton("square.on.square", help: "Copy", action: onCopy)
         } else {
-            Text(note.createdAt.formatted(date: .abbreviated, time: .omitted))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(item.date.formatted(date: .abbreviated, time: .omitted))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if case .document(let t) = item, let d = t.durationSec, d > 0 {
+                    Text(Transcript.durationString(d))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
     }
 }

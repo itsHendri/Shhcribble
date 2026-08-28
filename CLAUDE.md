@@ -200,13 +200,19 @@ This is the first cut of the **"Transcription Studio"** program (see [docs/ROADM
 ### Menu bar is window-first — left-click opens the window, right-click is a minimal menu
 [MenuBarController.swift](Shhhcribble/UI/MenuBarController.swift) is the `NSStatusItem` + a click handler that branches on `NSApp.currentEvent?.type`: **left-click opens the Transcriptions window**; **right-click pops a small `NSMenu`** with **Upload Audio…** (file transcription) and **Quit** (via `menu.popUp(...)`, not a persistent `statusItem.menu`, so left-click keeps firing the action). The old full dropdown is still gone — recent transcripts, Settings, engine status live only in the window ([TranscriptionsView.swift](Shhhcribble/UI/TranscriptionsView.swift)). The right-click menu revived the `MenuBarControllerDelegate` `transcribeFile`/`quit` methods (they're now wired to `presentFilePicker()` / `NSApp.terminate`, not dead code); `repaste`/`checkForUpdates` remain unused. Because there's no app menu (`LSUIElement`), **Quit must stay reachable** — it now has two homes: the window rail button *and* the right-click menu. Having the right-click Quit is what made the window rail safe to **collapse** (see the Transcriptions window decisions).
 
-### Studio shell: five-item rail + Settings-as-an-environment (redesign phase 1)
-The Studio window's IA now follows the locked redesign in
+### Studio shell: three-item rail + Settings-as-an-environment
+The Studio window's IA follows the locked redesign in
 [docs/design/studio-wireframes.md](docs/design/studio-wireframes.md) — **read that
-file before ANY Studio UI work; it is the contract.** Rail is **Today · Notes ·
-Documents · Pinned · Settings** on every screen, and the titlebar always reads
-"Shhhcribble" (the rail's active state is the location indicator — don't restate
-it in the title).
+file before ANY Studio UI work; it is the contract.** Rail is **Dictations ·
+Notes · Settings** on every screen (2026-08-28, down from five), and the titlebar
+always reads "Shhhcribble" (the rail's active state is the location indicator —
+don't restate it in the title).
+
+**The app is two halves and the rail says so**: the stream of what you *said*,
+and the shelf of what you *keep*. Documents was folded into Notes because the two
+were the same master-detail with different nouns — a note and a document differ
+in how they were made and how they're read, not in what they're for. Pinned went
+with the pin feature.
 
 - **Settings is one rail item that opens its own master-detail**: a subnav column
   (**Preferences · Styles · Dictionary · Feedback**) with **Check for updates**
@@ -217,28 +223,32 @@ it in the title).
 - **Quit left the rail.** The "Quit must stay reachable" invariant now rests on
   the menu-bar right-click menu (which is also why collapsing the rail is safe).
   Don't remove it from there.
-- **Two panes are still stand-ins**, each replaced by its owning phase and each
-  marked in code: **Today** = the pre-redesign transcripts master-detail (the
-  chronological two-weight timeline is phase 4); **Documents** = that same reader
-  over `store.documents(matching:)`, which today means file imports only (call
-  captures still store as `.dictation`, so they stay in Today until phase 3 gives
-  documents a real source category). Don't "finish" a stand-in without doing its
-  phase properly. **Pinned is real** as of phase 2 (below).
-- `NotesView`'s selection is now a `@Binding` owned by `TranscriptionsView` —
-  that's what lets the Pinned board open a note in its home tab, and it keeps the
-  selection across a rail round-trip.
+- **The Notes shelf's selection is an enum, not an id**:
+  `NoteListSelection { case note(UUID); case document(UUID) }`, in
+  [Storage/NotesLibrary.swift](Shhhcribble/Storage/NotesLibrary.swift). Two
+  optionals would need a third bit saying which is current and could silently
+  disagree; here the illegal state can't be written down, and search's two jump
+  destinations set it directly. **Owned by `TranscriptionsView`, not `NotesView`**
+  — the detail `switch` is a `_ConditionalContent`, so leaving a branch destroys
+  its `@State` (the same trap that bit `todayDay` and `FeedbackDraft`).
+- **The merged list is pure and tested** (`NotesLibrary.merged`), interleaving
+  both kinds newest-first with an id tie-break — a note promoted from a
+  document's action item can share its second, and an unstable sort churns
+  `ForEach` identity. Only the *detail* forks on the kind; the row does not,
+  beyond a quiet `source.icon` glyph.
 - **The category predicates live on the store, not in the views**:
-  `TranscriptStore.documents(matching:)` and `.pinnedNotes` are exactly what
-  phases 3 and 2 redefine, so the change lands in one unit-tested place and the
-  view diff is a rename. Don't inline `filter { $0.source == .file }` /
-  `filter(\.pinned)` back into a pane.
-- **`TranscriptListPane` is a component, not a pair of helper funcs** — a `func`
-  can't own state, so sharing the master-detail that way forced every list's
-  hover/toast state up into the window. Transient state stays in the component;
-  only the selection and query (which must survive a rail round-trip) are passed
-  in. `SearchPill` and `TagCapsule` in [DesignSystem.swift](Shhhcribble/UI/DesignSystem.swift)
+  `TranscriptStore.documents(matching:)` and `.notes(matching:)`. Don't inline
+  `filter { $0.source == .file }` back into a pane.
+- `SearchPill` and `TagCapsule` in [DesignSystem.swift](Shhhcribble/UI/DesignSystem.swift)
   are the shared chrome for the search field and the little neutral label —
-  reach for them instead of re-stacking the modifiers.
+  reach for them instead of re-stacking the modifiers. (`TranscriptListPane` and
+  `TranscriptRow` were **deleted** with the Documents pane; `TranscriptDetail`
+  moved to its own file and is now the shelf's document reader.)
+- **One capsule per column still holds.** The Notes column's is **Add Note**;
+  **Upload Audio…** lives on the menu-bar right-click menu and the Dictations
+  empty state, both of which already carried it. A file job in progress jumps to
+  Notes, which is where its banner, its Cancel, and eventually the transcript
+  itself all are.
 
 ### Stick is a note's only lifecycle — PIN IS RETIRED (2026-08-28)
 `Note.pinned` once meant "on screen as a sticky"; the 2026-07-25 split made it
@@ -295,13 +305,15 @@ panel.
   covers export, a `.txt` sidecar is already written at transcription time, and a
   source file is often ephemeral while the transcript is the durable artifact.
 
-### Documents vs dictations — a real source category (redesign phase 3)
+### Documents vs dictations — a real source category
 `TranscriptSource` gained **`.call`**, and the split it encodes is the one the
 redesign is built on: **`.dictation` is the quick, semi-throwaway half** (kept
 for recovery and reuse), while **`.file` and `.call` are long-form material you
-keep**. `TranscriptSource.isDocument` is that line, `TranscriptStore.documents(matching:)`
-is the single place it's applied, and the Documents tab is what it feeds. A new
-long-form source joins Documents by flipping `isDocument` — don't re-inline
+keep**. `TranscriptSource.isDocument` is that line and `TranscriptStore.documents(matching:)`
+is the single place it's applied. **It no longer feeds a tab of its own**
+(2026-08-28): documents live on the Notes shelf, and `isDocument` now decides
+which detail pane a shelf row opens and what the day stream leaves out. A new
+long-form source joins the shelf by flipping `isDocument` — don't re-inline
 `source == .file` in a view.
 
 - **Schema v12 reclassifies the call captures that shipped before the case
@@ -314,7 +326,7 @@ long-form source joins Documents by flipping `isDocument` — don't re-inline
 - Summaries stay a **Documents-only** affordance per the design contract; the
   reader is still shared with Today until phase 4 takes it out of the timeline.
 
-### Today is a stream of transcriptions, not a master-detail (redesign phase 4)
+### Dictations is a stream, not a master-detail
 [TodayView.swift](Shhhcribble/UI/TodayView.swift) replaced the transcripts
 master-detail. **Transcriptions only** (ruled 2026-08-10): Today is the record
 of what you *said*, and a note is something you *wrote* — mixing them made
@@ -381,7 +393,7 @@ again — the tie-break rule itself stands); **dictations cannot be pinned**
 appears for a document, and a row pinned by an older build stays off the board);
 and these day groups, which the build had skipped.
 
-### Search: only Today crosses categories (redesign phase 5)
+### Search: only the Dictations pane crosses categories
 [Storage/Search.swift](Shhhcribble/Storage/Search.swift) is pure and tested;
 `TodayView` renders it. A query **replaces** the day stream with results grouped
 **Notes → Dictations → Documents**, dated within each, the match picked out in

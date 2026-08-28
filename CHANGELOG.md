@@ -53,11 +53,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pinned is still exactly where it was in the list.
 
 ### Changed
+- **Three places instead of five: Dictations, Notes, Settings.** Documents and
+  Notes were the same screen with different words on it, so they're one shelf
+  now — your notes and your transcribed files and calls in a single list, sorted
+  by when they arrived. Opening a note gives you the editor; opening a file or a
+  call gives you the transcript and its summary, exactly as before.
 - **The Today tab is now Dictations, and shows only your dictations.** The name
   never matched a screen you can page backwards through, and files and call
-  transcripts have moved to the Notes shelf, where the rest of what you keep
-  lives. What's left is one honest thing: the record of what you said, one day
-  at a time.
+  transcripts moved to the Notes shelf with everything else you keep. What's
+  left is one honest thing: the record of what you said, one day at a time.
 - **You can't page into the future any more.** The forward arrow switches off
   when you're on today, and days after today are greyed out in the month
   picker — there was nothing to find there.

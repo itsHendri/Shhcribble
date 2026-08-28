@@ -856,13 +856,24 @@ final class TranscriptStore: ObservableObject {
         }
     }
 
-    /// Transcripts that belong in the **Documents** tab — long-form material you
+    /// Transcripts that belong on the **Notes shelf** — long-form material you
     /// keep (file and video imports, call captures), as opposed to the quick
-    /// dictations that pass through Today. One tested place, rather than a
-    /// predicate spread across the views: a new long-form source joins Documents
-    /// by flipping `TranscriptSource.isDocument`.
+    /// dictations that pass through the day stream. One tested place, rather
+    /// than a predicate spread across the views: a new long-form source joins
+    /// the shelf by flipping `TranscriptSource.isDocument`.
     func documents(matching query: String) -> [Transcript] {
         matching(query).filter(\.source.isDocument)
+    }
+
+    /// Notes matching a query, newest first — the written half of the shelf.
+    /// Lifted out of the view so both halves of the merged list apply their
+    /// predicate in the same tested place.
+    func notes(matching query: String) -> [Note] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ordered = notes.sorted { $0.createdAt > $1.createdAt }
+        guard !q.isEmpty else { return ordered }
+        let needle = q.lowercased()
+        return ordered.filter { $0.text.lowercased().contains(needle) }
     }
 
     /// Notes currently on screen as floating stickies, newest-touched first —
