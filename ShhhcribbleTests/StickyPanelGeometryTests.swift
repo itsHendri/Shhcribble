@@ -56,17 +56,31 @@ final class StickyPanelGeometryTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(expanded.minX, screen.minX)
     }
 
-    /// A panel taller than the screen is pinned to the top-left rather than
-    /// pushed off it — otherwise it would hide its own tab strip, which is the
-    /// only chrome it has.
+    /// A panel taller than the screen keeps its **top** edge visible, because
+    /// that is where the tab strip is — the panel's only chrome. AppKit's origin
+    /// is bottom-left, so top-aligned means an origin *below* `minY`; asserting
+    /// `minY` here (as an earlier version did) actually pins the bottom and
+    /// pushes the tab strip off the top of the screen.
     func testAPanelLargerThanTheScreenKeepsItsTopLeftVisible() {
         let tiny = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let size = StickyPanelMode.expanded.size
         let origin = StickyPanelGeometry.clamp(
-            origin: CGPoint(x: -50, y: -50),
-            size: StickyPanelMode.expanded.size, in: tiny)
+            origin: CGPoint(x: -50, y: -50), size: size, in: tiny)
 
-        XCTAssertEqual(origin.x, tiny.minX)
-        XCTAssertEqual(origin.y, tiny.minY)
+        XCTAssertEqual(origin.x, tiny.minX, "left edge visible")
+        XCTAssertEqual(origin.y + size.height, tiny.maxY, "and the TOP edge visible")
+        XCTAssertLessThan(origin.y, tiny.minY, "which necessarily hangs off the bottom")
+    }
+
+    /// The same rule through the frame API, which is how it's actually reached.
+    func testExpandingOnAShortScreenKeepsTheTabStripVisible() {
+        let short = CGRect(x: 0, y: 0, width: 1440, height: 400)
+        let compact = CGRect(x: 100, y: 100,
+                             width: StickyPanelMode.compact.size.width,
+                             height: StickyPanelMode.compact.size.height)
+        let expanded = StickyPanelGeometry.frame(compact, at: .expanded, in: short)
+
+        XCTAssertEqual(expanded.maxY, short.maxY, "the top edge stays on screen")
     }
 
     /// Toggling twice must return the panel exactly where it started, or the

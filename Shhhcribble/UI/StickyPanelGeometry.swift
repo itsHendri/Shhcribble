@@ -55,13 +55,20 @@ enum StickyPanelGeometry {
 
     /// Keep a panel of `size` fully inside `visibleFrame` where it can be.
     ///
-    /// A panel larger than the screen is pinned to the top-left rather than
-    /// pushed off it: `max` runs last so it wins the tie, which is what stops a
-    /// too-tall expanded panel from hiding its own tab strip above the menu bar.
+    /// **When the panel doesn't fit, the top-left corner wins** — that is where
+    /// the tab strip is, and a panel that hides its own only chrome is unusable.
+    /// The axes need opposite tie-breaks to say that, because AppKit's origin is
+    /// bottom-left: on x, keeping the left edge means `max` last; on y, keeping
+    /// the *top* edge means `min` last (pinning to `minY` would bottom-align it
+    /// and push the tab strip off the top). Getting this backwards was caught in
+    /// review, with a test that passed for the wrong reason.
     static func clamp(origin: CGPoint, size: CGSize, in visibleFrame: CGRect) -> CGPoint {
-        CGPoint(
-            x: max(min(origin.x, visibleFrame.maxX - size.width), visibleFrame.minX),
-            y: max(min(origin.y, visibleFrame.maxY - size.height), visibleFrame.minY)
-        )
+        let x = size.width > visibleFrame.width
+            ? visibleFrame.minX
+            : max(min(origin.x, visibleFrame.maxX - size.width), visibleFrame.minX)
+        let y = size.height > visibleFrame.height
+            ? visibleFrame.maxY - size.height
+            : max(min(origin.y, visibleFrame.maxY - size.height), visibleFrame.minY)
+        return CGPoint(x: x, y: y)
     }
 }

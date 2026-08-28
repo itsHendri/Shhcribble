@@ -790,6 +790,14 @@ struct RichTextEditor: NSViewRepresentable {
         scroll.documentView = textView
         context.coordinator.textView = textView
         proxy?.textView = textView
+
+        // Scrolling moves the text under a selection without changing it, so
+        // without this the floating capsule would stay put while the words it
+        // points at slid away. Only armed when someone is listening.
+        if onSelectionChange != nil {
+            scroll.contentView.postsBoundsChangedNotifications = true
+            context.coordinator.observeScroll(of: scroll)
+        }
         return scroll
     }
 
@@ -800,12 +808,25 @@ struct RichTextEditor: NSViewRepresentable {
         // Never overwrite an edit that hasn't been saved yet: the binding lags
         // the view by the owner's save debounce, so pushing it back in would
         // fight the cursor — or drop the keystrokes outright.
-        guard !hasPendingEdit, textView.attributedString() != attributed else { return }
+        guard !hasPendingEdit else { return }
+        // **Compare against what we last pushed, not against the text view.**
+        // `NSTextStorage` *fixes* attributes on assignment — it substitutes the
+        // font on runs the base face can't render — so for a note containing
+        // emoji or CJK the stored string never compares equal to the one we
+        // handed it, and `textView.attributedString() != attributed` is
+        // permanently true. Any view update then re-pushes the text, which
+        // collapses the selection and (for stickies) wipes the undo stack.
+        // Recording what we pushed makes the second push a no-op regardless of
+        // what fixing did to it. The text-view comparison stays as a cheap
+        // second gate for the first push of a value.
+        guard attributed != context.coordinator.lastPushed,
+              textView.attributedString() != attributed else { return }
         // Flagged so the resulting text-storage change can't be mistaken for
         // the user typing (which would re-arm `hasPendingEdit` forever).
         context.coordinator.isApplyingProgrammaticChange = true
         textView.textStorage?.setAttributedString(attributed)
         context.coordinator.isApplyingProgrammaticChange = false
+        context.coordinator.lastPushed = attributed
         if resetsUndoOnExternalChange { textView.undoManager?.removeAllActions() }
     }
 
@@ -819,6 +840,11 @@ struct RichTextEditor: NSViewRepresentable {
         /// Set while `updateNSView` is pushing store content in, so that write
         /// isn't counted as the user typing.
         var isApplyingProgrammaticChange = false
+
+        /// The value `updateNSView` last pushed into the text view. Guards
+        /// against re-pushing the same content — see the comment there for why
+        /// comparing against the text view alone is not enough.
+        var lastPushed: NSAttributedString?
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
@@ -834,22 +860,62 @@ struct RichTextEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard parent.onSelectionChange != nil else { return }
             guard let textView = notification.object as? NSTextView else { return }
+            reportSelection(in: textView)
+        }
+
+        /// Publish where the selection sits, or `nil` when there isn't one.
+        ///
+        /// **Only when it actually moved.** The callback drives `@Published`
+        /// state, so re-publishing an unchanged value re-runs the owner's body
+        /// for nothing — and this fires on every keystroke and every mouse-move
+        /// of a drag-select.
+        func reportSelection(in textView: NSTextView) {
+            guard parent.onSelectionChange != nil else { return }
             let range = textView.selectedRange()
             guard range.length > 0, let layout = textView.layoutManager,
                   let container = textView.textContainer else {
-                parent.onSelectionChange?(nil)
+                if lastReportedRect != nil {
+                    lastReportedRect = nil
+                    parent.onSelectionChange?(nil)
+                }
                 return
             }
             let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
             rect.origin.x += textView.textContainerOrigin.x
             rect.origin.y += textView.textContainerOrigin.y
-            // Into the enclosing scroll view's space, so scrolling moves the
-            // capsule with the text rather than leaving it behind.
+            // Into the enclosing scroll view's space, so the rect accounts for
+            // how far the note is scrolled.
             if let scroll = textView.enclosingScrollView {
                 rect = textView.convert(rect, to: scroll)
             }
+            guard rect != lastReportedRect else { return }
+            lastReportedRect = rect
             parent.onSelectionChange?(rect)
+        }
+
+        /// What was last handed to `onSelectionChange`, so an unchanged value
+        /// isn't republished.
+        private var lastReportedRect: CGRect?
+
+        private var scrollObserver: NSObjectProtocol?
+
+        /// Re-report the selection as the note scrolls.
+        func observeScroll(of scroll: NSScrollView) {
+            guard scrollObserver == nil else { return }
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scroll.contentView, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let textView = self.textView else { return }
+                    self.reportSelection(in: textView)
+                }
+            }
+        }
+
+        deinit {
+            if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         }
 
         /// Focus gained/lost, from `RichTextView`'s first-responder overrides.

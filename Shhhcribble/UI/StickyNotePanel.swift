@@ -337,7 +337,8 @@ final class StickyPanelManager {
         panel.onModeChange = { [weak self] mode in
             self?.defaults.set(mode.rawValue, forKey: Key.mode)
         }
-        panel.present(at: restoredOrigin(for: stuck), mode: restoredMode())
+        let mode = restoredMode()
+        panel.present(at: restoredOrigin(for: stuck, mode: mode), mode: mode)
         return panel
     }
 
@@ -356,14 +357,24 @@ final class StickyPanelManager {
     /// `pinW`/`pinH`) described a freely-resized panel, which no longer exists;
     /// the size now comes from the mode. Both are still written/read for
     /// rollback, same discipline as the retired columns.
-    private func restoredOrigin(for stuck: [Note]) -> CGPoint? {
+    private func restoredOrigin(for stuck: [Note], mode: StickyPanelMode) -> CGPoint? {
+        // The saved values are bottom-left origins for a panel of the *old*
+        // size, so reusing them directly would hold the bottom edge and drop the
+        // panel down the screen by the height difference — up to 380 pt on the
+        // first launch after upgrading from a freely-resized sticky. Everything
+        // else in this feature anchors top-left; so does this.
+        func topAnchored(_ origin: CGPoint, _ oldHeight: CGFloat) -> CGPoint {
+            CGPoint(x: origin.x, y: origin.y + oldHeight - mode.size.height)
+        }
         if let raw = defaults.string(forKey: Key.frame) {
             let frame = NSRectFromString(raw)
-            if frame.width > 0 && frame.height > 0 { return frame.origin }
+            if frame.width > 0 && frame.height > 0 {
+                return topAnchored(frame.origin, frame.height)
+            }
         }
         guard let legacy = store.stuckNotes.first,
               let x = legacy.pinX, let y = legacy.pinY else { return nil }
-        return CGPoint(x: x, y: y)
+        return topAnchored(CGPoint(x: x, y: y), legacy.pinH ?? mode.size.height)
     }
 }
 
@@ -666,26 +677,50 @@ private struct StickyView: View {
     /// ⌘B/⌘I/⌘U and the right-click menu are untouched and remain the primary
     /// routes — this is a third way in, for the times your hands are on the
     /// mouse. All three call the same actions through `NoteEditorProxy`.
+    /// Half the capsule's intrinsic width: 4 buttons at 22, 3 gaps at 2, and
+    /// 8 of padding each side = 110.
+    private static let capsuleWidth: CGFloat = 110
+
     @ViewBuilder
     private var formattingCapsule: some View {
         if let rect = model.selectionRect {
-            HStack(spacing: 2) {
-                styleButton("bold", "Bold", .bold)
-                styleButton("italic", "Italic", .italic)
-                styleButton("underline", "Underline", .underline)
-                styleButton("highlighter", "Highlight", .highlight)
+            // Needs the card's width to keep the capsule inside it — clamping
+            // only the left edge let it run off the right on any selection in
+            // the last tenth of a line, where the panel (borderless, exactly the
+            // card) clipped the Highlight button out of reach.
+            GeometryReader { geo in
+                HStack(spacing: 2) {
+                    styleButton("bold", "Bold", .bold)
+                    styleButton("italic", "Italic", .italic)
+                    styleButton("underline", "Underline", .underline)
+                    styleButton("highlighter", "Highlight", .highlight)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 6, y: 2)
+                .offset(x: capsuleX(for: rect, in: geo.size.width),
+                        y: capsuleY(for: rect))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
-            .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 6, y: 2)
-            // Above the selection where it doesn't cover what you just picked;
-            // `max` keeps it inside the card when the selection is on line one.
-            .offset(x: max(rect.midX - 74, 6), y: max(rect.minY - 34, 4))
-            .transition(.opacity)
             .allowsHitTesting(true)
+            .transition(.opacity)
         }
+    }
+
+    /// Centred on the selection, then held inside the card.
+    private func capsuleX(for rect: CGRect, in cardWidth: CGFloat) -> CGFloat {
+        let centred = rect.midX - Self.capsuleWidth / 2
+        let rightmost = max(cardWidth - Self.capsuleWidth - 6, 6)
+        return min(max(centred, 6), rightmost)
+    }
+
+    /// Above the selection, so it doesn't cover what you just picked — and
+    /// **below** it when there's no room above, rather than sitting on top of
+    /// the first line.
+    private func capsuleY(for rect: CGRect) -> CGFloat {
+        let above = rect.minY - 34
+        return above >= 4 ? above : rect.maxY + 6
     }
 
     private func styleButton(_ icon: String, _ label: String,
