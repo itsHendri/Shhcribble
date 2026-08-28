@@ -545,9 +545,13 @@ private struct MonthPicker: View {
         let dayNumber = calendar.component(.day, from: date)
         let isSelected = calendar.isDate(date, inSameDayAs: selected)
         let hasContent = filled.contains(dayNumber)
-        // Inert for the same reason the forward chevron is dead on today: a
-        // future day can only ever open empty.
-        let isFuture = Timeline.isFutureDay(date, calendar: calendar)
+        // Inert for the same reason the forward chevron is dead on today — but
+        // only when the day is *also* empty. A future-stamped item is reachable
+        // (clock skew, an import dated ahead: `Timeline.openingDay` will even
+        // open on it), so disabling a day that draws a content dot would render
+        // a dot the grid refuses to honour, which is precisely the
+        // dots-disagree-with-the-stream bug the day filter exists to prevent.
+        let isFuture = Timeline.isFutureDay(date, calendar: calendar) && !hasContent
         return Button { onPick(calendar.startOfDay(for: date)) } label: {
             VStack(spacing: 1) {
                 Text("\(dayNumber)")

@@ -66,6 +66,49 @@ final class NotesLibraryTests: XCTestCase {
         XCTAssertEqual(NoteListSelection.document(id).id, id)
     }
 
+    // MARK: - The stuck / rest partition
+
+    /// The two groups must be exact complements: every row appears in exactly
+    /// one, so nothing is dropped from the list or shown twice. This is the
+    /// assertion the merged shelf rests on.
+    func testPartitionIsExhaustiveAndDisjoint() {
+        var stuck = note(30, "on screen"); stuck.stuck = true
+        let rows = NotesLibrary.merged(
+            notes: [note(10, "plain"), stuck, note(40, "another")],
+            documents: [document(20, "import.m4a"), document(35, "call", source: .call)])
+
+        let groups = NotesLibrary.partitioned(rows)
+        XCTAssertEqual(groups.onScreen.count + groups.rest.count, rows.count)
+        XCTAssertEqual(Set(groups.onScreen.map(\.id)).intersection(groups.rest.map(\.id)), [])
+        XCTAssertEqual(Set(groups.onScreen.map(\.id)).union(groups.rest.map(\.id)),
+                       Set(rows.map(\.id)))
+    }
+
+    /// A document can never reach the "On your screen" group — it isn't
+    /// something you put on your screen, and `Transcript` has no `stuck`.
+    func testDocumentsAreNeverOnScreen() {
+        let groups = NotesLibrary.partitioned(NotesLibrary.merged(
+            notes: [], documents: [document(20, "import.m4a"), document(30, "call", source: .call)]))
+
+        XCTAssertTrue(groups.onScreen.isEmpty)
+        XCTAssertEqual(groups.rest.count, 2)
+    }
+
+    func testPartitionSelectsExactlyTheStuckNotes() {
+        var stuck = note(30, "on screen"); stuck.stuck = true
+        let groups = NotesLibrary.partitioned(NotesLibrary.merged(
+            notes: [note(10, "plain"), stuck], documents: [document(20, "doc.m4a")]))
+
+        XCTAssertEqual(groups.onScreen.map(\.title), ["on screen"])
+        XCTAssertEqual(groups.rest.map(\.title), ["doc.m4a", "plain"])
+    }
+
+    func testPartitionOfNothingIsTwoEmptyGroups() {
+        let groups = NotesLibrary.partitioned([])
+        XCTAssertTrue(groups.onScreen.isEmpty)
+        XCTAssertTrue(groups.rest.isEmpty)
+    }
+
     /// A document's title comes from the transcript, a note's from its first
     /// line — the row shows one field, so it has to pick the right one.
     func testTitleComesFromTheRightField() {

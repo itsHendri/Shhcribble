@@ -111,6 +111,24 @@ final class TimelineTests: XCTestCase {
                                                now: now, calendar: calendar))
     }
 
+    /// The month grid disables a future day, but `openingDay` will deliberately
+    /// open on one when everything is stamped ahead (clock skew, an import dated
+    /// forward). Those two must not combine into an item you can see a dot for
+    /// and never reach — so a future day that HAS content still reports as
+    /// having it, and the grid is what makes the exception (see `dayCell`).
+    func testAFutureDayWithContentIsStillReportedAsHavingIt() {
+        let now = date("2026-07-25 12:00")
+        let ahead = [transcript("2026-07-27 10:00", text: "stamped ahead")]
+
+        XCTAssertTrue(Timeline.isFutureDay(date("2026-07-27 10:00"), now: now, calendar: calendar))
+        XCTAssertTrue(Timeline.daysWithContent(inMonthOf: now, transcripts: ahead,
+                                               calendar: calendar).contains(27),
+                      "the dot must still be drawn, or the item is invisible")
+        XCTAssertEqual(Timeline.openingDay(around: now, transcripts: ahead, calendar: calendar),
+                       calendar.startOfDay(for: date("2026-07-27 00:00")),
+                       "and the stream still opens there")
+    }
+
     func testFutureDaysAreMarkedForTheMonthGrid() {
         let now = date("2026-07-25 14:00")
         XCTAssertTrue(Timeline.isFutureDay(date("2026-07-26 00:00"), now: now, calendar: calendar))

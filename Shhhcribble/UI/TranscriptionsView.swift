@@ -215,8 +215,7 @@ struct TranscriptionsView: View {
                   fileTranscriber: fileTranscriber,
                   appDelegate: appDelegate,
                   selection: $noteSelection,
-                  search: $notesSearchText,
-                  onUpload: onTranscribeFile)
+                  search: $notesSearchText)
     }
 
     // MARK: - Settings environment

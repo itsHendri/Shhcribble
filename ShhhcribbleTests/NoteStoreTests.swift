@@ -168,7 +168,9 @@ final class NoteStoreTests: XCTestCase {
         XCTAssertFalse(store.notes[0].pinned, "pin is retired — sticking must not write it")
     }
 
-    /// The "On your screen" group is fed by `stuckNotes` alone now.
+    /// `stuckNotes` selects exactly the notes on screen. (The Notes list's
+    /// "On your screen" group is built by `NotesLibrary.partitioned`; this
+    /// accessor is the recency-ordered view used elsewhere.)
     func testStuckAccessorSelectsOnlyStuckNotes() {
         let store = makeStore()
         let plain = Note(text: "plain")

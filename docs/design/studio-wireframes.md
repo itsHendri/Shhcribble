@@ -136,9 +136,14 @@ interface". What we take is its chrome discipline, not its feature set.
   Notes shelf), Upload Audio… (the Dictations empty state), Stick/Unstick (note
   editor). One capsule per column — **without exception**. With the shelves
   merged (2026-08-28) the Notes column keeps **Add Note** as its one verb, and
-  **Upload Audio… lives on the menu-bar right-click menu and the Dictations
-  empty state** — both of which already carry it, so the rule holds with zero
-  new chrome. The standing tie-break still applies: where the wireframes'
+  **Upload Audio… lives on the menu-bar right-click menu** (plus Finder's
+  Open-With, and the Dictations empty state). ⚠ **Open for the visual pass:** an
+  earlier draft of this rule called the Dictations empty state a standing
+  fallback. It isn't — it only renders on a day with *no* dictations, so on any
+  active day the menu bar is the only in-app route. If that reads as too hidden,
+  the sanctioned fix is the Add Note capsule with a small trailing menu carrying
+  Upload Audio… — one capsule, two verbs.
+  The standing tie-break still applies: where the wireframes'
   drawings and prose disagree, **the wireframe wins unless it's technically
   impossible**.
 - **Search**: only the Dictations pane's "Search everything" crosses categories —

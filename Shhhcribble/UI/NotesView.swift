@@ -25,12 +25,18 @@ struct NotesView: View {
     /// round-trip keeps the selection instead of snapping back to the newest.
     @Binding var selection: NoteListSelection?
     @Binding var search: String
-    var onUpload: () -> Void
 
     @State private var hoveredID: UUID?
     @StateObject private var toast = ToastState()
 
     /// The merged shelf, newest first — pure and tested in `NotesLibrary`.
+    ///
+    /// **Computed once per pass in `body` and handed down**, never read from
+    /// several places: each read lowercases the title and text of *every*
+    /// transcript (a library is mostly dictations, and none of them are shelf
+    /// material) and re-sorts the notes. Reading it four times meant doing all
+    /// of that four times per keystroke — the same defect review already caught
+    /// in `TodayView`, which hoists `Search.results` for exactly this reason.
     private var rows: [NoteOrDocument] {
         NotesLibrary.merged(notes: store.notes(matching: search),
                             documents: store.documents(matching: search))
@@ -46,19 +52,11 @@ struct NotesView: View {
         return store.transcripts.first { $0.id == id }
     }
 
-    /// Notes currently on screen group at the top of the list; everything else
-    /// follows in date order. Both halves respect the search. Only notes can be
-    /// stuck — a document isn't something you put on your screen.
-    private var stuckMatches: [NoteOrDocument] {
-        rows.filter { if case .note(let n) = $0 { return n.stuck } else { return false } }
-    }
-    private var unstuckMatches: [NoteOrDocument] {
-        rows.filter { if case .note(let n) = $0 { return !n.stuck } else { return true } }
-    }
-
     var body: some View {
-        HStack(spacing: 0) {
-            listColumn
+        let rows = self.rows
+        let groups = NotesLibrary.partitioned(rows)
+        return HStack(spacing: 0) {
+            listColumn(rows: rows, groups: groups)
                 .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
             Divider()
             detailColumn
@@ -71,11 +69,27 @@ struct NotesView: View {
         .onAppear {
             if selection == nil { selection = rows.first?.id }
         }
+        // Deleting the selected item leaves the selection pointing at a row that
+        // no longer exists, and the detail pane stuck on its placeholder for the
+        // life of the window — the `.onAppear` preselect can't help, because the
+        // selection is non-nil and lives on the shell. Fall to the newest row
+        // instead, which is where a fresh visit would have landed.
+        .onChange(of: store.notes.count) { _, _ in dropDanglingSelection() }
+        .onChange(of: store.transcripts.count) { _, _ in dropDanglingSelection() }
+    }
+
+    /// Clear a selection whose row has gone, so the detail pane recovers.
+    /// Guarded on the row actually being absent, so an unrelated add or delete
+    /// can't steal the user's current selection.
+    private func dropDanglingSelection() {
+        guard selection != nil, selectedNote == nil, selectedDocument == nil else { return }
+        selection = rows.first?.id
     }
 
     // MARK: - List column
 
-    private var listColumn: some View {
+    private func listColumn(rows: [NoteOrDocument],
+                            groups: (onScreen: [NoteOrDocument], rest: [NoteOrDocument])) -> some View {
         VStack(spacing: 0) {
             SearchPill(text: $search, prompt: "Search notes and documents")
             List {
@@ -90,9 +104,9 @@ struct NotesView: View {
                 // the group has rows, since an empty "On your screen" heading
                 // would be a permanent reminder of a feature you aren't using.
                 Section {
-                    ForEach(stuckMatches) { row($0) }
+                    ForEach(groups.onScreen) { row($0) }
                 } header: {
-                    if !stuckMatches.isEmpty {
+                    if !groups.onScreen.isEmpty {
                         Label("On your screen", systemImage: "macwindow")
                             .font(.sectionTitle)
                     }
@@ -100,7 +114,7 @@ struct NotesView: View {
                 // Then day groups, per the wireframe: fifty notes in one
                 // undifferentiated column is a list you scroll past rather than
                 // read.
-                ForEach(Timeline.grouped(unstuckMatches, by: \.date), id: \.group) { bucket in
+                ForEach(Timeline.grouped(groups.rest, by: \.date), id: \.group) { bucket in
                     Section {
                         ForEach(bucket.items) { row($0) }
                     } header: {

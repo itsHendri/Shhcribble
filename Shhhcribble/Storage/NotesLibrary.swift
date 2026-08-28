@@ -75,4 +75,22 @@ enum NotesLibrary {
             ($0.date, $0.id.id.uuidString) > ($1.date, $1.id.id.uuidString)
         }
     }
+
+    /// The shelf split into its two groups: what's on your screen right now,
+    /// then everything else in date order.
+    ///
+    /// **Exhaustive by construction** — `onScreen` and `rest` are exact
+    /// complements, so no row can be dropped or shown twice. That is the
+    /// assertion the merged list rests on, which is why it's here and tested
+    /// rather than a pair of inline filters. Only a note can be stuck; a
+    /// document isn't something you put on your screen.
+    static func partitioned(_ rows: [NoteOrDocument])
+    -> (onScreen: [NoteOrDocument], rest: [NoteOrDocument]) {
+        var onScreen: [NoteOrDocument] = []
+        var rest: [NoteOrDocument] = []
+        for row in rows {
+            if case .note(let n) = row, n.stuck { onScreen.append(row) } else { rest.append(row) }
+        }
+        return (onScreen, rest)
+    }
 }

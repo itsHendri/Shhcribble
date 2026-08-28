@@ -245,8 +245,9 @@ with the pin feature.
   `TranscriptRow` were **deleted** with the Documents pane; `TranscriptDetail`
   moved to its own file and is now the shelf's document reader.)
 - **One capsule per column still holds.** The Notes column's is **Add Note**;
-  **Upload Audio…** lives on the menu-bar right-click menu and the Dictations
-  empty state, both of which already carried it. A file job in progress jumps to
+  **Upload Audio…** lives on the menu-bar right-click menu (plus Finder
+  Open-With and the Dictations empty state — note the latter only renders on a
+  day with no dictations, so it is not a standing fallback). A file job in progress jumps to
   Notes, which is where its banner, its Cancel, and eventually the transcript
   itself all are.
 

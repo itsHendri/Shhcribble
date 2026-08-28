@@ -876,16 +876,20 @@ final class TranscriptStore: ObservableObject {
         return ordered.filter { $0.text.lowercased().contains(needle) }
     }
 
-    /// Notes currently on screen as floating stickies, newest-touched first —
-    /// the "On your screen" group at the top of the Notes list.
+    /// Notes currently on screen as floating stickies, newest-touched first.
+    ///
+    /// **Not what draws the Notes list's "On your screen" group** — that comes
+    /// from `NotesLibrary.partitioned`, over the merged shelf, in date order.
+    /// This is the recency-ordered view, used for the legacy panel-placement
+    /// lookup and by tests.
     var stuckNotes: [Note] { Self.byRecency(notes.filter(\.stuck)) }
 
     /// The same notes, in **stable tab order** for the sticky panel — creation
     /// order, which is what `notes` already carries (`position` is dense and
     /// assigned on insert, so a plain filter preserves it).
     ///
-    /// **Deliberately not `stuckNotes`.** That one is recency-ordered for the
-    /// list group, and recency changes on *every keystroke* — as tabs, they
+    /// **Deliberately not `stuckNotes`.** That one is recency-ordered, and
+    /// recency changes on *every keystroke* — as tabs, they
     /// would reshuffle under the pointer while you typed in one, and the tab you
     /// were editing would jump to the front. Tabs must not move. New tabs
     /// therefore append on the right, which is also what every tabbed interface
@@ -1380,11 +1384,11 @@ final class TranscriptStore: ObservableObject {
     }
 
     // NOTE: `INSERT OR REPLACE` writes every column, so calling this with an
-    // already-stored `id` overwrites its summary, notes AND pinned state with
-    // the passed Transcript's values (nil/empty/false for a freshly built one).
-    // Safe today — every `add()` path mints a new UUID, and those fields are
-    // written via `updateSummary` / `updateNotes` / `setTranscriptPinned`
-    // (UPDATE, not insert). A future "edit/re-save" path must NOT round-trip an
+    // already-stored `id` overwrites its summary, notes AND the retired pinned
+    // column with the passed Transcript's values (nil/empty/false for a freshly
+    // built one). Safe today — every `add()` path mints a new UUID, and those
+    // fields are written via `updateSummary` / `updateNotes` (UPDATE, not
+    // insert). A future "edit/re-save" path must NOT round-trip an
     // existing row through `add()`/`insert()` or it will wipe them; add a
     // dedicated update instead. **Keep this list in step with the columns** —
     // a field that's silently not written here is a field that vanishes.
