@@ -270,18 +270,21 @@ search engine and `.call` all survive and are reused.
 
 ### The 2026-08-28 IA rework (one branch per phase)
 
-1. **Dictations-only stream + date clamp** — `Timeline.streamable` excludes
+All four phases were **built on 2026-08-28**, one branch each, none merged
+pending Hendri's visual pass.
+
+1. ~~**Dictations-only stream + date clamp**~~ — **DONE.** `Timeline.streamable` excludes
    documents from every day question; forward chevron dead on today and month
    future days inert (`canStepForward` / `isFutureDay`, both pure and tested);
    `documentCard`/`pinGlyph` deleted from the stream (the shared `card` helper
    stays — search results still show the two weights). Rename waits for phase 3
    so the rail is rewritten once.
-2. **Pin removal** — every pin affordance, `PinnedBoard`, the store's pin
+2. ~~**Pin removal**~~ — **DONE.** every pin affordance, `PinnedBoard`, the store's pin
    accessors and mutators go; `setNoteStuck` stops auto-pinning; the Notes list
    grows an "On your screen" group. **Columns stay, unwritten; no schema bump**,
    and the v10/v11 migration tests must pass byte-untouched (if one needs
    editing, the store change went too far). Rail 5 → 4.
-3. **Documents merge into Notes** — rail 4 → 3 and the "Dictations" rename land
+3. ~~**Documents merge into Notes**~~ — **DONE.** rail 4 → 3 and the "Dictations" rename land
    here. One shelf, one merged list (new pure `Storage/NotesLibrary.swift`), and
    a shell-owned `enum NoteListSelection { case note(UUID); case document(UUID) }`
    — an enum rather than two optionals so an illegal state is unrepresentable,
@@ -289,7 +292,7 @@ search engine and `.call` all survive and are reused.
    destroys the `@State` of any branch you leave. `TranscriptDetail` moves to its
    own file and becomes the document detail; `TranscriptListPane` dies with the
    Documents pane.
-4. **Sticky panel redesign** — chromeless tab strip, edge-to-edge text,
+4. ~~**Sticky panel redesign**~~ — **DONE.** chromeless tab strip, edge-to-edge text,
    summoned formatting capsule, compact ⇄ expanded replacing free resize (pure
    `StickyPanelGeometry` for the top-left-anchored, screen-clamped frame).
 
