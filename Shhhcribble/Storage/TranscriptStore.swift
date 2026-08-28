@@ -75,10 +75,12 @@ struct Transcript: Identifiable, Equatable {
     var styleName: String? = nil
     var styleID: String? = nil
 
-    /// Importance — a durable favourite, the same lifecycle as `Note.pinned`.
-    /// Pinned transcripts group at the top of their list and appear on the
-    /// Pinned board. There is no transcript equivalent of `Note.stuck`: a
-    /// document isn't something you put on your screen.
+    /// **Retired column — nothing reads or writes this** (2026-08-28). Pin was a
+    /// second, "importance" lifecycle alongside stick; it was removed because it
+    /// never meant anything separate in practice. Schema v11 added the column and
+    /// it stays for rollback only, exactly like `Note.pinX`/`pinY` — same
+    /// discipline as the legacy UserDefaults keys. Don't reintroduce a pin
+    /// feature from the presence of this field.
     var pinned: Bool = false
 
     /// `m:ss` for a duration in seconds — the one place the app formats one.
@@ -103,13 +105,14 @@ struct Transcript: Identifiable, Equatable {
 /// kept in sync with the rich content, so every read-only surface can ignore
 /// `richText` entirely.
 ///
-/// **Pin and stick are two different lifecycles** (split 2026-07-25 — see the
-/// redesign decision record). `pinned` is *importance*: a durable favourite that
-/// groups the note at the top of its list and puts it on the Pinned board.
-/// `stuck` is *urgency*: the note is on screen right now as a floating panel (at
-/// `pinX`/`pinY`, sized `pinW`/`pinH`), and is meant to come down when it's
-/// done. **Sticking auto-pins** — urgency is a subset of importance — so `stuck`
-/// implies `pinned` unless the user deliberately unpins afterwards.
+/// **`stuck` is a note's only lifecycle**: the note is on screen right now as a
+/// floating sticky, and is meant to come down when it's done. Stuck notes group
+/// under "On your screen" at the top of the list.
+///
+/// There *was* a second lifecycle — `pinned`, "importance" — split out on
+/// 2026-07-25 and **retired on 2026-08-28**, because it never meant anything
+/// separate in practice: the user kept reaching for pin when what he wanted was
+/// the note on his screen. `pinned` is now a dead column (see the field).
 ///
 /// A note added from a transcript's AI action items carries
 /// `sourceTranscriptID` + the verbatim `sourceActionItem` string, which is how
@@ -129,9 +132,10 @@ struct Note: Identifiable, Equatable {
     var text: String
     /// RTF encoding of the styled body — see `RichText`.
     var richText: Data? = nil
-    /// Importance — a durable favourite. See the type doc for pin vs stick.
+    /// **Retired column — nothing reads or writes this.** Kept for rollback; see
+    /// the type doc.
     var pinned: Bool = false
-    /// Urgency — on screen as a floating sticky right now.
+    /// On screen as a floating sticky right now — a note's only lifecycle.
     var stuck: Bool = false
     /// Persisted sticky-panel origin (bottom-left, screen coordinates) and
     /// size (the sticky is user-resizable; nil = default size).
@@ -752,46 +756,27 @@ final class TranscriptStore: ObservableObject {
         renumberNotePositions(from: idx)
     }
 
-    /// Pin/unpin a note — *importance*, not the sticky. Unpinning a note that's
-    /// currently stuck is allowed (a deliberate override), and deliberately does
-    /// **not** take it off the screen: the two flags are independent once set.
-    ///
-    /// `modifiedAt` is preserved: marking a note important is not a change to
-    /// what it says, and bumping it would label an untouched note "Edited" just
-    /// for being pinned (`setNoteStuck`/`updateNotePinFrame` do the same).
-    func setNotePinned(id: UUID, pinned: Bool) {
-        guard var note = notes.first(where: { $0.id == id }) else { return }
-        note.pinned = pinned
-        updateNote(note, modifiedAt: note.modifiedAt)
-    }
-
     /// Put a note on screen as a floating sticky, or take it down. Sticking may
     /// carry an initial origin (bottom-left screen coords); unsticking keeps the
     /// last origin so re-sticking restores the old spot.
     ///
-    /// **Sticking auto-pins** — urgency is a subset of importance, so anything
-    /// worth putting on screen is worth finding on the Pinned board afterwards.
-    /// Unsticking leaves the pin alone: the note stops being urgent, but you
-    /// haven't said it stopped mattering.
+    /// **This is the only lifecycle a note has.** Sticking used to auto-pin, back
+    /// when pin was a second, "importance" lifecycle; pin was retired on
+    /// 2026-08-28 because it never meant anything separate in practice — Hendri
+    /// kept reaching for pin when what he wanted was the note on his screen. The
+    /// `pinned` column is left alone here on purpose (see `Note.pinned`).
+    ///
+    /// `modifiedAt` is preserved: putting a note on screen is not a change to
+    /// what it says, and bumping it would label an untouched note "Edited" and
+    /// reorder it in the list (`updateNotePinFrame` does the same).
     func setNoteStuck(id: UUID, stuck: Bool, origin: CGPoint? = nil) {
         guard var note = notes.first(where: { $0.id == id }) else { return }
         note.stuck = stuck
-        if stuck { note.pinned = true }
         if let origin {
             note.pinX = origin.x
             note.pinY = origin.y
         }
         updateNote(note, modifiedAt: note.modifiedAt)
-    }
-
-    /// Pin/unpin a transcript — the same importance lifecycle as `setNotePinned`.
-    func setTranscriptPinned(id: UUID, pinned: Bool) {
-        guard let idx = transcripts.firstIndex(where: { $0.id == id }) else { return }
-        guard exec("UPDATE transcripts SET pinned = ? WHERE id = ?;", bind: { stmt in
-            sqlite3_bind_int(stmt, 1, pinned ? 1 : 0)
-            sqlite3_bind_text(stmt, 2, id.uuidString, -1, Self.SQLITE_TRANSIENT)
-        }) else { return }
-        transcripts[idx].pinned = pinned
     }
 
     /// Persist a sticky's dragged/resized frame without touching `modifiedAt`
@@ -880,29 +865,8 @@ final class TranscriptStore: ObservableObject {
         matching(query).filter(\.source.isDocument)
     }
 
-    /// What the Pinned board shows: urgency on top, importance below.
-    ///
-    /// A stuck note appears in **both** sections on purpose — the strip is for
-    /// managing what's on your screen, the grid is the index of what matters,
-    /// and a stuck note is by definition both.
-    struct PinnedBoardContents: Equatable {
-        var onScreen: [Note]
-        var notes: [Note]
-        var documents: [Transcript]
-
-        var isEmpty: Bool { onScreen.isEmpty && notes.isEmpty && documents.isEmpty }
-        var pinnedCount: Int { notes.count + documents.count }
-    }
-
-    var pinnedBoardContents: PinnedBoardContents {
-        PinnedBoardContents(onScreen: stuckNotes, notes: pinnedNotes, documents: pinnedTranscripts)
-    }
-
-    /// Notes marked important, newest-touched first.
-    var pinnedNotes: [Note] { Self.byRecency(notes.filter(\.pinned)) }
-
-    /// Notes currently on screen as floating stickies. A subset of
-    /// `pinnedNotes` in practice, since sticking auto-pins.
+    /// Notes currently on screen as floating stickies, newest-touched first —
+    /// the "On your screen" group at the top of the Notes list.
     var stuckNotes: [Note] { Self.byRecency(notes.filter(\.stuck)) }
 
     /// The same notes, in **stable tab order** for the sticky panel — creation
@@ -910,23 +874,12 @@ final class TranscriptStore: ObservableObject {
     /// assigned on insert, so a plain filter preserves it).
     ///
     /// **Deliberately not `stuckNotes`.** That one is recency-ordered for the
-    /// Pinned board, and recency changes on *every keystroke* — as tabs, they
+    /// list group, and recency changes on *every keystroke* — as tabs, they
     /// would reshuffle under the pointer while you typed in one, and the tab you
     /// were editing would jump to the front. Tabs must not move. New tabs
     /// therefore append on the right, which is also what every tabbed interface
     /// does.
     var stuckNotesInTabOrder: [Note] { notes.filter(\.stuck) }
-
-    /// Documents marked important, newest first (`transcripts` is already
-    /// ordered by `createdAt DESC`, so this only filters).
-    ///
-    /// **Documents only.** Schema v11 put `pinned` on every transcript, but pin
-    /// is for the durable half — a quick dictation is read in the day stream and
-    /// let go (human's call, 2026-07-25). The `isDocument` filter is what keeps
-    /// a row pinned by an older build from reappearing on the board.
-    var pinnedTranscripts: [Transcript] {
-        transcripts.filter { $0.pinned && $0.source.isDocument }
-    }
 
     /// Tie-break on id: `sorted(by:)` isn't stable, so equal timestamps could
     /// otherwise reorder between renders and churn `ForEach` identity.

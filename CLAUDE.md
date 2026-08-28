@@ -240,17 +240,31 @@ it in the title).
   are the shared chrome for the search field and the little neutral label —
   reach for them instead of re-stacking the modifiers.
 
-### Pin vs stick — two lifecycles, one auto-coupling (redesign phase 2)
-`Note.pinned` used to mean "on screen as a sticky". It now means **importance**,
-and the new `Note.stuck` carries the sticky. They are different lifecycles and
-the words are reserved: **pin** is always the durable favourite, **stick/unstick**
-is always the floating sticky. Never call a sticky "pinned to screen" in UI copy.
+### Stick is a note's only lifecycle — PIN IS RETIRED (2026-08-28)
+`Note.pinned` once meant "on screen as a sticky"; the 2026-07-25 split made it
+mean **importance**, with `Note.stuck` carrying the sticky. **Pin was removed
+entirely on 2026-08-28** — the split failed in use: *"I keep pinning things but
+actually I'm wanting to just stick them to my screen."* Two verbs where the user
+only ever meant one, and the Pinned board's stated job ("the only place to manage
+stickies") had already evaporated when stickies became tabs in one self-managing
+panel.
 
-- **Sticking auto-pins** (`setNoteStuck` sets `pinned = true`) — urgency is a
-  subset of importance, so anything worth putting on screen is worth finding on
-  the Pinned board later. **Unsticking leaves the pin**; unpinning a stuck note
-  is a deliberate override and does *not* take it off screen. Pinned by
-  `NoteStoreTests`.
+- **`stuck` is the only lifecycle.** `setNoteStuck` no longer touches `pinned`.
+  Stuck notes group under **"On your screen"** at the top of the Notes list
+  (`stuckNotes`, recency-ordered). Notes only — a document isn't something you
+  put on your screen.
+- **`notes.pinned` and `transcripts.pinned` are retired columns**, kept unwritten
+  for rollback exactly like `pinX/pinY/pinW/pinH` and the legacy pref keys.
+  Deleted with pin: `setNotePinned`, `setTranscriptPinned`, `pinnedNotes`,
+  `pinnedTranscripts`, `pinnedBoardContents`, the `PinnedBoard` view and the
+  `.pinned` rail case. **The v10/v11 migrations are untouched and must stay that
+  way** — they still need to do exactly what they did, or an upgrading DB won't
+  match what a rolled-back build expects. Pinned by
+  `testStickingDoesNotWritePinned` and
+  `testAddedTranscriptKeepsItsRetiredPinColumn`.
+- **Don't rebuild pin from the presence of the columns or an old doc.** That is
+  the specific failure mode this note exists to prevent; the field docs say the
+  same thing at the declaration.
 - **The v10 step is wrapped in a transaction, and that's load-bearing.** Its
   backfill reads `pinned` *as if it still meant stuck* — a one-time
   interpretation. If the column landed but the backfill or version bump didn't,
@@ -267,23 +281,19 @@ is always the floating sticky. Never call a sticky "pinned to screen" in UI copy
   empty arrays sets a UserDefaults flag that never runs again, permanently
   skipping real work while reporting success. Don't add a `…IfNeeded` without
   that guard.
-- **Schema v10** adds `notes.stuck` and seeds it `= pinned`. That's what makes
-  the upgrade correct with no row to fix by hand: every existing sticky comes out
-  stuck *and* pinned, which is exactly what auto-pin says it should be. **Schema
-  v11** adds `transcripts.pinned` — transcripts join the pin lifecycle only;
-  a document isn't something you put on your screen, so there's no `stuck`
-  counterpart.
-- **`StickyPanelManager` diffs on `store.stuckNotes`, never `pinnedNotes`** —
-  diffing on pinned would throw every favourite onto the screen, which is the
-  exact thing the split exists to stop.
-- **Controls follow the split:** pin is a quiet glyph toggle in the header action
-  row (filled when on); stick is the **floating capsule over the editor** whose
-  label *is* the state ("Stick to screen" ↔ "Unstick") — which is why there's no
-  separate "on screen" tag to keep in sync.
-- **Action rows are pin · copy · delete.** Save-as-.txt (notes + transcripts) and
-  reveal-in-Finder (transcripts) were **removed**: copy covers export, a `.txt`
-  sidecar is already written at transcription time, and a source file is often
-  ephemeral while the transcript is the durable artifact.
+- **Schema v10** adds `notes.stuck` and seeds it `= pinned` (correct at the time:
+  `pinned` then meant "on screen"). **Schema v11** adds `transcripts.pinned`.
+  Both remain in place unchanged; only the *feature* on top of them went.
+- **`StickyPanelManager` diffs on `store.stuckNotes`** — the only accessor left,
+  and the only one that ever described what's on screen.
+- **The stick control spells out its action:** the floating capsule over the
+  editor whose label *is* the state ("Stick to screen" ↔ "Unstick") — which is
+  why there's no separate "on screen" tag to keep in sync. Don't demote it to a
+  bare glyph; nothing else on screen says whether a note is stuck.
+- **Action rows are copy · delete** (a note also carries dictate). Save-as-.txt
+  (notes + transcripts) and reveal-in-Finder (transcripts) were **removed**: copy
+  covers export, a `.txt` sidecar is already written at transcription time, and a
+  source file is often ephemeral while the transcript is the durable artifact.
 
 ### Documents vs dictations — a real source category (redesign phase 3)
 `TranscriptSource` gained **`.call`**, and the split it encodes is the one the

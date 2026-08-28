@@ -10,8 +10,8 @@ import os
 /// is what makes the window's behaviour fall out for free: closing a *tab*
 /// unsticks that note, and the panel disappears on its own once the last tab
 /// goes — so there is deliberately **no window close button** and no new
-/// destructive semantics to design. It also means nothing about the Notes pane,
-/// the Pinned board, or the schema had to change.
+/// destructive semantics to design. It also means nothing about the Notes pane
+/// or the schema had to change.
 ///
 /// Same panel species as `CallOfferPanel` (`.borderless + .nonactivatingPanel`,
 /// `canBecomeKey`, `FirstMouseHostingView`) so the first click lands on its
@@ -224,14 +224,13 @@ final class StickyPanelManager {
         sync()
     }
 
-    /// Create a fresh, empty stuck note and focus its tab. Stuck implies pinned
-    /// — see `Note`. The cursor position is only used when there is no panel on
-    /// screen yet; otherwise this just adds a tab to the panel you can already
-    /// see, and moving it under the mouse would be startling.
+    /// Create a fresh, empty stuck note and focus its tab. The cursor position is
+    /// only used when there is no panel on screen yet; otherwise this just adds a
+    /// tab to the panel you can already see, and moving it under the mouse would
+    /// be startling.
     func createStickyAtCursor() {
         var note = Note(text: "")
         note.stuck = true
-        note.pinned = true   // sticking auto-pins
         if panel == nil && defaults.string(forKey: Key.frame) == nil {
             var origin = NSEvent.mouseLocation
             origin.x -= StickyNotePanel.defaultSize.width / 2
@@ -401,8 +400,8 @@ final class StickyTabsModel: ObservableObject {
     /// decoding a stored note then re-encoding it is not guaranteed to
     /// reproduce the original bytes — so an unconditional flush would write a
     /// cosmetically-identical note back and bump its `modifiedAt`. That is not
-    /// harmless: `modifiedAt` orders the Notes list and the Pinned board's
-    /// on-screen strip, so merely clicking between tabs would reshuffle both.
+    /// harmless: `modifiedAt` orders the Notes list, including its "On your
+    /// screen" group, so merely clicking between tabs would reshuffle it.
     func flushSave() {
         saveTask?.cancel()
         guard let id = activeID, hasPendingEdit else { return }

@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicates are detected and dropped — while short replies like "yeah" or
   "right" are always kept as yours.
 
+### Removed
+- **Pinning is gone; sticking a note to your screen is the only thing left.**
+  Pin and stick were two ways of saying "this one matters", and in practice you
+  reached for pin when what you wanted was the note in front of you. Notes you've
+  stuck now gather under **On your screen** at the top of the Notes list, and the
+  Pinned tab has gone with the feature. Nothing was deleted — anything you'd
+  pinned is still exactly where it was in the list.
+
 ### Changed
 - **The Today tab is now Dictations, and shows only your dictations.** The name
   never matched a screen you can page backwards through, and files and call
