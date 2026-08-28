@@ -1,8 +1,8 @@
 # Studio wireframes — decision record
 
 **Living document** — updated as wireframe iterations continue; the current
-state supersedes older entries in place. Last major revision: 2026-07-25
-(direction locked with Hendri across the sessions of 2026-07-24/25).
+state supersedes older entries in place. Last major revision: **2026-08-28**
+(IA rework locked with Hendri; supersedes the 2026-07-24/25 five-item shell).
 Wireframes: [studio-wireframes.html](studio-wireframes.html) (open in any
 browser; light + dark; keep it in sync with this file). This document is the
 contract for implementation — if a build decision contradicts it, stop and
@@ -16,140 +16,142 @@ two halves have different physics:
 - **Dictations** are high-frequency and semi-throwaway. They're kept for
   *recovery* (a paste that missed) and *reuse* (re-copy an old prompt), not as
   documents. They never needed a master-detail reader.
-- **Notes** are the durable, mindful environment — written, returned to,
-  built on.
-- **Documents** (uploaded files, videos, call captures) are real long-form
-  transcripts and keep the reader + summary treatment. Quick dictations are
-  never documents.
+- **Everything you keep** — written notes, uploaded files, videos, call
+  captures — is one shelf. A note and a document differ in how they were made
+  and how they're read, not in what they're *for*: both are things you return
+  to. Splitting them across two rail items spent a nav slot on a distinction
+  nobody feels (Hendri, 2026-08-28).
 
-The old UI treated dictations and notes as two identical master-detail clones.
-The redesign is "**one timeline, two weights**": one chronological Today stream
-where notes/documents anchor as cards and dictations pass through as lines.
+So the app is **two halves, not four**: the stream of what you said, and the
+shelf of what you keep. The rail says exactly that.
 
 ## Information architecture
 
-Rail (five items, every screen): **Today · Documents · Notes · Pinned · ⌵ ·
-Settings**. Documents sits above Notes as of 2026-08-10: with Today
-transcriptions-only, Documents is the other half of the same material, while
-Notes is the separate written environment. The titlebar always reads
-"Shhhcribble" — the rail's active state is the location indicator; the title
-never restates it.
+Rail (three items, every screen): **Dictations · Notes · Settings**. The
+titlebar always reads "Shhhcribble" — the rail's active state is the location
+indicator; the title never restates it.
 
-- **Today** — single chronological stream of **transcriptions only**, **scoped
-  to one day** (ruled 2026-08-10). Notes left the stream: Today is the record of
-  what you *said*, a note is something you *wrote*, and mixing them made turning
-  one into the other look like the obvious move. "Two weights" now runs along
-  the line the app already draws internally (`isDocument`). Anchored (bordered
-  card): documents, title + type pill + preview. Passing (borderless line):
-  dictations, **always fully expanded — no truncation**
-  (scroll carries the length; revisit only if it ever feels overwhelming).
-  **"No truncation" binds the stream, not every surface** — search results trim
-  a dictation, because a list of matches is a different job from the record of
-  what you said. **Dictations render at full-strength label colour, not
-  secondary** (revised 2026-07-27): the card border is what carries the two
-  weights, and greying the passing items as well is what made the stream read as
-  inactive. **Time sits at the row's trailing edge**, not in a left gutter, so
-  every item's content starts on one left edge. Search results carry their date
-  on the same edge. **The meta line
-  reads copy · word count · style tag … delete** (revised 2026-08-10), and the
-  asymmetry is deliberate: copy is the reason the screen exists, so it *leads*
-  the line and is always visible; delete is the one thing you'd hate to hit by
-  accident, so it sits at the far right and only on hover. That one hover
-  control is why the row still needs its `contentShape` — see the cross-cutting
-  rule. **Add-to-note was removed from the stream**: turning a transcription
-  into a note read as the wrong move here, and notes then left the stream
-  entirely (`addNoteFromDictation` stays on the store, unused by any view).
-  Date: chevrons step a day; the day label opens
-  a month popover with dots on non-empty days + "Jump to today"; the date
-  navigator steps aside while a search is active, since results span every day.
-- **Notes** — master-detail. List groups: Pinned, then day groups ("Today",
-  "Earlier this week", …). **Row hover swaps the date for pin + copy** in its
-  fixed trailing slot (2026-07-27) — pinning is frequent enough now that it
-  shouldn't require opening the item first. Detail: rich-text editor (existing
-  type ramp), header actions **pin · copy · delete** only. Embedded dictation
-  blocks: 2pt left rule (square corners), quoted text, "From a dictation,
-  <date>" with mic glyph.
-- **Documents** — master-detail, keeps the Transcript | Summary tabs, which
-  **span the full width of the reader** and stay neutral. Same pin + copy row
-  hover as Notes. Rail glyph is a stack, not a ruled page — at rail size the
-  page glyph read as a second Notes icon, and the two-square shape it briefly
-  wore now belongs to copy. **Summaries exist only here.** Header actions
-  **pin · copy · delete**.
-  Dropped: reveal-in-Finder (sources are often ephemeral — WhatsApp files,
-  deleted uploads; the transcript is the durable artifact) and download (a
-  .txt sidecar is already written automatically at transcription time).
-- **Pinned** — cross-type board, two sections: "On your screen" strip (active
-  stickies, each with Unstick) above a grid of pinned notes + documents (type
-  pill; stuck items carry a small screen glyph). **Cards are a fixed height and
-  roughly square — a wall of stickies, not a list** (revised 2026-08-10):
-  content-sized cards left ragged holes wherever a one-line note sat beside a
-  wrapped one, and spent the space on nothing. Every card carries real preview
-  text filling whatever the title leaves, so the board can be scanned without
-  opening anything. Clicking a card jumps to the item in its home tab. This is
-  the only cross-type surface and the only place to manage stickies without
-  hunting across desktops.
-- **Settings** — one rail item, master-detail like Notes. Subnav column:
-  **Preferences · Styles · Dictionary · Feedback**, with **Check for updates ·
-  Quit** anchored at the subnav bottom. Menu-bar right-click Quit remains (the
-  CLAUDE.md "Quit must stay reachable" invariant holds). Rationale for demoting
-  Styles: quick *switching* lives in the menu-bar Style submenu + per-app auto;
-  the page is for authoring, which is occasional.
+- **Dictations** — single chronological stream of **dictations only**, scoped to
+  one day. Notes left the stream 2026-08-10 (this is what you *said*; a note is
+  what you *wrote*); **documents left 2026-08-28** for the neighbouring reason —
+  an import or a call is long-form material you *keep*, so it belongs on the
+  shelf. What remains is one honest thing, which is why the tab is no longer
+  called "Today": that name never matched a pane you can page backwards through.
+  Rows are borderless lines, **always fully expanded — no truncation** (scroll
+  carries the length; revisit only if it ever feels overwhelming). **"No
+  truncation" binds the stream, not every surface** — search results trim a
+  dictation, because a list of matches is a different job from the record of
+  what you said. Rows render at full-strength label colour (revised 2026-07-27):
+  greying them is what made the stream read as inactive. **Time sits at the
+  row's trailing edge**, not in a left gutter, so every item's content starts on
+  one left edge; search results carry their date on the same edge. **The meta
+  line reads copy · word count · style tag … delete**, and the asymmetry is
+  deliberate: copy is the reason the screen exists, so it *leads* the line and is
+  always visible; delete is the one thing you'd hate to hit by accident, so it
+  sits at the far right and only on hover. That one hover control is why the row
+  still needs its `contentShape` — see the cross-cutting rule. Add-to-note was
+  removed from the stream (`addNoteFromDictation` stays on the store, unused).
+  **Date: chevrons step a day, and forward is disabled on today** (2026-08-28) —
+  you can't dictate into the future, so the only thing a forward step could
+  reach is a blank page; the month popover greys future days for the same reason,
+  and carries dots on non-empty days + "Jump to today". The date navigator steps
+  aside while a search is active, since results span every day.
+  **All day questions filter identically** (`Timeline.streamable`): a dot over a
+  day that opens empty is a bug this exclusion exists to prevent.
+- **Notes** — master-detail over **one merged shelf: notes and documents
+  together**, day-grouped, told apart by a quiet glyph on the document rows.
+  List groups: **On your screen** (stuck notes, recency-ordered), then day
+  groups ("Today", "Earlier this week", …). Row hover swaps the date for copy.
+  Detail depends on the row: a note opens the **rich-text editor** (existing
+  type ramp), header actions **dictate · copy · delete**; a document opens the
+  **Transcript | Summary reader**, tabs spanning the full reader width, header
+  actions **copy · delete**. **Summaries exist only on documents.** Only notes
+  can be stuck — a document isn't something you put on your screen.
+  Dropped everywhere: reveal-in-Finder (sources are often ephemeral — WhatsApp
+  files, deleted uploads; the transcript is the durable artifact) and download
+  (a .txt sidecar is already written automatically at transcription time).
+- **Settings** — one rail item, master-detail. Subnav column: **Preferences ·
+  Styles · Dictionary · Feedback**, with **Check for updates · Quit** anchored
+  at the subnav bottom. Menu-bar right-click Quit remains (the CLAUDE.md "Quit
+  must stay reachable" invariant holds). Rationale for demoting Styles: quick
+  *switching* lives in the menu-bar Style submenu + per-app auto; the page is
+  for authoring, which is occasional.
 
-## Pin vs stick (the split)
+## Stick — the only lifecycle (pin is retired)
 
-Today's `Note.pinned` conflated two lifecycles. Split:
+**Pin was removed entirely on 2026-08-28.** It had been split from stick on
+2026-07-25 (pin = importance, stick = urgency, sticking auto-pins), and the
+split failed in use: *"I keep pinning things but actually I'm wanting to just
+stick them to my screen."* Two verbs where the user only ever meant one, and the
+Pinned board's stated job — "the only place to manage stickies" — had already
+evaporated when stickies became tabs in one panel that manages itself.
 
-- **Pin** = *importance*. Durable favourite; applies to **notes and
-  documents**. Pinned items sit in a "Pinned" group at the top of their own
-  list and on the Pinned board. Quiet glyph toggle in the header action row.
-- **Stick** = *urgency*. Puts a note on screen as a floating sticky (1–2 at a
-  time, removed when done). Its control is the **floating capsule over the
-  editor** — the label is the state ("Stick to screen" ↔ "Unstick"); no
-  separate "On screen" tag.
-- **Sticking auto-pins.** Urgency is a subset of importance. Unpinning a stuck
-  note stays possible as a manual override but is not the normal path.
-- Naming: "pin" is reserved exclusively for the favourite; the sticky verbs are
-  stick/unstick (desktop glyph). This renames the shipped "Pin to Screen"
-  button.
+- **Stick** puts a note on screen as a floating sticky. Its control is the
+  **floating capsule over the editor**, whose label *is* the state ("Stick to
+  screen" ↔ "Unstick") — which is why no separate "on screen" tag is needed.
+  Keep it spelled out; nothing else on screen says whether a note is stuck.
+- Stuck notes surface in the **"On your screen"** group at the top of the Notes
+  list, recency-ordered (`stuckNotes`), with the desktop glyph.
+- **Notes only.** A document is not something you put on your screen.
+- The `notes.pinned` and `transcripts.pinned` **columns stay in the schema,
+  unwritten** — same rollback discipline as `pinX/pinY/pinW/pinH`. Nothing
+  reads or writes them; the v10/v11 migrations stay byte-untouched. **No schema
+  bump.** If a doc or comment still describes auto-pin behaviour, it is rot —
+  fix it, or the next session re-implements a retired feature from the docs.
 
-**Amendment 2026-08-10 — stickies become tabs in one panel.** Borrowed from Wispr's
-Scratchpad. **The lifecycle is unchanged: stick/unstick is still the only lifecycle,
-and tabs are presentation.** That answers the window-close question cleanly — closing a
-*tab* unsticks that note (keeping the existing Discard-if-empty / Unstick-if-content
-confirm), the panel disappears on its own when the last tab goes, and so **there is no
-window close button and no new destructive semantics**. Tab order comes from the
-existing dense `Note.position`. The panel frame and active tab move to UserDefaults, so
-the per-note `pinX/pinY/pinW/pinH` columns stop driving placement but **stay in the
-schema for rollback** (same discipline as the legacy pref keys) — **no schema bump**.
-The load-bearing risk is that only the active tab has a live `RichTextEditor`, so a tab
-switch destroys one editor and creates another: **the debounced save must flush first**
-or the last keystrokes are lost. That is the same class of bug adversarial review
-already caught twice here (pin/stick not flushing; the 2026-07-24 two-editor sync gap),
-and the `hasPendingEdit` / `onUserEdit` discipline is what makes it tractable — reuse
-it rather than reinventing focus tracking. Wispr's **compact ↔ expand** window modes
-are worth taking in the same pass; their notes sidebar is not (our Notes tab is that).
+**Stickies are tabs in one panel** (2026-08-10, borrowed from Wispr's
+Scratchpad). **Tabs are presentation; stick/unstick remains the only
+lifecycle** — closing a *tab* unsticks that note (keeping the Discard-if-empty /
+Unstick-if-content confirm), the panel disappears on its own when the last tab
+goes, so **there is no window close button and no new destructive semantics**.
+Tab order is creation order (`stuckNotesInTabOrder`), never the recency order —
+recency changes on every keystroke and would reshuffle tabs mid-sentence. The
+panel frame and active tab live in UserDefaults. The load-bearing risk is that
+only the active tab has a live `RichTextEditor`, so a tab switch destroys one
+editor and creates another: **the debounced save must flush first** or the last
+keystrokes are lost — the `hasPendingEdit` / `onUserEdit` discipline is what
+makes that tractable; reuse it rather than reinventing focus tracking.
+
+## The sticky panel — a quiet writing surface (2026-08-28)
+
+Reference: **Trace** (https://john-mrty.github.io/Trace/) — "the words are the
+interface". What we take is its chrome discipline, not its feature set.
+
+- **The tab strip is the only chrome.** No titlebar band; text runs to the
+  edges (a small inset only — 0pt clips descenders into the corner radius).
+- **Formatting is summoned, not resident:** a floating capsule (B / I / U /
+  Highlight) appears over a selection. The right-click menu and ⌘B/⌘I/⌘U stay
+  exactly as they are — they're pinned by `RichTextTests`, and **there is still
+  no Format menu** (an LSUIElement app's main menu swallows the key equivalent;
+  that bug shipped twice).
+- **Two sizes, not free resize: compact ⇄ expanded**, one toggle in the tab
+  strip. Free resize and the per-pixel persisted frame are retired — deliberate
+  sizes read calmer and remove a fiddly edge. The toggle **anchors the top-left
+  corner** (AppKit's origin is bottom-left, so the origin's y must move) and
+  clamps to the visible screen.
 
 ## Cross-cutting rules
 
-- **The floating capsule is a column's single primary verb** — Add note (notes
-  list), Upload audio… (documents list), Stick/Unstick (note editor). One
-  capsule per column — **without exception again as of 2026-08-10**. The
-  carve-out for Today's empty state (Add note *and* Upload audio…, ruled
-  2026-07-25) existed only because an empty Today had no route to a note; that
-  stopped being Today's problem when notes left the stream. The standing tie-break
-  it was drawn from still holds: where the wireframes' drawings and prose
-  disagree, **the wireframe wins unless it's technically impossible**.
-- **Search**: only Today's "Search everything" crosses categories — results
-  replace the timeline, grouped **Notes → Dictations → Documents** (was written
-  as "library order", which is undefined for dictations: they have no rail item)
-  then dated, matches highlighted, Esc/✕ restores the day. Notes/Documents
-  search pills filter their own lists inline, no custom results view.
-- **Empty states** teach the pane's verb with a real CTA; Today teaches the
-  hotkey (keycap style) and offers **one** capsule (Upload Audio…) — the
-  two-capsule carve-out below was retired 2026-08-10 when notes left the stream
-  and Today stopped needing a route to one; Pinned carries the one-sentence
-  pin-vs-stick explainer. Today also has a *quiet-day* variant ("Nothing on this day") for a
-  past day that happens to be empty — distinct from the library-empty state.
+- **The floating capsule is a column's single primary verb** — Add Note (the
+  Notes shelf), Upload Audio… (the Dictations empty state), Stick/Unstick (note
+  editor). One capsule per column — **without exception**. With the shelves
+  merged (2026-08-28) the Notes column keeps **Add Note** as its one verb, and
+  **Upload Audio… lives on the menu-bar right-click menu and the Dictations
+  empty state** — both of which already carry it, so the rule holds with zero
+  new chrome. The standing tie-break still applies: where the wireframes'
+  drawings and prose disagree, **the wireframe wins unless it's technically
+  impossible**.
+- **Search**: only the Dictations pane's "Search everything" crosses categories —
+  results replace the timeline, grouped **Notes → Dictations → Documents** (was
+  written as "library order", which is undefined for dictations: they have no
+  rail item) then dated, matches highlighted, Esc/✕ restores the day. **Note and
+  document results both open in Notes**, which is now one shelf. The Notes search
+  pill filters its own list inline, no custom results view.
+- **Empty states** teach the pane's verb with a real CTA; Dictations teaches the
+  hotkey (keycap style) and offers **one** capsule (Upload Audio…). Dictations
+  also has a *quiet-day* variant ("Nothing on this day") for a past day that
+  happens to be empty — distinct from the library-empty state. The Notes empty
+  state must speak for **both** kinds of thing on the shelf, not just notes.
   Capsule labels follow macOS title case ("Add Note", "Upload Audio…") rather
   than the sentence case used in this document's prose.
 - Action rows stay minimal: no download anywhere (copy covers it), no reveal.
@@ -162,36 +164,46 @@ are worth taking in the same pass; their notes sidebar is not (our Notes tab is 
 - **Prefer a permanent control to a hover-revealed one** for anything a user
   reaches for repeatedly. Hover-reveal costs a hover *and* a decision, and it
   hides the tooltip that would explain the glyph. Where a row does still reveal
-  on hover (the Notes and Documents list rows), the whole row must be the hover
-  target via an explicit `contentShape` — `onHover` hit-tests drawn content, so
-  a row with transparent space dismisses itself as the pointer crosses it.
-- **Every action whose result isn't visible on screen flashes a toast** — copy,
-  pin, unpin. Pinning moves an item to another group and another tab, so a
-  glyph quietly filling in isn't feedback. One `ToastState` per pane, one
-  `.toast(state)` anchor; see `DesignSystem.swift`.
+  on hover (the Notes shelf rows), the whole row must be the hover target via an
+  explicit `contentShape` — `onHover` hit-tests drawn content, so a row with
+  transparent space dismisses itself as the pointer crosses it.
+- **Every action whose result isn't visible on screen flashes a toast** — copy
+  above all. One `ToastState` per pane, one `.toast(state)` anchor; see
+  `DesignSystem.swift`. (The pin/unpin toasts went with pin.)
 
-## Open questions (raised by the 2026-07-25 build; need a ruling)
+## Rulings (historical; don't reopen without new evidence)
 
-- ~~**Today's empty state: one capsule or two?**~~ **RULED 2026-07-25: two**,
-  per the wireframe. The rule gains an explicit carve-out above.
-- ~~**Can a dictation be pinned?**~~ **RULED 2026-07-25: no.** Pin is for the
-  durable half. `pinnedTranscripts` filters on `isDocument`, the reader's pin
-  control only appears for documents, and a row pinned by an earlier build stays
-  off the board.
-- ~~**What does Today contain?**~~ **RULED 2026-08-10: transcriptions only.**
-  Notes left; documents stayed, since a document *is* a transcription and
-  `isDocument` already draws that line. `Timeline` no longer takes notes at all,
-  so the month dots and the opening day agree with the stream. Pinned by
-  `testItemsMergesDictationsAndDocumentsNewestFirstAndExcludesNotes`.
-- **"Search everything" still crosses into notes**, from a pane that never
-  otherwise shows them; a note result jumps to the Notes tab. Kept deliberately
-  — a global search is worth more than the consistency — but it is the one place
-  Today has a second personality. Revisit if it reads as a leak.
+- ~~**Today's empty state: one capsule or two?**~~ **RULED: one.** The
+  two-capsule carve-out died with notes leaving the stream.
+- ~~**Can a dictation be pinned?**~~ **Moot as of 2026-08-28** — pin is gone
+  entirely. Nothing is pinned; notes are stuck.
+- ~~**What does the stream contain?**~~ **RULED 2026-08-28: dictations only.**
+  Notes left 2026-08-10; documents followed, to the merged Notes shelf. Every
+  day question filters identically (`Timeline.streamable`), so month dots, the
+  opening day and the stream agree. Pinned by
+  `testItemsAreDictationsOnlyNewestFirst` and
+  `testDocumentOnlyDayIsInvisibleToEveryDayQuestion`.
+- ~~**Can the stream step into the future?**~~ **RULED 2026-08-28: no.** Forward
+  chevron disabled on today, month-grid future days inert. Pinned by the
+  `canStepForward` / `isFutureDay` tests.
+- **"Search everything" still crosses into notes** from the Dictations pane;
+  results open on the Notes shelf. Kept deliberately — a global search is worth
+  more than the consistency — but it is the one place the pane has a second
+  personality. Revisit if it reads as a leak.
 - **Embedded dictation blocks** (2pt left rule, quoted text, "From a dictation,
   <date>" with mic glyph) are specified for Notes but **not built**. The left
-  rule needs custom text-view drawing; the attribution line is cheap. Now
-  partly contingent on the question above — if notes and dictations stop
-  crossing over, this may have no callers left.
+  rule needs custom text-view drawing; the attribution line is cheap.
+
+## Explicitly retired (removed on purpose — don't rebuild from an old doc)
+
+- **Pin, the Pinned rail tab, and the Pinned board** — retired 2026-08-28; see
+  "Stick — the only lifecycle" above. The columns survive for rollback only.
+- **Free-resize stickies** and the per-note `pinX/pinY/pinW/pinH` placement —
+  replaced by compact ⇄ expanded; the columns survive for rollback only.
+- **The Documents rail tab** — merged into Notes. `isDocument` still divides the
+  two halves everywhere it matters; it just no longer earns a nav slot.
+- **The "Today" name and the two-weights stream** — the stream is dictations
+  only. Two weights survive in search results.
 
 ## Explicitly deferred (documented so they don't sneak in)
 
@@ -246,33 +258,41 @@ are worth taking in the same pass; their notes sidebar is not (our Notes tab is 
   call capture + stickies on-device (nearest: Voicenotes/AudioPen on
   capture→note, superwhisper/Wispr on dictation; all cloud or single-half).
 
-## Implementation phasing (recommended; one branch per phase)
+## Implementation phasing
 
-1. ~~**Shell**~~ — **DONE 2026-07-25.** Five-item rail, Settings environment
-   (subnav master-detail), constant titlebar, Quit/updates relocation.
-2. ~~**Pin/stick split**~~ — **DONE 2026-07-25.** Schema v10 adds `notes.stuck`
-   seeded from `pinned` (so existing stickies come out stuck AND pinned, which
-   the auto-pin rule makes exactly right); v11 adds `transcripts.pinned`. Sticky
-   verbs renamed, Pinned groups atop both lists. **This phase also delivered
-   phase 6's board** — adding pin without a surface that shows pinned items
-   would have left the Pinned tab lying — so 6 below is reduced to polish.
-3. ~~**Documents vs dictations**~~ — **DONE 2026-07-25.** `TranscriptSource`
-   gained `.call`; schema v12 reclassifies the call captures that shipped as
-   `.dictation`, keyed on `durationSec` rather than the title. `isDocument` is
-   the one predicate dividing the app's two halves. Action rows pared to
-   pin · copy · delete (download and reveal dropped).
-4. ~~**Today timeline**~~ — **DONE 2026-07-25.** The feed replacing the
-   transcripts master-detail: day stream, two weights, hover actions, chevrons +
-   month popover. Day logic is pure and tested (`Storage/Timeline.swift`).
-5. ~~**Search everything**~~ — **DONE 2026-07-25.** Cross-category results on
-   Today: grouped Notes → Dictations → Documents, dated within each, matches
-   highlighted, Esc/✕ restores the day. Pure and tested (`Storage/Search.swift`).
-6. ~~**Pinned board**~~ — **DONE 2026-07-25.** Strip + grid (the bulk landed
-   with phase 2); this pass added the board's tested content model, the
-   pin-vs-stick empty state with its Browse-notes CTA, and the contract's empty
-   -state copy across Today, Notes and Documents.
+### The 2026-07-25 redesign — all six phases DONE, then partly superseded
 
-Phases 2–3 touch schema (versioned per-step migrations per the TranscriptStore
-pattern); none touch `AudioRecorder`/routing/`MusicPauser`/`TextInserter`, so
-no hardware smoke test is triggered until a phase says otherwise. Empty states
-land with their owning phase, not separately.
+Shell (five-item rail), pin/stick split (schema v10/v11), documents vs
+dictations (`.call` + schema v12), the Today timeline, search everything, and
+the Pinned board all shipped 2026-07-25/26. **The IA rework below supersedes the
+rail, the pin lifecycle and the Pinned board**; `isDocument`, the timeline, the
+search engine and `.call` all survive and are reused.
+
+### The 2026-08-28 IA rework (one branch per phase)
+
+1. **Dictations-only stream + date clamp** — `Timeline.streamable` excludes
+   documents from every day question; forward chevron dead on today and month
+   future days inert (`canStepForward` / `isFutureDay`, both pure and tested);
+   `documentCard`/`pinGlyph` deleted from the stream (the shared `card` helper
+   stays — search results still show the two weights). Rename waits for phase 3
+   so the rail is rewritten once.
+2. **Pin removal** — every pin affordance, `PinnedBoard`, the store's pin
+   accessors and mutators go; `setNoteStuck` stops auto-pinning; the Notes list
+   grows an "On your screen" group. **Columns stay, unwritten; no schema bump**,
+   and the v10/v11 migration tests must pass byte-untouched (if one needs
+   editing, the store change went too far). Rail 5 → 4.
+3. **Documents merge into Notes** — rail 4 → 3 and the "Dictations" rename land
+   here. One shelf, one merged list (new pure `Storage/NotesLibrary.swift`), and
+   a shell-owned `enum NoteListSelection { case note(UUID); case document(UUID) }`
+   — an enum rather than two optionals so an illegal state is unrepresentable,
+   and shell-owned because the detail `switch` is a `_ConditionalContent` that
+   destroys the `@State` of any branch you leave. `TranscriptDetail` moves to its
+   own file and becomes the document detail; `TranscriptListPane` dies with the
+   Documents pane.
+4. **Sticky panel redesign** — chromeless tab strip, edge-to-edge text,
+   summoned formatting capsule, compact ⇄ expanded replacing free resize (pure
+   `StickyPanelGeometry` for the top-left-anchored, screen-clamped frame).
+
+**No phase touches `AudioRecorder`/routing/`MusicPauser`/`TextInserter`, and no
+phase bumps the schema (it stays v13)** — a schema bump means the plan was
+violated. Empty states land with their owning phase, not separately.

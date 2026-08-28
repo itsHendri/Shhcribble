@@ -45,6 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "right" are always kept as yours.
 
 ### Changed
+- **The Today tab is now Dictations, and shows only your dictations.** The name
+  never matched a screen you can page backwards through, and files and call
+  transcripts have moved to the Notes shelf, where the rest of what you keep
+  lives. What's left is one honest thing: the record of what you said, one day
+  at a time.
+- **You can't page into the future any more.** The forward arrow switches off
+  when you're on today, and days after today are greyed out in the month
+  picker — there was nothing to find there.
 - **The writing styles were rebuilt to be far more consistent.** Every style was
   asking for around thirty separate things at once, and repeating a dozen of them
   differently in each style — well past the point where a small on-device model
