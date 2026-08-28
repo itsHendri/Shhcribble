@@ -1,0 +1,33 @@
+Me: Okay so um thanks for jumping on. I wanted to go through the release plan for the the mobile build and then figure out what we're doing about the onboarding drop-off.
+
+Others: Sure. Before we start, did you see the numbers Priya sent over last night?
+
+Me: I did yeah. That's actually uh that's kind of why I wanted to talk. The drop-off is like thirty eight percent on the second screen which is way worse than we thought.
+
+Others: Right. So my read is it's the permissions prompt. We're asking for microphone access before we've explained what the app does, and people just bail.
+
+Me: Yeah I I think that's right. Okay so decision one, let's move the permissions prompt to after the first successful action. I'll take that one, I can have it in by end of week.
+
+Others: Works for me. Should we also add a skip button on that screen? I know we talked about it last time.
+
+Me: Um, I don't think so actually. We tried a skip button on the old flow and it just became the default path, like ninety percent of people hit skip and then never came back. So no skip button, let's not do that again.
+
+Others: Fair enough, I'd forgotten that. Okay. What about the release date, are we still saying the fourteenth?
+
+Me: So that's the other thing. With the permissions change I think we could probably do Friday but I don't want to commit to that until I've seen how the migration behaves on a real device.
+
+Others: Understood. I'll get you a test device by Wednesday so you're not blocked on that.
+
+Me: Perfect, thank you. Um, oh and someone should probably tell support that the permissions copy is changing, otherwise they'll get tickets about it and have no idea.
+
+Others: Yeah. I mean Priya usually handles the support comms, doesn't she?
+
+Me: She does normally but she's out next week so I'm not sure. Let's just, let's flag it and figure it out.
+
+Others: Okay. Anything else?
+
+Me: Not really. Oh actually, completely different topic, but did you ever get the the staging database back up? Because I couldn't connect to it yesterday and I ended up testing against my local one which is not ideal.
+
+Others: Ah, no, sorry, that's on me. It's still down. I'll restart it this afternoon.
+
+Me: No worries. Okay I think that's everything, thanks.

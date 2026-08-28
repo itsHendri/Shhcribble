@@ -21,8 +21,22 @@ final class TranscriptSummarizerTests: XCTestCase {
     }
 
     func testResultEquatable() {
-        let a = TranscriptSummarizer.Result(summary: "s", actionItems: ["x"])
-        let b = TranscriptSummarizer.Result(summary: "s", actionItems: ["x"])
+        let a = TranscriptSummarizer.Result(summary: "s", actionItems: [ActionItem(text: "x")])
+        let b = TranscriptSummarizer.Result(summary: "s", actionItems: [ActionItem(text: "x")])
         XCTAssertEqual(a, b)
+    }
+
+    /// An action item defaults to nobody's, with nothing to cite — which is what
+    /// a legacy stored item decodes to.
+    func testActionItemDefaults() {
+        let item = ActionItem(text: "Book the offsite")
+        XCTAssertEqual(item.owner, .unassigned)
+        XCTAssertEqual(item.quote, "")
+        XCTAssertNil(item.owner.label, "Unassigned shows no tag — it's the normal case for a dictation.")
+    }
+
+    func testOwnerLabels() {
+        XCTAssertEqual(ActionItemOwner.me.label, "You")
+        XCTAssertEqual(ActionItemOwner.others.label, "Them")
     }
 }

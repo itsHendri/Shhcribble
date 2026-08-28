@@ -957,29 +957,46 @@ private struct TranscriptDetail: View {
     /// sent → a quiet "In Notes" marker instead of the button (the link holds
     /// through later edits of the note — see `noteForActionItem`).
     @ViewBuilder
-    private func actionItemRow(_ item: String) -> some View {
-        let existing = store.noteForActionItem(transcriptID: transcript.id, item: item)
-        HStack(alignment: .top, spacing: 8) {
-            if existing != nil {
-                Image(systemName: "note.text")
-                    .foregroundStyle(Color.accentColor)
-                    .font(.system(size: 13))
-            } else {
-                Button { store.promoteActionItem(transcriptID: transcript.id, item: item) } label: {
-                    Image(systemName: "plus.circle")
-                        .foregroundStyle(.secondary)
+    private func actionItemRow(_ item: ActionItem) -> some View {
+        let existing = store.noteForActionItem(transcriptID: transcript.id, item: item.text)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .top, spacing: 8) {
+                if existing != nil {
+                    Image(systemName: "note.text")
+                        .foregroundStyle(Color.accentColor)
                         .font(.system(size: 13))
+                } else {
+                    Button { store.promoteActionItem(transcriptID: transcript.id, item: item.text) } label: {
+                        Image(systemName: "plus.circle")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 13))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add to Notes")
+                    .accessibilityLabel("Add action item to Notes")
                 }
-                .buttonStyle(.borderless)
-                .help("Add to Notes")
-                .accessibilityLabel("Add action item to Notes")
+                Text(item.text)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let label = item.owner.label {
+                    TagCapsule(label)
+                }
+                if existing != nil {
+                    Text("In Notes")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
             }
-            Text(item)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if existing != nil {
-                Text("In Notes")
-                    .font(.caption2).foregroundStyle(.tertiary)
+            // The sentence this came from. It's the same string SummaryGuard
+            // verified against the transcript, so showing it is what makes the
+            // item auditable rather than something the user has to take on
+            // trust — an item that couldn't cite the transcript never got here.
+            if !item.quote.isEmpty {
+                Text("“\(item.quote)”")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
+                    .padding(.leading, 21)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -1037,7 +1054,10 @@ private struct TranscriptDetail: View {
         guard let summary = transcript.summary else { return }
         var out = summary
         if !transcript.actionItems.isEmpty {
-            out += "\n\nAction Items:\n" + transcript.actionItems.map { "• \($0)" }.joined(separator: "\n")
+            out += "\n\nAction Items:\n" + transcript.actionItems.map { item in
+                if let label = item.owner.label { return "• \(item.text) (\(label))" }
+                return "• \(item.text)"
+            }.joined(separator: "\n")
         }
         let pb = NSPasteboard.general
         pb.clearContents()

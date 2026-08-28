@@ -60,7 +60,7 @@ struct Transcript: Identifiable, Equatable {
     /// `summaryGeneratedAt` timestamps the current summary (Regenerate replaces
     /// all three). Full version history is deferred — see CLAUDE.md.
     var summary: String? = nil
-    var actionItems: [String] = []
+    var actionItems: [ActionItem] = []
     var summaryGeneratedAt: Date? = nil
 
     /// Free-text notes the user writes themselves in the Studio Notes tab.
@@ -218,6 +218,8 @@ final class TranscriptStore: ObservableObject {
         store.seedExampleDictionaryIfNeeded()
         store.seedBuiltInStylesIfNeeded()
         store.refreshBuiltInStylePromptsIfNeeded()
+        store.migrateBuiltInStylesV3IfNeeded()
+        store.syncBuiltInStylePromptsIfChanged()
         return store
     }
 
@@ -271,7 +273,7 @@ final class TranscriptStore: ObservableObject {
     /// Persist a generated (or regenerated) summary + action items for a
     /// transcript and update the in-memory copy so the UI refreshes. No-op if the
     /// id isn't found.
-    func updateSummary(id: UUID, summary: String, actionItems: [String], generatedAt: Date = Date()) {
+    func updateSummary(id: UUID, summary: String, actionItems: [ActionItem], generatedAt: Date = Date()) {
         guard let idx = transcripts.firstIndex(where: { $0.id == id }) else { return }
         exec("UPDATE transcripts SET summary = ?, actionItems = ?, summaryGeneratedAt = ? WHERE id = ?;") { stmt in
             sqlite3_bind_text(stmt, 1, summary, -1, Self.SQLITE_TRANSIENT)
@@ -420,8 +422,8 @@ final class TranscriptStore: ObservableObject {
     func addStyle(_ style: Style) {
         let position = styles.count
         guard exec("""
-        INSERT INTO styles (id, name, prompt, activationApps, isBuiltIn, position)
-        VALUES (?, ?, ?, ?, ?, ?);
+        INSERT INTO styles (id, name, prompt, activationApps, isBuiltIn, position, guardProfile)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
         """, bind: { stmt in
             sqlite3_bind_text(stmt, 1, style.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 2, style.name, -1, Self.SQLITE_TRANSIENT)
@@ -429,6 +431,7 @@ final class TranscriptStore: ObservableObject {
             sqlite3_bind_text(stmt, 4, Self.encodeApps(style.activationApps), -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_int(stmt, 5, style.isBuiltIn ? 1 : 0)
             sqlite3_bind_int(stmt, 6, Int32(position))
+            sqlite3_bind_text(stmt, 7, style.guardProfile.rawValue, -1, Self.SQLITE_TRANSIENT)
         }) else { return }
         styles.append(style)
     }
@@ -527,6 +530,148 @@ final class TranscriptStore: ObservableObject {
             updated += 1
         }
         if updated > 0 { log.notice("Refreshed \(updated) built-in style prompts.") }
+    }
+
+    private static let stylesV3FlagKey = "didMigrateBuiltInStylesV3"
+    /// Built-in styles renamed by the v3 pass, old name → new name.
+    private static let stylesV3Renames = ["Coding": "Agent"]
+    /// Presets that did not exist before the v3 pass, so a missing row means
+    /// "never had it" rather than "deleted it". Anything not listed here is left
+    /// alone if absent — deleting a preset is a decision we don't undo.
+    private static let stylesV3NewPresets = ["Action items"]
+
+    /// One-shot: carry existing installs onto the slimmed preset prompts
+    /// (2026-08-11) — rename `Coding` → `Agent`, replace every built-in prompt
+    /// body, apply each preset's guard profile, and seed the genuinely-new
+    /// `Action items` preset.
+    ///
+    /// **Why this is a separate pass and not a bump of the V2 flag.** V2 matches
+    /// by *name*, so it cannot rename: the moment `Coding` became `Agent` in
+    /// `seededPresets`, V2's name lookup would miss the user's `Coding` row and
+    /// silently leave it on the old prompt, under the old name, forever. The
+    /// rename has to happen first, and only then does the name match.
+    ///
+    /// Renaming keeps the row's **id**, so `ModelManager.activeStyleID` and any
+    /// transcript's stored `styleID` still resolve — a user whose active style
+    /// was `Coding` stays on it, and old transcripts keep their live style tag.
+    ///
+    /// Only `isBuiltIn` rows are touched, so a user's own styles and their
+    /// positions and activation apps are untouched. A preset the user deleted
+    /// stays deleted (nothing here inserts by name except `stylesV3NewPresets`).
+    func migrateBuiltInStylesV3IfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.stylesV3FlagKey) else { return }
+        guard db != nil else { return }
+        // A stale schema leaves `styles` empty and this flag would then burn
+        // against nothing, permanently skipping the migration — see the note on
+        // `schemaIsCurrent`.
+        guard schemaIsCurrent else { return }
+        defer { defaults.set(true, forKey: Self.stylesV3FlagKey) }
+
+        // 1. Rename first, so the name-keyed prompt refresh below can find them.
+        for (oldName, newName) in Self.stylesV3Renames {
+            for (idx, style) in styles.enumerated() where style.isBuiltIn && style.name == oldName {
+                exec("UPDATE styles SET name = ? WHERE id = ?;") { stmt in
+                    sqlite3_bind_text(stmt, 1, newName, -1, Self.SQLITE_TRANSIENT)
+                    sqlite3_bind_text(stmt, 2, style.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+                }
+                styles[idx].name = newName
+                log.notice("Renamed built-in style '\(oldName, privacy: .public)' to '\(newName, privacy: .public)'.")
+            }
+        }
+
+        // 2. Replace prompt bodies and guard profiles, matched by (new) name.
+        let presetsByName = Dictionary(uniqueKeysWithValues: Style.seededPresets.map { ($0.name, $0) })
+        var updated = 0
+        for (idx, style) in styles.enumerated() where style.isBuiltIn {
+            guard let preset = presetsByName[style.name] else { continue }
+            guard preset.prompt != style.prompt || preset.guardProfile != style.guardProfile else { continue }
+            exec("UPDATE styles SET prompt = ?, guardProfile = ? WHERE id = ?;") { stmt in
+                sqlite3_bind_text(stmt, 1, preset.prompt, -1, Self.SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 2, preset.guardProfile.rawValue, -1, Self.SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 3, style.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            }
+            styles[idx].prompt = preset.prompt
+            styles[idx].guardProfile = preset.guardProfile
+            updated += 1
+        }
+
+        // 3. Seed only the presets that are new in this version.
+        let existingNames = Set(styles.map(\.name))
+        for name in Self.stylesV3NewPresets where !existingNames.contains(name) {
+            guard let preset = presetsByName[name] else { continue }
+            addStyle(preset)
+            log.notice("Seeded new built-in style '\(name, privacy: .public)'.")
+        }
+
+        if updated > 0 { log.notice("Upgraded \(updated) built-in style prompts to the slimmed set.") }
+    }
+
+    private static let stylesFingerprintKey = "builtInStylePromptsFingerprint"
+
+    /// Keep built-in style prompts in step with `Style.seededPresets`, keyed on a
+    /// **fingerprint of the preset text** rather than a one-shot flag.
+    ///
+    /// **Why this exists — a real failure, not a hypothetical (2026-08-11).** The
+    /// V3 migration ran on the live database, wrote the preset prompts current at
+    /// that moment, and set its flag. The Agent prompt was then reverted. Because
+    /// the flag was already set, V3 could never run again, so that install was
+    /// stranded on a prompt the project had abandoned — silently, and permanently.
+    ///
+    /// Every one-shot flag has this shape: it records "this ran", not "this ran
+    /// against *that* content". So each future preset edit would need yet another
+    /// flag, and forgetting one strands users again with no signal. A fingerprint
+    /// records the content, so any change to a preset body re-applies exactly
+    /// once and nothing needs remembering.
+    ///
+    /// **Only `isBuiltIn` rows are touched**, and the cost is stated plainly: a
+    /// user who edits a *preset* loses that edit when we ship a new version of it.
+    /// That was already true of V2 and V3. A style they authored themselves is
+    /// never touched, which is the case that matters.
+    func syncBuiltInStylePromptsIfChanged() {
+        guard db != nil, schemaIsCurrent else { return }
+        let fingerprint = Self.presetFingerprint()
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: Self.stylesFingerprintKey) != fingerprint else { return }
+        defer { defaults.set(fingerprint, forKey: Self.stylesFingerprintKey) }
+
+        let presets = Dictionary(uniqueKeysWithValues: Style.seededPresets.map { ($0.name, $0) })
+        var updated = 0
+        for (idx, style) in styles.enumerated() where style.isBuiltIn {
+            guard let preset = presets[style.name] else { continue }
+            guard preset.prompt != style.prompt || preset.guardProfile != style.guardProfile else { continue }
+            exec("UPDATE styles SET prompt = ?, guardProfile = ? WHERE id = ?;") { stmt in
+                sqlite3_bind_text(stmt, 1, preset.prompt, -1, Self.SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 2, preset.guardProfile.rawValue, -1, Self.SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 3, style.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            }
+            styles[idx].prompt = preset.prompt
+            styles[idx].guardProfile = preset.guardProfile
+            updated += 1
+        }
+        if updated > 0 {
+            log.notice("Synced \(updated) built-in style prompt(s) to the current presets.")
+        }
+    }
+
+    /// A stable digest of every preset's name, prompt and guard profile. Changing
+    /// any of them changes this, which is the whole mechanism.
+    ///
+    /// **FNV-1a, not `hashValue`.** Swift's `Hashable` is seeded per process, so
+    /// a fingerprint built from it differs on every launch — the sync would run
+    /// forever, re-applying preset text over any edit each time the app started.
+    /// This has to be deterministic across processes and across releases.
+    static func presetFingerprint() -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325          // FNV-1a 64-bit offset basis
+        var bytes = 0
+        for preset in Style.seededPresets {
+            for byte in "\(preset.name)\u{1}\(preset.prompt)\u{1}\(preset.guardProfile.rawValue)\u{2}".utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x0000_0100_0000_01b3      // FNV prime
+                bytes += 1
+            }
+        }
+        return String(format: "%016llx-%d", hash, bytes)
     }
 
     // MARK: - Notes / Tasks / Stickies
@@ -962,7 +1107,8 @@ final class TranscriptStore: ObservableObject {
             prompt TEXT NOT NULL,
             activationApps TEXT NOT NULL DEFAULT '[]',
             isBuiltIn INTEGER NOT NULL DEFAULT 0,
-            position INTEGER NOT NULL
+            position INTEGER NOT NULL,
+            guardProfile TEXT NOT NULL DEFAULT 'reshape'
         );
         """, bind: nil)
         exec("CREATE INDEX IF NOT EXISTS idx_styles_position ON styles(position ASC);", bind: nil)
@@ -1027,7 +1173,7 @@ final class TranscriptStore: ObservableObject {
     /// The version `migrateSchema` brings a DB up to. The loaders name columns
     /// from this version, so anything short of it means the loaded arrays can't
     /// be trusted — see `schemaIsCurrent`.
-    static let latestSchemaVersion: Int32 = 12
+    static let latestSchemaVersion: Int32 = 13
 
     /// False when a migration step failed and the DB is behind
     /// `latestSchemaVersion`. **Every one-shot migration guards on this**: they
@@ -1212,6 +1358,20 @@ final class TranscriptStore: ObservableObject {
             version = 12
         }
 
+        if version < 13 {
+            // Styles gain a guard profile. Defaulting to 'reshape' in SQL is the
+            // safe direction: an existing row — including a user's own style —
+            // comes out on the STRICT guard, and only `Style.seededPresets` ever
+            // hands out the looser 'extract'. See StyleGuard.Profile.
+            guard addColumns([("guardProfile", "TEXT NOT NULL DEFAULT 'reshape'")], to: "styles") else {
+                log.error("Schema v13 column add failed; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            guard exec("PRAGMA user_version = 13;", bind: nil) else { return }
+            log.notice("Migrated schema to v13 (styles carry a guard profile).")
+            version = 13
+        }
+
         schemaIsCurrent = version == Self.latestSchemaVersion
     }
 
@@ -1379,7 +1539,7 @@ final class TranscriptStore: ObservableObject {
     private func reloadStyles() {
         var rows: [Style] = []
         forEachRow("""
-        SELECT id, name, prompt, activationApps, isBuiltIn
+        SELECT id, name, prompt, activationApps, isBuiltIn, guardProfile
         FROM styles ORDER BY position ASC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
@@ -1388,7 +1548,10 @@ final class TranscriptStore: ObservableObject {
                 name: Self.columnText(stmt, 1) ?? "",
                 prompt: Self.columnText(stmt, 2) ?? "",
                 activationApps: Self.decodeApps(Self.columnText(stmt, 3)),
-                isBuiltIn: sqlite3_column_int(stmt, 4) != 0
+                isBuiltIn: sqlite3_column_int(stmt, 4) != 0,
+                // An unrecognized value falls back to the STRICT profile — a
+                // corrupt or future-written row must never decode looser.
+                guardProfile: StyleGuard.Profile(rawValue: Self.columnText(stmt, 5) ?? "") ?? .reshape
             ))
         }
         styles = rows
@@ -1473,15 +1636,23 @@ final class TranscriptStore: ObservableObject {
     /// Action items are stored as a JSON array of strings in one TEXT column.
     /// An empty list encodes to `nil` (stored as SQL NULL) so "no summary yet"
     /// and "summary with no action items" stay distinguishable via `summary`.
-    private static func encodeActionItems(_ items: [String]) -> String? {
+    private static func encodeActionItems(_ items: [ActionItem]) -> String? {
         guard !items.isEmpty, let data = try? JSONEncoder().encode(items) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
-    private static func decodeActionItems(_ json: String?) -> [String] {
-        guard let json, let data = json.data(using: .utf8),
-              let items = try? JSONDecoder().decode([String].self, from: data) else { return [] }
-        return items
+    /// Tolerant on purpose: summaries generated before action items carried an
+    /// owner and a quote are stored as a bare JSON array of strings. Decoding
+    /// those as unowned, unquoted items keeps every existing summary readable
+    /// rather than silently emptying it — the same rollback discipline as the
+    /// legacy UserDefaults keys. Regenerating a summary upgrades it in place.
+    private static func decodeActionItems(_ json: String?) -> [ActionItem] {
+        guard let json, let data = json.data(using: .utf8) else { return [] }
+        if let items = try? JSONDecoder().decode([ActionItem].self, from: data) { return items }
+        if let legacy = try? JSONDecoder().decode([String].self, from: data) {
+            return legacy.map { ActionItem(text: $0) }
+        }
+        return []
     }
 
     /// A style's activation bundle IDs are stored as a JSON array in one TEXT

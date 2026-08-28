@@ -1,0 +1,1 @@
+okay so the the problem is in package.json, the build script calls setUpAudioQueue but the actual function is set_up_audio_queue, snake case, and there's also a C++ shim called AudioBridge with a capital A that the TypeScript side expects to be lowercase. um so those three names need to match. the file is src/audio/bridge.mm
