@@ -219,6 +219,7 @@ final class TranscriptStore: ObservableObject {
         store.seedBuiltInStylesIfNeeded()
         store.refreshBuiltInStylePromptsIfNeeded()
         store.migrateBuiltInStylesV3IfNeeded()
+        store.syncBuiltInStylePromptsIfChanged()
         return store
     }
 
@@ -604,6 +605,73 @@ final class TranscriptStore: ObservableObject {
         }
 
         if updated > 0 { log.notice("Upgraded \(updated) built-in style prompts to the slimmed set.") }
+    }
+
+    private static let stylesFingerprintKey = "builtInStylePromptsFingerprint"
+
+    /// Keep built-in style prompts in step with `Style.seededPresets`, keyed on a
+    /// **fingerprint of the preset text** rather than a one-shot flag.
+    ///
+    /// **Why this exists — a real failure, not a hypothetical (2026-08-11).** The
+    /// V3 migration ran on the live database, wrote the preset prompts current at
+    /// that moment, and set its flag. The Agent prompt was then reverted. Because
+    /// the flag was already set, V3 could never run again, so that install was
+    /// stranded on a prompt the project had abandoned — silently, and permanently.
+    ///
+    /// Every one-shot flag has this shape: it records "this ran", not "this ran
+    /// against *that* content". So each future preset edit would need yet another
+    /// flag, and forgetting one strands users again with no signal. A fingerprint
+    /// records the content, so any change to a preset body re-applies exactly
+    /// once and nothing needs remembering.
+    ///
+    /// **Only `isBuiltIn` rows are touched**, and the cost is stated plainly: a
+    /// user who edits a *preset* loses that edit when we ship a new version of it.
+    /// That was already true of V2 and V3. A style they authored themselves is
+    /// never touched, which is the case that matters.
+    func syncBuiltInStylePromptsIfChanged() {
+        guard db != nil, schemaIsCurrent else { return }
+        let fingerprint = Self.presetFingerprint()
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: Self.stylesFingerprintKey) != fingerprint else { return }
+        defer { defaults.set(fingerprint, forKey: Self.stylesFingerprintKey) }
+
+        let presets = Dictionary(uniqueKeysWithValues: Style.seededPresets.map { ($0.name, $0) })
+        var updated = 0
+        for (idx, style) in styles.enumerated() where style.isBuiltIn {
+            guard let preset = presets[style.name] else { continue }
+            guard preset.prompt != style.prompt || preset.guardProfile != style.guardProfile else { continue }
+            exec("UPDATE styles SET prompt = ?, guardProfile = ? WHERE id = ?;") { stmt in
+                sqlite3_bind_text(stmt, 1, preset.prompt, -1, Self.SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 2, preset.guardProfile.rawValue, -1, Self.SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 3, style.id.uuidString, -1, Self.SQLITE_TRANSIENT)
+            }
+            styles[idx].prompt = preset.prompt
+            styles[idx].guardProfile = preset.guardProfile
+            updated += 1
+        }
+        if updated > 0 {
+            log.notice("Synced \(updated) built-in style prompt(s) to the current presets.")
+        }
+    }
+
+    /// A stable digest of every preset's name, prompt and guard profile. Changing
+    /// any of them changes this, which is the whole mechanism.
+    ///
+    /// **FNV-1a, not `hashValue`.** Swift's `Hashable` is seeded per process, so
+    /// a fingerprint built from it differs on every launch — the sync would run
+    /// forever, re-applying preset text over any edit each time the app started.
+    /// This has to be deterministic across processes and across releases.
+    static func presetFingerprint() -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325          // FNV-1a 64-bit offset basis
+        var bytes = 0
+        for preset in Style.seededPresets {
+            for byte in "\(preset.name)\u{1}\(preset.prompt)\u{1}\(preset.guardProfile.rawValue)\u{2}".utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x0000_0100_0000_01b3      // FNV prime
+                bytes += 1
+            }
+        }
+        return String(format: "%016llx-%d", hash, bytes)
     }
 
     // MARK: - Notes / Tasks / Stickies

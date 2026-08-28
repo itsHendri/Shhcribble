@@ -662,6 +662,53 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertEqual(mine?.guardProfile, .reshape)
     }
 
+    // MARK: - Preset fingerprint sync
+
+    /// The fingerprint must be identical across processes, or the sync re-runs
+    /// on every launch and overwrites edits. `hashValue` is per-process seeded
+    /// and would silently do exactly that.
+    func testPresetFingerprintIsStableAndContentDerived() {
+        XCTAssertEqual(TranscriptStore.presetFingerprint(), TranscriptStore.presetFingerprint())
+        XCTAssertFalse(TranscriptStore.presetFingerprint().isEmpty)
+    }
+
+    /// The failure this exists for: V3 ran, its flag was set, then a preset
+    /// prompt changed. A flag-based migration can never correct that; a
+    /// fingerprint-based one does, exactly once.
+    func testSyncRepairsAStrandedPresetPromptAndIsIdempotent() {
+        UserDefaults.standard.removeObject(forKey: "didSeedBuiltInStyles")
+        UserDefaults.standard.removeObject(forKey: "builtInStylePromptsFingerprint")
+        let store = makeStore()
+        store.seedBuiltInStylesIfNeeded()
+
+        // Strand one preset on an abandoned prompt, as the live database was.
+        let agent = store.styles.first { $0.name == "Agent" }!
+        store.updateStyle(id: agent.id, name: "Agent", prompt: "STALE ABANDONED PROMPT",
+                          activationApps: agent.activationApps)
+        UserDefaults.standard.removeObject(forKey: "builtInStylePromptsFingerprint")
+
+        store.syncBuiltInStylePromptsIfChanged()
+        XCTAssertEqual(store.styles.first { $0.name == "Agent" }?.prompt,
+                       Style.seededPresets.first { $0.name == "Agent" }?.prompt,
+                       "A stranded preset must be brought back to the current prompt.")
+
+        // Second call is a no-op: the fingerprint now matches.
+        store.updateStyle(id: agent.id, name: "Agent", prompt: "USER EDIT",
+                          activationApps: agent.activationApps)
+        store.syncBuiltInStylePromptsIfChanged()
+        XCTAssertEqual(store.styles.first { $0.name == "Agent" }?.prompt, "USER EDIT",
+                       "With an unchanged fingerprint the sync must not touch anything.")
+    }
+
+    /// A style the user wrote is never touched, whatever the presets do.
+    func testSyncLeavesUserAuthoredStylesAlone() {
+        UserDefaults.standard.removeObject(forKey: "builtInStylePromptsFingerprint")
+        let store = makeStore()
+        store.addStyle(Style(name: "Agent", prompt: "MY OWN", isBuiltIn: false))
+        store.syncBuiltInStylePromptsIfChanged()
+        XCTAssertEqual(store.styles.first { !$0.isBuiltIn }?.prompt, "MY OWN")
+    }
+
     func testSchemaIsAtLeastV13() {
         let path = tempDBPath()
         defer { try? FileManager.default.removeItem(atPath: path) }
