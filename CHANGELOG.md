@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-08-30
+
 ### Added
 - **Pin a document to your screen.** Pinning isn't just for notes any more — a
   transcribed file or call can sit on your screen too. It shows the summary
@@ -624,7 +626,8 @@ First public release (as Shhhcribble; formerly FieldWhisperer).
 - Replaced WhisperKit with Parakeet V3 (FluidAudio).
 - Renamed FieldWhisperer → Shhhcribble.
 
-[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.15.0
 [1.14.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.14.0
 [1.13.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.13.0
 [1.12.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.12.0
