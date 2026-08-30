@@ -3,6 +3,17 @@ import AppKit
 import SwiftUI
 @testable import Shhhcribble
 
+/// Note-only convenience for the cases written before documents could be
+/// pinned (2026-08-30). It forwards to the real `apply(items:)`, so these tests
+/// still exercise the production path — it only saves wrapping every fixture.
+extension StickyTabsModel {
+    func apply(notes: [Note], preferredActive: UUID? = nil) {
+        apply(items: notes.map(StickyItem.note), preferredActive: preferredActive)
+    }
+
+    func label(for note: Note) -> String { label(for: StickyItem.note(note)) }
+}
+
 /// Tests for the tabbed sticky panel's model — the half of the feature that can
 /// silently lose or reshuffle a user's text.
 ///
@@ -425,5 +436,104 @@ final class StickyTabsTests: XCTestCase {
 
         XCTAssertEqual(model.label(for: notes[0]), "alpha")
         XCTAssertEqual(model.label(for: notes[1]), "beta, being typed")
+    }
+}
+
+/// Documents on screen — the half added 2026-08-30, when pinning stopped being
+/// notes-only.
+@MainActor
+final class StuckDocumentTests: XCTestCase {
+
+    private func makeStore() -> TranscriptStore { TranscriptStore(path: ":memory:") }
+
+    private func document(_ title: String,
+                          summary: String? = nil,
+                          createdAt: Date = Date()) -> Transcript {
+        Transcript(id: UUID(), createdAt: createdAt, source: .file, title: title,
+                   text: "the full transcript, at length", rawText: "",
+                   fileName: "\(title).m4a", summary: summary)
+    }
+
+    func testPinningADocumentPersistsAndSurvivesReopen() {
+        let store = makeStore()
+        let doc = document("standup")
+        store.add(doc)
+
+        store.setTranscriptStuck(id: doc.id, stuck: true)
+        XCTAssertEqual(store.stuckDocuments.map(\.id), [doc.id])
+
+        store.setTranscriptStuck(id: doc.id, stuck: false)
+        XCTAssertTrue(store.stuckDocuments.isEmpty)
+    }
+
+    /// The retired column must stay retired: a rolled-back build reads `pinned`,
+    /// and pinning to screen must not light it up.
+    func testPinningADocumentDoesNotWriteTheRetiredPinnedColumn() {
+        let store = makeStore()
+        let doc = document("standup")
+        store.add(doc)
+        store.setTranscriptStuck(id: doc.id, stuck: true)
+
+        let stored = store.transcripts.first { $0.id == doc.id }
+        XCTAssertEqual(stored?.stuck, true)
+        XCTAssertEqual(stored?.pinned, false)
+    }
+
+    /// A stuck document shows its summary — the ruling — and falls back to the
+    /// transcript when none has been generated, saying which it is either way.
+    func testStuckDocumentPrefersItsSummaryAndSaysSo() {
+        let withSummary = StickyItem.document(document("a", summary: "three bullet points"))
+        XCTAssertEqual(withSummary.documentBody, "three bullet points")
+        XCTAssertTrue(withSummary.isShowingSummary)
+
+        let without = StickyItem.document(document("b"))
+        XCTAssertEqual(without.documentBody, "the full transcript, at length")
+        XCTAssertFalse(without.isShowingSummary)
+
+        // An empty-string summary is not a summary.
+        let blank = StickyItem.document(document("c", summary: "   "))
+        XCTAssertEqual(blank.documentBody, "the full transcript, at length")
+        XCTAssertFalse(blank.isShowingSummary)
+    }
+
+    /// Tab order is creation order across *both* kinds — never recency, which
+    /// changes on every keystroke and would reshuffle tabs mid-sentence.
+    func testTabOrderInterleavesBothKindsByCreation() {
+        let store = makeStore()
+        let t0 = Date(timeIntervalSince1970: 1_000)
+
+        var oldDoc = document("older file", createdAt: t0)
+        oldDoc.stuck = true
+        store.add(oldDoc)
+
+        var newNote = Note(createdAt: t0.addingTimeInterval(60), text: "newer note")
+        newNote.stuck = true
+        store.addNote(newNote)
+
+        XCTAssertEqual(store.stuckItemsInTabOrder.map(\.id), [oldDoc.id, newNote.id])
+
+        // Touching the note must not move it: modifiedAt changes, createdAt doesn't.
+        var touched = newNote
+        touched.text = "edited"
+        store.updateNote(touched)
+        XCTAssertEqual(store.stuckItemsInTabOrder.map(\.id), [oldDoc.id, newNote.id])
+    }
+
+    /// The shelf's two groups stay exact complements once documents can be
+    /// on screen — otherwise a pinned document would appear twice, or vanish.
+    func testPartitionPutsPinnedDocumentsOnScreen() {
+        var doc = document("pinned file")
+        doc.stuck = true
+        let plainDoc = document("ordinary file")
+        var note = Note(text: "pinned note")
+        note.stuck = true
+        let plainNote = Note(text: "ordinary note")
+
+        let rows = NotesLibrary.merged(notes: [note, plainNote], documents: [doc, plainDoc])
+        let groups = NotesLibrary.partitioned(rows)
+
+        XCTAssertEqual(Set(groups.onScreen.map(\.id)), [.document(doc.id), .note(note.id)])
+        XCTAssertEqual(Set(groups.rest.map(\.id)), [.document(plainDoc.id), .note(plainNote.id)])
+        XCTAssertEqual(groups.onScreen.count + groups.rest.count, rows.count)
     }
 }

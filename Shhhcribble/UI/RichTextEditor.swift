@@ -447,6 +447,14 @@ final class RichTextView: NSTextView {
     /// already discards all formatting, so there is nothing to normalise.
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
+        // Images first. A screenshot on the pasteboard, or a file copied in the
+        // Finder, *also* satisfies the NSAttributedString read below — as a
+        // string of the file's name — which is why pasting a picture used to
+        // drop its filename into the note and nothing else.
+        if let image = Self.image(from: pasteboard) {
+            insertImage(image)
+            return
+        }
         guard let incoming = pasteboard.readObjects(
                 forClasses: [NSAttributedString.self], options: nil)?.first as? NSAttributedString,
               incoming.length > 0 else {
@@ -461,6 +469,94 @@ final class RichTextView: NSTextView {
             return
         }
         textStorage?.replaceCharacters(in: range, with: normalized)
+        didChangeText()
+    }
+
+    // MARK: - Dropped images
+
+    /// Accept image drags. `NSTextView` advertises only what its own
+    /// `readablePasteboardTypes` covers, which is text — so a picture dragged
+    /// from the desktop is refused before any drop handler runs.
+    func registerImageDragging() {
+        registerForDraggedTypes([.fileURL, .tiff, .png])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        Self.image(from: sender.draggingPasteboard) != nil ? .copy : super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        Self.image(from: sender.draggingPasteboard) != nil ? .copy : super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let image = Self.image(from: sender.draggingPasteboard) else {
+            return super.performDragOperation(sender)
+        }
+        // Drop at the pointer, not at the old caret — a drop names its own
+        // insertion point, and landing text somewhere else is disorienting.
+        let point = convert(sender.draggingLocation, from: nil)
+        let index = characterIndexForInsertion(at: point)
+        setSelectedRange(NSRange(location: index, length: 0))
+        insertImage(image)
+        return true
+    }
+
+    /// An image on the pasteboard, whether pasted directly (a screenshot) or as
+    /// a file (copied in the Finder, dragged from a browser).
+    ///
+    /// The file branch matters more than it looks: copying a picture in the
+    /// Finder puts a *file URL* on the pasteboard, not image data, and every
+    /// "paste an image" implementation that reads only `NSImage` silently
+    /// degrades to pasting the path.
+    static func image(from pasteboard: NSPasteboard) -> NSImage? {
+        if let images = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
+           let image = images.first {
+            return image
+        }
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingContentsConformToTypes: ["public.image"]]
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
+              let url = urls.first else { return nil }
+        return NSImage(contentsOf: url)
+    }
+
+    /// Insert an image at the caret as one undoable edit.
+    ///
+    /// **Fitted to the text container's width, never native size.** A 4000-pixel
+    /// screenshot in a 320-point sticky is the whole reason this needs handling:
+    /// an attachment carries its own bounds, and left alone it would render at
+    /// full size and push every line off the card. Images narrower than the
+    /// column keep their size — upscaling a small image is never what's wanted.
+    ///
+    /// Storage needs no work: `NSTextAttachment` and `NSImage` are already in
+    /// the archive's allowlist, so an image round-trips through save/reload as
+    /// it stands.
+    func insertImage(_ image: NSImage) {
+        let attachment = NSTextAttachment()
+        let cell = NSTextAttachmentCell(imageCell: image)
+        attachment.attachmentCell = cell
+
+        let available = (textContainer?.size.width ?? bounds.width)
+            - (textContainerInset.width * 2) - 8
+        let size = image.size
+        if size.width > available, size.width > 0 {
+            let scaled = NSSize(width: available, height: size.height * (available / size.width))
+            image.size = scaled
+            cell.image = image
+        }
+
+        let piece = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
+        // An attachment inherits the run's paragraph style; without an explicit
+        // one it picks up whatever step the caret is in, so an image dropped
+        // into a heading would carry the heading's line height.
+        piece.addAttribute(.paragraphStyle,
+                           value: RichText.paragraphStyle(for: RichText.baseFont),
+                           range: NSRange(location: 0, length: piece.length))
+
+        let range = rangeForUserTextChange
+        guard range.location != NSNotFound,
+              shouldChangeText(in: range, replacementString: piece.string) else { return }
+        textStorage?.replaceCharacters(in: range, with: piece)
         didChangeText()
     }
 
@@ -628,6 +724,19 @@ final class NoteEditorProxy: ObservableObject {
         }
     }
 
+    /// Apply a paragraph step (Display … Caption) to whatever the selection
+    /// touches — the same action ⌘1–⌘5 and the right-click Style submenu run.
+    ///
+    /// Paragraph-scoped, like those: a heading is a property of the line, not of
+    /// the characters that happen to be selected.
+    func applyTextStyle(_ style: NoteTextStyle) {
+        textView?.applyTextStyle(style)
+    }
+
+    /// The step the caret currently sits in, so a menu can tick it. Nil when no
+    /// editor is attached or the run matches no step.
+    var currentTextStyle: NoteTextStyle? { textView?.currentTextStyle }
+
     /// Replace the entire contents as **one** undoable edit. Returns false if
     /// there's no editor attached or the text system refused the change.
     @discardableResult
@@ -752,6 +861,10 @@ struct RichTextEditor: NSViewRepresentable {
         let textView = RichTextView(frame: .zero, textContainer: container)
         textView.delegate = context.coordinator
         textView.isRichText = true
+        // Images arrive by paste or by drag; the drag half needs the view to
+        // advertise the types, which NSTextView doesn't do for pictures.
+        textView.importsGraphics = true
+        textView.registerImageDragging()
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
