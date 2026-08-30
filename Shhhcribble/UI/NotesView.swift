@@ -101,13 +101,13 @@ struct NotesView: View {
                 // Always two sections, so sticking the first item doesn't
                 // restructure the whole list and churn every row's identity.
                 // An empty section draws nothing; the header appears only when
-                // the group has rows, since an empty "On your screen" heading
+                // the group has rows, since an empty "Pinned" heading
                 // would be a permanent reminder of a feature you aren't using.
                 Section {
                     ForEach(groups.onScreen) { row($0) }
                 } header: {
                     if !groups.onScreen.isEmpty {
-                        Label("On your screen", systemImage: "macwindow")
+                        Label("Pinned", systemImage: "pin")
                             .font(.sectionTitle)
                     }
                 }
@@ -158,7 +158,7 @@ struct NotesView: View {
         let rowID = item.id.id
         return LibraryRow(item: item,
                           hovered: hoveredID == rowID,
-                          onCopy: { copyRow(item) })
+                          onTogglePin: { togglePin(item) })
             .contentShape(Rectangle())
             .onTapGesture { selection = item.id }
             .onHover { hoveredID = $0 ? rowID : (hoveredID == rowID ? nil : hoveredID) }
@@ -225,6 +225,30 @@ struct NotesView: View {
         }
     }
 
+    /// Put an item on screen, or take it down — the list's half of the same
+    /// lifecycle the editor's capsule drives.
+    ///
+    /// **Safe against the mid-typing case without needing a flush**, which is
+    /// worth spelling out because the editor's own capsule *does* call
+    /// `saveNow()` first and the asymmetry looks like an oversight.
+    ///
+    /// Pinning the note you are currently typing in writes the store's copy —
+    /// briefly stale — and re-publishes the row. The editor refuses that push
+    /// while an edit is pending (`RichTextEditor.swift:811`), so nothing is
+    /// clobbered on screen, and the 700 ms debounce then writes the live text
+    /// over the stale row. The capsule flushes only because it sits *inside*
+    /// the editor and can; from here there is no view to reach.
+    private func togglePin(_ item: NoteOrDocument) {
+        switch item {
+        case .note(let n):
+            store.setNoteStuck(id: n.id, stuck: !n.stuck)
+            toast.flash(n.stuck ? "Unpinned" : "Pinned to screen")
+        case .document(let t):
+            store.setTranscriptStuck(id: t.id, stuck: !t.stuck)
+            toast.flash(t.stuck ? "Unpinned" : "Pinned to screen")
+        }
+    }
+
     private func copy(text: String) {
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -271,7 +295,7 @@ struct NotesView: View {
 private struct LibraryRow: View {
     let item: NoteOrDocument
     var hovered: Bool = false
-    var onCopy: () -> Void = {}
+    var onTogglePin: () -> Void = {}
 
     private let trailingWidth: CGFloat = 72
 
@@ -287,11 +311,11 @@ private struct LibraryRow: View {
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if case .note(let n) = item, n.stuck {
-                    Image(systemName: "macwindow")
+                if item.isOnScreen {
+                    Image(systemName: "pin.fill")
                         .font(.system(size: DesignSystem.ChromeText.micro))
                         .foregroundStyle(.tertiary)
-                        .help("On your screen")
+                        .help("Pinned to your screen")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -301,10 +325,17 @@ private struct LibraryRow: View {
         .padding(.vertical, 5)
     }
 
+    /// Hover reveals **pin only**. Copy used to live here and was removed on
+    /// 2026-08-30 (Hendri's call): you select an item before copying it, because
+    /// there is a lot of it — a one-click copy of something you haven't read is
+    /// an action you can't verify. Pin is the opposite: its whole result is
+    /// visible the instant you click it.
     @ViewBuilder
     private var trailing: some View {
         if hovered {
-            RowHoverButton("square.on.square", help: "Copy", action: onCopy)
+            RowHoverButton(item.isOnScreen ? "pin.slash" : "pin",
+                           help: item.isOnScreen ? "Unpin from screen" : "Pin to screen",
+                           action: onTogglePin)
         } else {
             VStack(alignment: .trailing, spacing: 1) {
                 Text(item.date.formatted(date: .abbreviated, time: .omitted))
@@ -491,7 +522,7 @@ private struct NoteDetail: View {
     }
 
     /// Stick: put the note on screen as a floating sticky — a note's only
-    /// lifecycle. The label is the state ("Stick to screen" ↔ "Unstick"), which
+    /// lifecycle. The label is the state ("Pin to screen" ↔ "Unpin"), which
     /// is why no tag is needed elsewhere.
     private var stickCapsule: some View {
         Button {
@@ -499,8 +530,8 @@ private struct NoteDetail: View {
             store.setNoteStuck(id: note.id, stuck: !note.stuck)
         } label: {
             // The additive glyph belongs to the additive verb.
-            Label(note.stuck ? "Unstick" : "Stick to screen",
-                  systemImage: note.stuck ? "macwindow" : "macwindow.badge.plus")
+            Label(note.stuck ? "Unpin" : "Pin to screen",
+                  systemImage: note.stuck ? "pin.slash" : "pin")
                 .font(.callout).fontWeight(.medium)
                 .padding(.horizontal, 16).padding(.vertical, 9)
                 .background(.regularMaterial, in: Capsule())
@@ -510,7 +541,7 @@ private struct NoteDetail: View {
         .buttonStyle(.plain)
         .padding(.bottom, 14)
         .help(note.stuck ? "Take this note off your screen (it stays here)"
-                         : "Float this note above your other windows")
+                         : "Pin this note above your other windows")
     }
 
     private var metaLine: String {

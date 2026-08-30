@@ -81,7 +81,21 @@ struct Transcript: Identifiable, Equatable {
     /// it stays for rollback only, exactly like `Note.pinX`/`pinY` — same
     /// discipline as the legacy UserDefaults keys. Don't reintroduce a pin
     /// feature from the presence of this field.
+    ///
+    /// **Deliberately NOT reused as the new on-screen flag** (2026-08-30), even
+    /// though it was sitting empty and the temptation was obvious: overloading a
+    /// retired column with a second meaning is precisely the confusion the
+    /// pin/stick split was removed to end, and a rolled-back build would read
+    /// these rows as pinned. `stuck` (v14) is its own column.
     var pinned: Bool = false
+
+    /// On screen as a sticky. Documents joined this lifecycle 2026-08-30 —
+    /// Hendri's ruling that a document can be pinned, where "pin" is now the
+    /// UI's word for exactly this flag. A stuck document shows its **summary**
+    /// (falling back to the transcript when none has been generated): a
+    /// 40-minute transcript is unreadable in a small card, and the summary is
+    /// the part worth having in front of you.
+    var stuck: Bool = false
 
     /// `m:ss` for a duration in seconds — the one place the app formats one.
     static func durationString(_ seconds: Double) -> String {
@@ -779,6 +793,53 @@ final class TranscriptStore: ObservableObject {
         updateNote(note, modifiedAt: note.modifiedAt)
     }
 
+    /// Put a document on screen as a sticky, or take it down — the same
+    /// lifecycle notes have, extended to documents on Hendri's 2026-08-30
+    /// ruling that a document can be pinned ("pin" being the UI's word for this
+    /// flag now that the importance lifecycle is gone).
+    ///
+    /// Writes `stuck` (v14) and pointedly **not** the retired `pinned` column,
+    /// which is left holding whatever a pre-2026-08-28 build put there.
+    ///
+    /// Unlike a note there is no origin to carry: a document has never had the
+    /// legacy `pinX`/`pinY` columns, and placement is the panel's job anyway.
+    func setTranscriptStuck(id: UUID, stuck: Bool) {
+        guard let index = transcripts.firstIndex(where: { $0.id == id }) else { return }
+        guard exec("UPDATE transcripts SET stuck = ? WHERE id = ?;", bind: { stmt in
+            sqlite3_bind_int(stmt, 1, stuck ? 1 : 0)
+            sqlite3_bind_text(stmt, 2, id.uuidString, -1, Self.SQLITE_TRANSIENT)
+        }) else { return }
+        // Mutate in place rather than reload: same pattern as `updateSummary` /
+        // `updateNotes`, and it keeps the `@Published` array's identity stable
+        // so the list doesn't churn under the pointer.
+        transcripts[index].stuck = stuck
+    }
+
+    /// Documents currently on screen, newest first. Notes have `stuckNotes`;
+    /// the sticky panel consumes both through `stuckItemsInTabOrder`.
+    var stuckDocuments: [Transcript] {
+        transcripts.filter { $0.stuck && $0.source.isDocument }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Everything on screen, in **stable tab order**.
+    ///
+    /// Ordered by `createdAt` ascending, which is creation order — the property
+    /// `stuckNotesInTabOrder` already relied on, now stated explicitly because
+    /// two kinds have to interleave. It is deliberately **not** recency:
+    /// `modifiedAt` changes on every keystroke, so recency-ordered tabs would
+    /// reshuffle under the pointer mid-sentence. `createdAt` never moves.
+    var stuckItemsInTabOrder: [StickyItem] {
+        let items = stuckNotesInTabOrder.map(StickyItem.note)
+            + stuckDocuments.map(StickyItem.document)
+        return items.sorted {
+            // Same id tie-break as `Timeline.items` / `NotesLibrary.merged`: a
+            // note promoted from a document can share its second, and an
+            // unstable sort churns `ForEach` identity.
+            ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString)
+        }
+    }
+
     /// Persist a sticky's dragged/resized frame without touching `modifiedAt`
     /// semantics elsewhere (it's still an update; frame moves aren't edits
     /// worth surfacing, but the single write path keeps the code simple).
@@ -1141,7 +1202,7 @@ final class TranscriptStore: ObservableObject {
     /// The version `migrateSchema` brings a DB up to. The loaders name columns
     /// from this version, so anything short of it means the loaded arrays can't
     /// be trusted — see `schemaIsCurrent`.
-    static let latestSchemaVersion: Int32 = 13
+    static let latestSchemaVersion: Int32 = 14
 
     /// False when a migration step failed and the DB is behind
     /// `latestSchemaVersion`. **Every one-shot migration guards on this**: they
@@ -1284,8 +1345,10 @@ final class TranscriptStore: ObservableObject {
         }
 
         if version < 11 {
-            // Transcripts join the pin (importance) lifecycle — no `stuck`
-            // counterpart, since a document isn't something you put on screen.
+            // Transcripts join the pin (importance) lifecycle. (The "no `stuck`
+            // counterpart, since a document isn't something you put on screen"
+            // reasoning this comment used to carry was reversed on 2026-08-30 —
+            // see v14. This step itself is unchanged and must stay that way.)
             let migrated = withTransaction {
                 guard addColumns([("pinned", "INTEGER NOT NULL DEFAULT 0")]) else { return false }
                 return exec("PRAGMA user_version = 11;", bind: nil)
@@ -1338,6 +1401,26 @@ final class TranscriptStore: ObservableObject {
             guard exec("PRAGMA user_version = 13;", bind: nil) else { return }
             log.notice("Migrated schema to v13 (styles carry a guard profile).")
             version = 13
+        }
+
+        if version < 14 {
+            // Documents join the on-screen lifecycle: "pin" (the UI's word for
+            // stuck, now that the importance lifecycle is gone) applies to
+            // documents as well as notes.
+            //
+            // A plain column add with no backfill — deliberately. `pinned` (v11)
+            // is sitting right there holding nothing, and seeding from it would
+            // have been one line, but that column was written under the *old*
+            // meaning by builds that had a pin-the-favourite feature; a user who
+            // favourited ten documents would find all ten thrown onto their
+            // screen at once. Nothing on screen unless the user puts it there.
+            guard addColumns([("stuck", "INTEGER NOT NULL DEFAULT 0")]) else {
+                log.error("Schema v14 column add failed; leaving user_version at \(version) to retry next launch.")
+                return
+            }
+            guard exec("PRAGMA user_version = 14;", bind: nil) else { return }
+            log.notice("Migrated schema to v14 (documents can go on screen).")
+            version = 14
         }
 
         schemaIsCurrent = version == Self.latestSchemaVersion
@@ -1396,8 +1479,8 @@ final class TranscriptStore: ObservableObject {
     private func insert(_ t: Transcript) -> Bool {
         exec("""
         INSERT OR REPLACE INTO transcripts
-        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID, pinned)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        (id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID, pinned, stuck)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """) { stmt in
             sqlite3_bind_text(stmt, 1, t.id.uuidString, -1, Self.SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, t.createdAt.timeIntervalSince1970)
@@ -1415,13 +1498,14 @@ final class TranscriptStore: ObservableObject {
             self.bindOptionalText(stmt, 14, t.styleName)
             self.bindOptionalText(stmt, 15, t.styleID)
             sqlite3_bind_int(stmt, 16, t.pinned ? 1 : 0)
+            sqlite3_bind_int(stmt, 17, t.stuck ? 1 : 0)
         }
     }
 
     private func reload() {
         var rows: [Transcript] = []
         forEachRow("""
-        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID, pinned
+        SELECT id, createdAt, source, title, text, rawText, fileName, sourcePath, durationSec, summary, actionItems, summaryGeneratedAt, notes, styleName, styleID, pinned, stuck
         FROM transcripts ORDER BY createdAt DESC;
         """) { stmt in
             guard let idStr = Self.columnText(stmt, 0), let id = UUID(uuidString: idStr) else { return }
@@ -1445,7 +1529,8 @@ final class TranscriptStore: ObservableObject {
                 notes: Self.columnText(stmt, 12) ?? "",
                 styleName: Self.columnText(stmt, 13),
                 styleID: Self.columnText(stmt, 14),
-                pinned: sqlite3_column_int(stmt, 15) != 0
+                pinned: sqlite3_column_int(stmt, 15) != 0,
+                stuck: sqlite3_column_int(stmt, 16) != 0
             ))
         }
         transcripts = rows

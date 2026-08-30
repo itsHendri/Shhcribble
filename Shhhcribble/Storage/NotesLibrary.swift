@@ -50,6 +50,14 @@ enum NoteOrDocument: Identifiable, Equatable {
         return false
     }
 
+    /// On screen as a sticky right now — true for either kind since 2026-08-30.
+    var isOnScreen: Bool {
+        switch self {
+        case .note(let n):     return n.stuck
+        case .document(let t): return t.stuck
+        }
+    }
+
     /// The one-line title a row shows.
     var title: String {
         switch self {
@@ -82,15 +90,82 @@ enum NotesLibrary {
     /// **Exhaustive by construction** — `onScreen` and `rest` are exact
     /// complements, so no row can be dropped or shown twice. That is the
     /// assertion the merged list rests on, which is why it's here and tested
-    /// rather than a pair of inline filters. Only a note can be stuck; a
-    /// document isn't something you put on your screen.
+    /// rather than a pair of inline filters.
+    ///
+    /// **Documents can be on screen too** as of 2026-08-30 (Hendri's ruling that
+    /// a document can be pinned) — this used to test only notes.
     static func partitioned(_ rows: [NoteOrDocument])
     -> (onScreen: [NoteOrDocument], rest: [NoteOrDocument]) {
         var onScreen: [NoteOrDocument] = []
         var rest: [NoteOrDocument] = []
         for row in rows {
-            if case .note(let n) = row, n.stuck { onScreen.append(row) } else { rest.append(row) }
+            if row.isOnScreen { onScreen.append(row) } else { rest.append(row) }
         }
         return (onScreen, rest)
+    }
+}
+
+/// One tab in the sticky panel.
+///
+/// Parallel to `NoteOrDocument` but deliberately a separate type: the shelf row
+/// and the sticky tab answer different questions (a row needs a list title and a
+/// group; a tab needs what to render and whether it can be edited), and folding
+/// them together would put list concerns inside the panel.
+///
+/// The asymmetry that matters: **a note tab is editable, a document tab is
+/// not.** Everything in `StickyTabsModel` about saving, debouncing and pending
+/// edits applies only to the note case.
+enum StickyItem: Identifiable, Equatable {
+    case note(Note)
+    case document(Transcript)
+
+    var id: UUID {
+        switch self {
+        case .note(let n):     return n.id
+        case .document(let t): return t.id
+        }
+    }
+
+    var createdAt: Date {
+        switch self {
+        case .note(let n):     return n.createdAt
+        case .document(let t): return t.createdAt
+        }
+    }
+
+    /// Tab label. A note has no title of its own, so it borrows its first line.
+    var tabTitle: String {
+        switch self {
+        case .note(let n):     return NotesView.preview(n.text)
+        case .document(let t): return t.menuTitle
+        }
+    }
+
+    var isDocument: Bool {
+        if case .document = self { return true }
+        return false
+    }
+
+    /// What a stuck document puts on screen: its **summary**, falling back to
+    /// the transcript when none has been generated yet.
+    ///
+    /// Ruled with Hendri 2026-08-30. A 40-minute transcript is unreadable in a
+    /// small card, and the summary is the part worth having in front of you —
+    /// but falling back matters, because summaries are generated on demand and
+    /// most documents won't have one when they're first put on screen.
+    var documentBody: String? {
+        guard case .document(let t) = self else { return nil }
+        if let summary = t.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return summary
+        }
+        return t.text
+    }
+
+    /// Whether the body above is the summary rather than the raw transcript —
+    /// the card says which, so a fallback never reads as a failed summary.
+    var isShowingSummary: Bool {
+        guard case .document(let t) = self else { return false }
+        guard let summary = t.summary else { return false }
+        return !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
