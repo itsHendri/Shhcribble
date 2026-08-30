@@ -251,7 +251,74 @@ with the pin feature.
   Notes, which is where its banner, its Cancel, and eventually the transcript
   itself all are.
 
+### Pin is the word again, and it applies to documents too (2026-08-30)
+**The lifecycle did not come back — the name did.** "Stick/unstick" is now
+spelled **pin/unpin** everywhere in the UI (pin glyph, "Pinned" list group,
+"Pin to screen" capsule). The importance lifecycle stays dead; there is still
+exactly one thing pinning can mean, and it is "put this on my screen". Reaching
+for the word *pin* and meaning that is precisely what the 2026-07-25 split got
+wrong, so the fix was to give the surviving verb the name people reach for.
+`Note.stuck` keeps its name in the schema — the same harmless code-says-stick /
+column-says-pin mismatch `pinX/pinY` already carries in the other direction.
+
+- **Documents can be pinned** (Hendri's ruling). **Schema v14** adds
+  `transcripts.stuck`. It deliberately does **not** reuse the retired
+  `transcripts.pinned`, which was sitting empty and would have been a one-line
+  backfill: that column holds values written under the *old* meaning, so a user
+  who favourited ten documents would have found all ten thrown onto the screen
+  at once — and overloading a retired column with a second meaning is the exact
+  confusion this whole change removes. No backfill at all: nothing is on screen
+  unless the user puts it there.
+- **A pinned document shows its summary**, falling back to the transcript when
+  none exists, and the card says which. A 40-minute transcript is unreadable in
+  a small card. The tab is **read-only** — `activeNote` is nil for a document,
+  which is what makes every save/flush path upstream a no-op with no new guards.
+- **`StickyPanelManager` sinks on `$transcripts` as well as `$notes`.** Without
+  it, pinning a document writes `stuck` and nothing appears.
+- **Tab order is `stuckItemsInTabOrder`** — both kinds by `createdAt` (creation
+  order), never recency, which changes on every keystroke and would reshuffle
+  tabs mid-sentence.
+- **Row hover is pin only; copy was removed** from the shelf row: you select an
+  item before copying because there's a lot of it, and a one-click copy of
+  something you haven't read can't be verified. Pin is the opposite — its whole
+  result is visible the instant you click.
+- **The list's pin does not flush the editor, and that's correct.** The editor
+  refuses store pushes while an edit is pending (`RichTextEditor.swift:811`),
+  and the debounce then writes over the briefly-stale row. The *capsule* flushes
+  only because it sits inside the editor and can.
+
+### The sticky is a real editor now (2026-08-30)
+Prompted by Trace (https://john-mrty.github.io/Trace/ — **MIT, but a MarkEdit
+fork: CodeMirror 6 + TypeScript in an AppKit shell, 62% Swift / 36% TS**. Its
+images and tables render because they're Markdown widgets; **none of that ports
+to our `NSTextView`**, so take ideas, not code).
+
+- **The formatting capsule carries the paragraph ramp**, which previously had no
+  discoverable route at all — ⌘1–⌘5 or a right-click. A menu, not five more
+  glyphs: the capsule floats over a small card. It ticks the current step, so it
+  also answers "what is this line?".
+- **Dictation is a permanent corner button, NOT in the capsule.** The capsule
+  exists only while there's a selection; you reach for the microphone with an
+  empty note and no caret. Wired from `AppDelegate` after construction (handing
+  the manager `self` would be a retain cycle).
+- **Images paste and drop.** The paste path read only `NSAttributedString`, and a
+  file copied in the Finder satisfies that read *as its own filename* — which is
+  why pasting a picture dropped its name. `RichTextView.image(from:)` checks
+  `NSImage` then image-conforming file URLs; drops need
+  `registerForDraggedTypes` because `NSTextView` advertises only text.
+  **Fitted to the column width, never native size** (a 4000px screenshot in a
+  320pt card is the entire problem); smaller images are left alone.
+  **Storage needed no work** — `NSTextAttachment`/`NSImage` were already in the
+  archive allowlist.
+- **Tables are NOT built.** `NSTextTable` renders, but every authoring behaviour
+  (Tab across, Return-adds-row, insert/delete column) is hand-built **and
+  `NSTextTable`/`NSTextTableBlock` are absent from `RichText.decodableClasses`**,
+  so a table would encode and then fail to decode, silently dropping the note to
+  its plain-text mirror. Extend that list *first*.
+
 ### Stick is a note's only lifecycle — PIN IS RETIRED (2026-08-28)
+*(Superseded in naming by the 2026-08-30 entry above — the lifecycle notes below
+still hold; only the word changed, and documents joined it.)*
 `Note.pinned` once meant "on screen as a sticky"; the 2026-07-25 split made it
 mean **importance**, with `Note.stuck` carrying the sticky. **Pin was removed
 entirely on 2026-08-28** — the split failed in use: *"I keep pinning things but

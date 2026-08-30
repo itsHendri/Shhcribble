@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Pin a document to your screen.** Pinning isn't just for notes any more — a
+  transcribed file or call can sit on your screen too. It shows the summary
+  rather than the whole transcript, since that's the part worth having in front
+  of you, and falls back to the transcript if you haven't generated one yet.
+- **Text styles in the sticky panel.** The heading sizes that were only ever
+  reachable by ⌘1–⌘5 or a right-click now sit in the formatting bar that appears
+  when you select text, with the current one ticked.
+- **Dictate into a sticky note.** The microphone button the Notes pane has now
+  sits in the corner of the sticky panel too, so you can talk into a note
+  without opening the main window.
+- **Images in notes.** Paste a screenshot, or drag a picture in from the desktop
+  — it lands in the note instead of dropping the file's name as text. Wide
+  images are fitted to the note's width.
+
+### Changed
+- **"Stick to screen" is now "Pin to screen".** One verb, the one people reach
+  for. Nothing behaves differently — a pinned note is what a stuck note was.
+- **Hovering a note or document reveals pin, not copy.** Copy moved out of the
+  row: you open something before copying it, because there's usually a lot of it.
 - **Action items, a new writing style.** Where Bullets reformats everything you
   said into points, Action items keeps only the commitments — the things you or
   someone else said would get done — and drops the background, the opinions and
@@ -45,12 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "right" are always kept as yours.
 
 ### Removed
-- **Pinning is gone; sticking a note to your screen is the only thing left.**
-  Pin and stick were two ways of saying "this one matters", and in practice you
-  reached for pin when what you wanted was the note in front of you. Notes you've
-  stuck now gather under **On your screen** at the top of the Notes list, and the
-  Pinned tab has gone with the feature. Nothing was deleted — anything you'd
-  pinned is still exactly where it was in the list.
+- **Pinning and sticking are one thing now, and it's called pinning.** They were
+  two ways of saying "this one matters", and in practice you reached for pin when
+  what you wanted was the note in front of you — so there's one verb left, with
+  the name people actually reach for. Pinning a note puts it on your screen;
+  pinned things gather under **Pinned** at the top of the list. The separate
+  Pinned tab has gone. Nothing was deleted — anything you'd pinned before is
+  still exactly where it was in the list.
 
 ### Changed
 - **Three places instead of five: Dictations, Notes, Settings.** Documents and
