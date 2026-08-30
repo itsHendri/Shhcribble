@@ -1,10 +1,15 @@
 import SwiftUI
 import AppKit
 
-/// The Notes module — a master-detail environment deliberately templated on
-/// the Transcriptions pane (same searchable list on the left, same
-/// detail-with-actions on the right, same floating glass action button, same
-/// toast and confirm conventions).
+/// The Notes shelf — **one master-detail over everything you keep**: written
+/// notes and transcribed documents (imports, call captures) in a single list.
+///
+/// They were two rail items until 2026-08-28, and they were the same
+/// master-detail with different nouns. A note and a document differ in how they
+/// were made and how they're read, not in what they're *for* — so the list is
+/// one, and only the detail forks: a note opens the rich-text editor, a document
+/// opens the Transcript | Summary reader. That fork is why the selection is a
+/// `NoteListSelection` rather than a bare id.
 ///
 /// Notes are rich text: **⌘B/⌘I/⌘U** style the selection (handled by
 /// `RichTextView` itself — see why there is no Format menu) and URLs become
@@ -12,38 +17,46 @@ import AppKit
 /// plain note-taking for now.
 struct NotesView: View {
     @ObservedObject var store: TranscriptStore
+    @ObservedObject var fileTranscriber: FileTranscriber
     /// Needed for dictation into a note — the Studio shell already holds it.
     let appDelegate: AppDelegate
-    /// Owned by the Studio shell, not by this view: the Pinned board opens a
-    /// note by writing here and switching tabs, and a tab round-trip keeps the
-    /// selection instead of snapping back to the newest note.
-    @Binding var selectedID: UUID?
+    /// Owned by the Studio shell, not by this view: a search result opens a
+    /// note *or a document* by writing here and switching tabs, and a rail
+    /// round-trip keeps the selection instead of snapping back to the newest.
+    @Binding var selection: NoteListSelection?
+    @Binding var search: String
 
     @State private var hoveredID: UUID?
-    @State private var searchText = ""
     @StateObject private var toast = ToastState()
 
-    /// Newest first, like the transcripts list.
-    private var ordered: [Note] {
-        store.notes.sorted { $0.createdAt > $1.createdAt }
+    /// The merged shelf, newest first — pure and tested in `NotesLibrary`.
+    ///
+    /// **Computed once per pass in `body` and handed down**, never read from
+    /// several places: each read lowercases the title and text of *every*
+    /// transcript (a library is mostly dictations, and none of them are shelf
+    /// material) and re-sorts the notes. Reading it four times meant doing all
+    /// of that four times per keystroke — the same defect review already caught
+    /// in `TodayView`, which hoists `Search.results` for exactly this reason.
+    private var rows: [NoteOrDocument] {
+        NotesLibrary.merged(notes: store.notes(matching: search),
+                            documents: store.documents(matching: search))
     }
 
-    private var filtered: [Note] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return ordered }
-        return ordered.filter { $0.text.lowercased().contains(q) }
+    private var selectedNote: Note? {
+        guard case .note(let id) = selection else { return nil }
+        return store.notes.first { $0.id == id }
     }
 
-    private var selected: Note? { store.notes.first { $0.id == selectedID } }
-
-    /// Pinned notes group at the top of the list; everything else follows in
-    /// date order. Both halves respect the search.
-    private var pinnedMatches: [Note] { filtered.filter(\.pinned) }
-    private var unpinnedMatches: [Note] { filtered.filter { !$0.pinned } }
+    private var selectedDocument: Transcript? {
+        guard case .document(let id) = selection else { return nil }
+        return store.transcripts.first { $0.id == id }
+    }
 
     var body: some View {
-        HStack(spacing: 0) {
-            listColumn
+        let rows = self.rows
+        let groups = NotesLibrary.partitioned(rows)
+        return HStack(spacing: 0) {
+            listColumn(rows: rows, groups: groups)
                 .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
             Divider()
             detailColumn
@@ -51,35 +64,57 @@ struct NotesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toast(toast)
-        // Preselect the newest note the first time the list is shown; the
+        // Preselect the newest item the first time the list is shown; the
         // `== nil` guard means a later visit keeps whatever the user last picked.
         .onAppear {
-            if selectedID == nil { selectedID = filtered.first?.id }
+            if selection == nil { selection = rows.first?.id }
         }
+        // Deleting the selected item leaves the selection pointing at a row that
+        // no longer exists, and the detail pane stuck on its placeholder for the
+        // life of the window — the `.onAppear` preselect can't help, because the
+        // selection is non-nil and lives on the shell. Fall to the newest row
+        // instead, which is where a fresh visit would have landed.
+        .onChange(of: store.notes.count) { _, _ in dropDanglingSelection() }
+        .onChange(of: store.transcripts.count) { _, _ in dropDanglingSelection() }
+    }
+
+    /// Clear a selection whose row has gone, so the detail pane recovers.
+    /// Guarded on the row actually being absent, so an unrelated add or delete
+    /// can't steal the user's current selection.
+    private func dropDanglingSelection() {
+        guard selection != nil, selectedNote == nil, selectedDocument == nil else { return }
+        selection = rows.first?.id
     }
 
     // MARK: - List column
 
-    private var listColumn: some View {
+    private func listColumn(rows: [NoteOrDocument],
+                            groups: (onScreen: [NoteOrDocument], rest: [NoteOrDocument])) -> some View {
         VStack(spacing: 0) {
-            SearchPill(text: $searchText, prompt: "Search notes")
+            SearchPill(text: $search, prompt: "Search notes and documents")
             List {
-                // Always two sections, so pinning the first item doesn't
+                if case let .running(name, index, total, progress) = fileTranscriber.status {
+                    progressBanner(name: name, index: index, total: total, progress: progress)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+                        .listRowSeparator(.hidden)
+                }
+                // Always two sections, so sticking the first item doesn't
                 // restructure the whole list and churn every row's identity.
                 // An empty section draws nothing; the header appears only when
-                // the group has rows, since an empty "Pinned" heading would be
-                // a permanent reminder of a feature you aren't using.
+                // the group has rows, since an empty "Pinned" heading
+                // would be a permanent reminder of a feature you aren't using.
                 Section {
-                    ForEach(pinnedMatches) { row($0) }
+                    ForEach(groups.onScreen) { row($0) }
                 } header: {
-                    if !pinnedMatches.isEmpty {
-                        Text("Pinned").font(.sectionTitle)
+                    if !groups.onScreen.isEmpty {
+                        Label("Pinned", systemImage: "pin")
+                            .font(.sectionTitle)
                     }
                 }
                 // Then day groups, per the wireframe: fifty notes in one
                 // undifferentiated column is a list you scroll past rather than
                 // read.
-                ForEach(Timeline.grouped(unpinnedMatches, by: \.createdAt), id: \.group) { bucket in
+                ForEach(Timeline.grouped(groups.rest, by: \.date), id: \.group) { bucket in
                     Section {
                         ForEach(bucket.items) { row($0) }
                     } header: {
@@ -88,14 +123,17 @@ struct NotesView: View {
                 }
             }
             .overlay {
-                if filtered.isEmpty && searchText.isEmpty {
+                // The shelf holds two kinds of thing, so the empty state has to
+                // speak for both — otherwise it reads as "notes only" and the
+                // Upload route looks like it belongs somewhere else.
+                if rows.isEmpty && search.isEmpty {
                     ContentUnavailableView(
-                        "No notes yet",
+                        "Nothing kept yet",
                         systemImage: "note.text",
-                        description: Text("Keep what's worth keeping. Start one from scratch, or send a dictation here from Today.")
+                        description: Text("This is the shelf for what you keep — notes you write, and the files and calls you transcribe.")
                     )
-                } else if filtered.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
+                } else if rows.isEmpty {
+                    ContentUnavailableView.search(text: search)
                 }
             }
             // Floating glass action hovering over the bottom of the list —
@@ -116,34 +154,55 @@ struct NotesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func row(_ note: Note) -> some View {
-        NoteRow(note: note,
-                hovered: hoveredID == note.id,
-                onCopy: { copyNote(note) },
-                onTogglePin: { togglePin(note) })
+    private func row(_ item: NoteOrDocument) -> some View {
+        let rowID = item.id.id
+        return LibraryRow(item: item,
+                          hovered: hoveredID == rowID,
+                          onTogglePin: { togglePin(item) })
             .contentShape(Rectangle())
-            .onTapGesture { selectedID = note.id }
-            .onHover { hoveredID = $0 ? note.id : (hoveredID == note.id ? nil : hoveredID) }
+            .onTapGesture { selection = item.id }
+            .onHover { hoveredID = $0 ? rowID : (hoveredID == rowID ? nil : hoveredID) }
             .listRowSeparator(.hidden)
             .listRowBackground(
                 RoundedRectangle(cornerRadius: DesignSystem.radiusControl, style: .continuous)
-                    .fill(selectedID == note.id || hoveredID == note.id ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
+                    .fill(selection == item.id || hoveredID == rowID ? Color.primary.opacity(DesignSystem.fillHover) : Color.clear)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
             )
     }
 
     @ViewBuilder
+    private func progressBanner(name: String, index: Int, total: Int, progress: Double) -> some View {
+        HStack(spacing: 8) {
+            ProgressView(value: progress > 0 ? progress : nil)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(total > 1 ? "Transcribing \(index) of \(total)" : "Transcribing…")
+                    .font(.caption).fontWeight(.medium)
+                Text(name).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button("Cancel") { fileTranscriber.cancel() }
+                .controlSize(.small)
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// The fork the merged list exists to hide: same row, two readers.
+    @ViewBuilder
     private var detailColumn: some View {
-        if let note = selected {
+        if let note = selectedNote {
             NoteDetail(note: note, store: store, toast: toast, appDelegate: appDelegate,
                        noteDictation: appDelegate.noteDictation, onCopy: { copy(text: $0) })
                 .id(note.id)
+        } else if let document = selectedDocument {
+            TranscriptDetail(transcript: document, store: store, toast: toast)
+                .id(document.id)
         } else {
             ContentUnavailableView(
-                "Select a note",
+                "Select something to read",
                 systemImage: "text.cursor",
-                description: Text("Pick a note from the list, or add a new one.")
+                description: Text("Pick a note or a document from the list, or add a new note.")
             )
         }
     }
@@ -155,26 +214,46 @@ struct NotesView: View {
     private func addNote() {
         let note = Note(text: "")
         store.addNote(note)
-        searchText = ""
-        selectedID = note.id
+        search = ""
+        selection = .note(note.id)
     }
 
-    private func copyNote(_ note: Note) { copy(text: note.text) }
+    private func copyRow(_ item: NoteOrDocument) {
+        switch item {
+        case .note(let n):     copy(text: n.text)
+        case .document(let t): copy(text: t.text)
+        }
+    }
+
+    /// Put an item on screen, or take it down — the list's half of the same
+    /// lifecycle the editor's capsule drives.
+    ///
+    /// **Safe against the mid-typing case without needing a flush**, which is
+    /// worth spelling out because the editor's own capsule *does* call
+    /// `saveNow()` first and the asymmetry looks like an oversight.
+    ///
+    /// Pinning the note you are currently typing in writes the store's copy —
+    /// briefly stale — and re-publishes the row. The editor refuses that push
+    /// while an edit is pending (`RichTextEditor.swift:811`), so nothing is
+    /// clobbered on screen, and the 700 ms debounce then writes the live text
+    /// over the stale row. The capsule flushes only because it sits *inside*
+    /// the editor and can; from here there is no view to reach.
+    private func togglePin(_ item: NoteOrDocument) {
+        switch item {
+        case .note(let n):
+            store.setNoteStuck(id: n.id, stuck: !n.stuck)
+            toast.flash(n.stuck ? "Unpinned" : "Pinned to screen")
+        case .document(let t):
+            store.setTranscriptStuck(id: t.id, stuck: !t.stuck)
+            toast.flash(t.stuck ? "Unpinned" : "Pinned to screen")
+        }
+    }
 
     private func copy(text: String) {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
         toast.flash("Copied")
-    }
-
-    /// Pin/unpin plus its confirmation. A pin moves the note to another group
-    /// and onto the Pinned board — neither of which is on screen when you click
-    /// it, so the glyph filling in isn't feedback enough.
-    private func togglePin(_ note: Note) {
-        let nowPinned = !note.pinned
-        store.setNotePinned(id: note.id, pinned: nowPinned)
-        toast.flash(nowPinned ? "Pinned" : "Unpinned")
     }
 
     /// What the note says *after* its first line — the preview that goes under a
@@ -205,13 +284,17 @@ struct NotesView: View {
 
 // MARK: - List row
 
-/// One row in the notes list — mirrors `TranscriptRow`: a single-line title
-/// with a fixed-width trailing slot that shows the date normally and pin + copy
-/// on hover, so the title never reflows.
-private struct NoteRow: View {
-    let note: Note
+/// One row of the merged shelf — a single-line title with a fixed-width trailing
+/// slot that shows the date normally and copy on hover, so the title never
+/// reflows.
+///
+/// A document is told apart by a **quiet leading glyph** and nothing else: the
+/// list's whole argument is that these are the same kind of thing to you, so a
+/// document row that shouted would undo it. The glyph is `source.icon`, the same
+/// one its reader shows.
+private struct LibraryRow: View {
+    let item: NoteOrDocument
     var hovered: Bool = false
-    var onCopy: () -> Void = {}
     var onTogglePin: () -> Void = {}
 
     private let trailingWidth: CGFloat = 72
@@ -219,23 +302,20 @@ private struct NoteRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             HStack(spacing: 5) {
-                Text(NotesView.preview(note.text))
+                if case .document(let t) = item {
+                    Image(systemName: t.source.icon)
+                        .font(.system(size: DesignSystem.ChromeText.micro))
+                        .foregroundStyle(.tertiary)
+                }
+                Text(item.title)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                // Stuck is the more specific state, and the row already sits
-                // under a "Pinned" header when it's pinned — so show the screen
-                // glyph in preference to the pin.
-                if note.stuck {
-                    Image(systemName: "macwindow")
-                        .font(.system(size: DesignSystem.ChromeText.micro))
-                        .foregroundStyle(.tertiary)
-                        .help("On your screen")
-                } else if note.pinned {
+                if item.isOnScreen {
                     Image(systemName: "pin.fill")
                         .font(.system(size: DesignSystem.ChromeText.micro))
                         .foregroundStyle(.tertiary)
-                        .help("Pinned")
+                        .help("Pinned to your screen")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -245,22 +325,29 @@ private struct NoteRow: View {
         .padding(.vertical, 5)
     }
 
+    /// Hover reveals **pin only**. Copy used to live here and was removed on
+    /// 2026-08-30 (Hendri's call): you select an item before copying it, because
+    /// there is a lot of it — a one-click copy of something you haven't read is
+    /// an action you can't verify. Pin is the opposite: its whole result is
+    /// visible the instant you click it.
     @ViewBuilder
     private var trailing: some View {
         if hovered {
-            // Pin then copy, same order and same neutral glyphs as the
-            // transcripts list — the two lists are the same affordance.
-            HStack(spacing: 2) {
-                RowHoverButton(note.pinned ? "pin.fill" : "pin",
-                               help: note.pinned ? "Unpin" : "Pin",
-                               action: onTogglePin)
-                RowHoverButton("square.on.square", help: "Copy note", action: onCopy)
-            }
+            RowHoverButton(item.isOnScreen ? "pin.slash" : "pin",
+                           help: item.isOnScreen ? "Unpin from screen" : "Pin to screen",
+                           action: onTogglePin)
         } else {
-            Text(note.createdAt.formatted(date: .abbreviated, time: .omitted))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(item.date.formatted(date: .abbreviated, time: .omitted))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if case .document(let t) = item, let d = t.durationSec, d > 0 {
+                    Text(Transcript.durationString(d))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
     }
 }
@@ -272,7 +359,7 @@ private struct NoteRow: View {
 /// Delete on the right — over an auto-saving editor (700 ms debounce, flush on
 /// disappear and on focus loss).
 ///
-/// A pinned note has **two live editors** (this pane and its sticky), so both
+/// A stuck note has **two live editors** (this pane and its sticky), so both
 /// sides re-read the row when it changes elsewhere and neither writes while it
 /// holds focus. See `syncFromStore` and `StickyNotePanel.update(with:)`.
 private struct NoteDetail: View {
@@ -361,7 +448,6 @@ private struct NoteDetail: View {
             Spacer()
             HStack(spacing: 6) {
                 dictateButton
-                pinButton
                 // Copies what's on screen: the store lags typing by the save
                 // debounce, so a copy sourced from the stored row would hand
                 // back the text as it was up to 700 ms ago.
@@ -435,40 +521,17 @@ private struct NoteDetail: View {
         store.updateNote(updated)
     }
 
-    /// Pin = *importance*, a quiet glyph toggle in the action row. Filled when
-    /// on, so the glyph itself carries the state; the label names the action, so
-    /// it's never ambiguous what clicking does. Putting a note on screen is a
-    /// different lifecycle — that's `stickCapsule`.
-    private var pinButton: some View {
-        Button {
-            // Flush first, like Copy: these write the whole row back from the
-            // store's copy, and the sticky that stick creates is built from it —
-            // so an unflushed keystroke would show up blank on the new sticky
-            // and then be overwritten by it.
-            saveNow()
-            let nowPinned = !note.pinned
-            store.setNotePinned(id: note.id, pinned: nowPinned)
-            toast.flash(nowPinned ? "Pinned" : "Unpinned")
-        } label: {
-            Image(systemName: note.pinned ? "pin.fill" : "pin")
-                .foregroundStyle(note.pinned ? Color.accentColor : Color.secondary)
-        }
-        .buttonStyle(.borderless)
-        .help(note.pinned ? "Unpin" : "Pin")
-        .accessibilityLabel(note.pinned ? "Unpin note" : "Pin note")
-    }
-
-    /// Stick = *urgency*: put the note on screen as a floating sticky. The label
-    /// is the state ("Stick to screen" ↔ "Unstick"), which is why no tag is
-    /// needed elsewhere. Sticking auto-pins — see `TranscriptStore.setNoteStuck`.
+    /// Stick: put the note on screen as a floating sticky — a note's only
+    /// lifecycle. The label is the state ("Pin to screen" ↔ "Unpin"), which
+    /// is why no tag is needed elsewhere.
     private var stickCapsule: some View {
         Button {
             saveNow()
             store.setNoteStuck(id: note.id, stuck: !note.stuck)
         } label: {
             // The additive glyph belongs to the additive verb.
-            Label(note.stuck ? "Unstick" : "Stick to screen",
-                  systemImage: note.stuck ? "macwindow" : "macwindow.badge.plus")
+            Label(note.stuck ? "Unpin" : "Pin to screen",
+                  systemImage: note.stuck ? "pin.slash" : "pin")
                 .font(.callout).fontWeight(.medium)
                 .padding(.horizontal, 16).padding(.vertical, 9)
                 .background(.regularMaterial, in: Capsule())
@@ -478,7 +541,7 @@ private struct NoteDetail: View {
         .buttonStyle(.plain)
         .padding(.bottom, 14)
         .help(note.stuck ? "Take this note off your screen (it stays here)"
-                         : "Float this note above your other windows")
+                         : "Pin this note above your other windows")
     }
 
     private var metaLine: String {
@@ -537,13 +600,11 @@ private struct NoteDetail: View {
     /// there's nothing to ask about, because there is nothing to lose.
     ///
     /// Deliberately narrow — it must never reach a note the user did something
-    /// with: no text, no styling, neither pinned nor stuck, and not linked to a
-    /// transcript.
+    /// with: no text, no styling, not stuck, and not linked to a transcript.
     private func discardIfUntouched() {
         guard let current = store.notes.first(where: { $0.id == note.id }),
               current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               current.richText == nil,
-              !current.pinned,
               !current.stuck,
               current.sourceTranscriptID == nil else { return }
         store.deleteNote(id: current.id)

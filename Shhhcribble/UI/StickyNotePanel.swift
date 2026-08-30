@@ -3,15 +3,17 @@ import SwiftUI
 import Combine
 import os
 
-/// A single floating, resizable sticky panel holding **every stuck note as a
-/// tab** (borrowed from Wispr's Scratchpad, 2026-08-10).
+/// A single floating sticky panel holding **every stuck note as a tab**
+/// (borrowed from Wispr's Scratchpad, 2026-08-10), in Trace's chrome discipline
+/// (2026-08-28): the tab strip is the only chrome, the text runs to the edges,
+/// and formatting is summoned over a selection rather than sitting on screen.
 ///
 /// **Tabs are presentation; stick/unstick is still the only lifecycle.** That
 /// is what makes the window's behaviour fall out for free: closing a *tab*
 /// unsticks that note, and the panel disappears on its own once the last tab
 /// goes — so there is deliberately **no window close button** and no new
-/// destructive semantics to design. It also means nothing about the Notes pane,
-/// the Pinned board, or the schema had to change.
+/// destructive semantics to design. It also means nothing about the Notes pane
+/// or the schema had to change.
 ///
 /// Same panel species as `CallOfferPanel` (`.borderless + .nonactivatingPanel`,
 /// `canBecomeKey`, `FirstMouseHostingView`) so the first click lands on its
@@ -23,11 +25,13 @@ import os
 ///
 /// **The shadow is the window's, not SwiftUI's.** A SwiftUI `.shadow` needs
 /// transparent panel margins to draw into and clips as soon as the blur
-/// exceeds them (the CallOfferPanel lesson) — and margins fight resizing,
-/// because the resize edge would sit in transparent space. With `hasShadow`
-/// on, AppKit draws the shadow around the card's opaque rounded shape, it can
-/// never clip, and the panel edge == the visible card edge, which is exactly
-/// where `.resizable` puts the resize cursors.
+/// exceeds them (the CallOfferPanel lesson). With `hasShadow` on, AppKit draws
+/// the shadow around the card's opaque rounded shape and it can never clip.
+///
+/// **Two sizes, not free resize** (2026-08-28). `.resizable` and the per-pixel
+/// persisted size are gone; one toggle in the tab strip swaps compact ⇄ expanded
+/// via `StickyPanelGeometry`, holding the top-left corner so the tab you are
+/// reading doesn't move.
 ///
 /// **The frame lives in UserDefaults, not the note row.** With one panel for
 /// all stickies the per-note `pinX/pinY/pinW/pinH` columns no longer describe
@@ -51,19 +55,29 @@ final class StickyNotePanel: NSPanel {
     var onDelete: ((UUID) -> Void)?
     var onNewTab: (() -> Void)?
     var onActiveTabChange: ((UUID?) -> Void)?
+    var onModeChange: ((StickyPanelMode) -> Void)?
+
+    /// Toggle dictation into the active sticky. A var (not an init parameter)
+    /// because it's only ever *invoked*, through a closure captured at init that
+    /// reads it at call time — the same shape as every other callback here.
+    /// The observable `dictation` state, by contrast, has to arrive at init:
+    /// SwiftUI has to be given the object to observe when the view is built.
+    var onToggleDictation: ((@escaping (String) -> Void) -> Void)?
 
     private static let log = Logger(subsystem: "com.shhhcribble.app", category: "sticky")
 
     /// Bigger than the pre-tabs default (260×200) because a tab bar needs
     /// horizontal room before it starts scrolling.
-    static let defaultSize = NSSize(width: 320, height: 260)
-    static let minStickySize = NSSize(width: 240, height: 170)
-    static let maxStickySize = NSSize(width: 640, height: 640)
+    static let defaultSize = NSSize(width: StickyPanelMode.compact.size.width,
+                                    height: StickyPanelMode.compact.size.height)
 
-    init() {
+    /// Which of the two sizes the panel is at. Changing it re-frames the window.
+    private(set) var mode: StickyPanelMode = .compact
+
+    init(dictation: NoteDictationState? = nil) {
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.defaultSize),
-            styleMask:   [.borderless, .nonactivatingPanel, .resizable],
+            styleMask:   [.borderless, .nonactivatingPanel],
             backing:     .buffered,
             defer:       false
         )
@@ -79,8 +93,6 @@ final class StickyNotePanel: NSPanel {
         // drags in its own area); background-drag makes the whole card
         // grabbable wherever SwiftUI doesn't swallow the mouse.
         isMovableByWindowBackground = true
-        minSize = Self.minStickySize
-        maxSize = Self.maxStickySize
         // The manager holds the only strong reference; NSPanel defaults
         // releasedWhenClosed to true, which under ARC risks an over-release if
         // anything ever close()s instead of orderOut()s.
@@ -90,10 +102,13 @@ final class StickyNotePanel: NSPanel {
 
         let content = FirstMouseHostingView(rootView: StickyView(
             model: model,
-            onUnstick:  { [weak self] id in self?.onUnstick?(id) },
-            onDelete:   { [weak self] id in self?.onDelete?(id) },
-            onNewTab:   { [weak self] in self?.onNewTab?() },
-            onActivate: { [weak self] id in self?.onActiveTabChange?(id) }
+            onUnstick:   { [weak self] id in self?.onUnstick?(id) },
+            onDelete:    { [weak self] id in self?.onDelete?(id) },
+            onNewTab:    { [weak self] in self?.onNewTab?() },
+            onActivate:  { [weak self] id in self?.onActiveTabChange?(id) },
+            onToggleSize:{ [weak self] in self?.toggleMode() },
+            dictation:   dictation ?? NoteDictationState(),
+            onDictate:   { [weak self] sink in self?.onToggleDictation?(sink) }
         ))
         content.frame = NSRect(origin: .zero, size: Self.defaultSize)
         // Track the panel as it resizes so the SwiftUI card always fills it.
@@ -122,13 +137,13 @@ final class StickyNotePanel: NSPanel {
     /// Refresh the tab list from the store, and the active tab's content with
     /// it. Content is only pushed in while that editor has no unsaved edit: the
     /// store lags live typing by the save debounce, so overwriting mid-edit
-    /// would eat keystrokes. See `StickyTabsModel.apply(notes:)`.
-    func update(notes: [Note], preferredActive: UUID?) {
-        model.apply(notes: notes, preferredActive: preferredActive)
+    /// would eat keystrokes. See `StickyTabsModel.apply(items:)`.
+    func update(items: [StickyItem], preferredActive: UUID?) {
+        model.apply(items: items, preferredActive: preferredActive)
     }
 
     /// The tab currently on screen, so the manager can persist it — including
-    /// when `apply(notes:)` picked a new one after the active tab was unstuck
+    /// when `apply(items:)` picked a new one after the active tab was unstuck
     /// from the Notes pane, which no user-initiated callback would cover.
     var activeTabID: UUID? { model.activeID }
 
@@ -137,12 +152,13 @@ final class StickyNotePanel: NSPanel {
     /// and released.
     func flushPendingEdit() { model.flushSave() }
 
-    /// Show at the saved frame (clamped to a visible screen), or at
-    /// `preferredOrigin`, or centred-ish on the main screen.
-    func present(at origin: CGPoint?, size restoredSize: CGSize?) {
-        var size = restoredSize ?? Self.defaultSize
-        size.width = min(max(size.width, minSize.width), maxSize.width)
-        size.height = min(max(size.height, minSize.height), maxSize.height)
+    /// Show at the saved origin (clamped to a visible screen) in `mode`, or
+    /// centred-ish on the main screen. The *size* comes from the mode now, never
+    /// from what was saved.
+    func present(at origin: CGPoint?, mode restoredMode: StickyPanelMode) {
+        mode = restoredMode
+        model.mode = restoredMode
+        let size = mode.size
 
         var point: CGPoint
         if let origin {
@@ -155,12 +171,25 @@ final class StickyNotePanel: NSPanel {
         }
         // Clamp so a panel saved on a disconnected display comes back on-screen.
         if let screen = screenContaining(point) ?? NSScreen.main ?? NSScreen.screens.first {
-            let f = screen.visibleFrame
-            point.x = min(max(point.x, f.minX), f.maxX - size.width)
-            point.y = min(max(point.y, f.minY), f.maxY - size.height)
+            point = StickyPanelGeometry.clamp(origin: point, size: size,
+                                              in: screen.visibleFrame)
         }
         setFrame(NSRect(origin: point, size: size), display: true)
         orderFront(nil)
+    }
+
+    /// Swap compact ⇄ expanded, holding the top-left corner. The resulting
+    /// `didResizeNotification` persists the new origin through the existing
+    /// debounce, so there is no separate save path.
+    func toggleMode() {
+        let screen = screenContaining(frame.origin) ?? self.screen
+            ?? NSScreen.main ?? NSScreen.screens.first
+        mode = mode.toggled
+        model.mode = mode
+        let visible = screen?.visibleFrame ?? frame
+        let next = StickyPanelGeometry.frame(frame, at: mode, in: visible)
+        setFrame(next, display: true, animate: false)
+        onModeChange?(mode)
     }
 
     /// Bring a tab to the front and focus its editor — the quick-add and
@@ -200,6 +229,7 @@ final class StickyPanelManager {
     private enum Key {
         static let frame = "stickyPanelFrame"
         static let activeNote = "stickyActiveNoteID"
+        static let mode = "stickyPanelMode"
     }
 
     private let store: TranscriptStore
@@ -211,6 +241,13 @@ final class StickyPanelManager {
     /// (the menu-bar "New Note" and the panel's + button).
     private var pendingEditID: UUID?
 
+    /// Dictation into the active sticky. Set by `AppDelegate` after
+    /// construction (the manager is built before the delegate has finished
+    /// wiring itself, and holding the delegate here would be a retain cycle).
+    /// Nil leaves the microphone button out entirely.
+    var dictation: NoteDictationState?
+    var onToggleDictation: ((@escaping (String) -> Void) -> Void)?
+
     init(store: TranscriptStore, defaults: UserDefaults = .standard) {
         self.store = store
         self.defaults = defaults
@@ -221,17 +258,24 @@ final class StickyPanelManager {
                 DispatchQueue.main.async { self?.sync() }
             }
             .store(in: &cancellables)
+        // Documents can be on screen too (2026-08-30), so the panel has to
+        // follow the transcripts array as well — without this, pinning a
+        // document from the shelf would write `stuck` and nothing would appear.
+        store.$transcripts
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.sync() }
+            }
+            .store(in: &cancellables)
         sync()
     }
 
-    /// Create a fresh, empty stuck note and focus its tab. Stuck implies pinned
-    /// — see `Note`. The cursor position is only used when there is no panel on
-    /// screen yet; otherwise this just adds a tab to the panel you can already
-    /// see, and moving it under the mouse would be startling.
+    /// Create a fresh, empty stuck note and focus its tab. The cursor position is
+    /// only used when there is no panel on screen yet; otherwise this just adds a
+    /// tab to the panel you can already see, and moving it under the mouse would
+    /// be startling.
     func createStickyAtCursor() {
         var note = Note(text: "")
         note.stuck = true
-        note.pinned = true   // sticking auto-pins
         if panel == nil && defaults.string(forKey: Key.frame) == nil {
             var origin = NSEvent.mouseLocation
             origin.x -= StickyNotePanel.defaultSize.width / 2
@@ -245,7 +289,7 @@ final class StickyPanelManager {
     }
 
     private func sync() {
-        let stuck = store.stuckNotesInTabOrder
+        let stuck = store.stuckItemsInTabOrder
 
         guard !stuck.isEmpty else {
             // Unsticking the last note from the Notes pane tears the panel down
@@ -257,9 +301,9 @@ final class StickyPanelManager {
             return
         }
 
-        let panel = panel ?? makePanel(placedFor: stuck)
+        let panel = panel ?? makePanel()
         self.panel = panel
-        panel.update(notes: stuck, preferredActive: savedActiveID(among: stuck))
+        panel.update(items: stuck, preferredActive: savedActiveID(among: stuck))
         // Covers the path no user-initiated callback does: the active tab was
         // unstuck elsewhere and `apply` fell to a neighbour.
         if let id = panel.activeTabID { defaults.set(id.uuidString, forKey: Key.activeNote) }
@@ -276,15 +320,15 @@ final class StickyPanelManager {
 
     /// The tab to open on, when the panel has just been created or its active
     /// tab has gone. Nil lets the panel keep its own choice.
-    private func savedActiveID(among stuck: [Note]) -> UUID? {
+    private func savedActiveID(among stuck: [StickyItem]) -> UUID? {
         guard let raw = defaults.string(forKey: Key.activeNote),
               let id = UUID(uuidString: raw),
               stuck.contains(where: { $0.id == id }) else { return nil }
         return id
     }
 
-    private func makePanel(placedFor stuck: [Note]) -> StickyNotePanel {
-        let panel = StickyNotePanel()
+    private func makePanel() -> StickyNotePanel {
+        let panel = StickyNotePanel(dictation: dictation)
         panel.onTextCommit = { [weak self] id, attributed in
             guard let self, var current = self.store.notes.first(where: { $0.id == id }) else { return }
             let plain = attributed.string
@@ -294,8 +338,17 @@ final class StickyPanelManager {
             current.richText = rich
             self.store.updateNote(current)
         }
+        // Closing a tab takes that item off the screen, whichever kind it is.
+        // Dispatching on where the id is actually found (rather than passing the
+        // kind through the panel) keeps the panel's callback a bare id, and a
+        // deleted row simply matches neither and does nothing.
         panel.onUnstick = { [weak self] id in
-            self?.store.setNoteStuck(id: id, stuck: false)
+            guard let self else { return }
+            if self.store.notes.contains(where: { $0.id == id }) {
+                self.store.setNoteStuck(id: id, stuck: false)
+            } else {
+                self.store.setTranscriptStuck(id: id, stuck: false)
+            }
         }
         panel.onFrameChange = { [weak self] frame in
             self?.defaults.set(NSStringFromRect(frame), forKey: Key.frame)
@@ -314,26 +367,48 @@ final class StickyPanelManager {
             if let id { self.defaults.set(id.uuidString, forKey: Key.activeNote) }
             else { self.defaults.removeObject(forKey: Key.activeNote) }
         }
-        let (origin, size) = restoredPlacement(for: stuck)
-        panel.present(at: origin, size: size)
+        panel.onModeChange = { [weak self] mode in
+            self?.defaults.set(mode.rawValue, forKey: Key.mode)
+        }
+        panel.onToggleDictation = { [weak self] sink in self?.onToggleDictation?(sink) }
+        let mode = restoredMode()
+        panel.present(at: restoredOrigin(mode: mode), mode: mode)
         return panel
     }
 
-    /// Where to put a freshly-created panel: the saved panel frame, else — for
-    /// someone upgrading from one-panel-per-note — the frame of their most
+    private func restoredMode() -> StickyPanelMode {
+        guard let raw = defaults.string(forKey: Key.mode),
+              let mode = StickyPanelMode(rawValue: raw) else { return .compact }
+        return mode
+    }
+
+    /// Where to put a freshly-created panel: the saved panel origin, else — for
+    /// someone upgrading from one-panel-per-note — the origin of their most
     /// recently touched sticky, so the panel appears roughly where they left
     /// their stickies rather than jumping to the middle of the screen.
-    private func restoredPlacement(for stuck: [Note]) -> (CGPoint?, CGSize?) {
+    ///
+    /// Only the **origin** is restored. The saved frame's size (and the legacy
+    /// `pinW`/`pinH`) described a freely-resized panel, which no longer exists;
+    /// the size now comes from the mode. Both are still written/read for
+    /// rollback, same discipline as the retired columns.
+    private func restoredOrigin(mode: StickyPanelMode) -> CGPoint? {
+        // The saved values are bottom-left origins for a panel of the *old*
+        // size, so reusing them directly would hold the bottom edge and drop the
+        // panel down the screen by the height difference — up to 380 pt on the
+        // first launch after upgrading from a freely-resized sticky. Everything
+        // else in this feature anchors top-left; so does this.
+        func topAnchored(_ origin: CGPoint, _ oldHeight: CGFloat) -> CGPoint {
+            CGPoint(x: origin.x, y: origin.y + oldHeight - mode.size.height)
+        }
         if let raw = defaults.string(forKey: Key.frame) {
             let frame = NSRectFromString(raw)
-            if frame.width > 0 && frame.height > 0 { return (frame.origin, frame.size) }
+            if frame.width > 0 && frame.height > 0 {
+                return topAnchored(frame.origin, frame.height)
+            }
         }
-        guard let legacy = store.stuckNotes.first, let x = legacy.pinX, let y = legacy.pinY else {
-            return (nil, nil)
-        }
-        let size: CGSize? = (legacy.pinW != nil && legacy.pinH != nil)
-            ? CGSize(width: legacy.pinW!, height: legacy.pinH!) : nil
-        return (CGPoint(x: x, y: y), size)
+        guard let legacy = store.stuckNotes.first,
+              let x = legacy.pinX, let y = legacy.pinY else { return nil }
+        return topAnchored(CGPoint(x: x, y: y), legacy.pinH ?? mode.size.height)
     }
 }
 
@@ -349,8 +424,17 @@ final class StickyPanelManager {
 final class StickyTabsModel: ObservableObject {
     static let font = RichText.baseFont
 
-    /// Tab order — stable creation order, see `stuckNotesInTabOrder`.
-    @Published private(set) var notes: [Note] = []
+    /// Tab order — stable creation order, see `stuckItemsInTabOrder`.
+    ///
+    /// Holds **both kinds** since 2026-08-30: a note tab is editable, a document
+    /// tab is a read-only card showing the document's summary. Everything below
+    /// about saving, debouncing and pending edits applies only to notes — a
+    /// document tab has nothing to commit, which is why `activeNote` (not
+    /// `activeItem`) gates all of it.
+    @Published private(set) var items: [StickyItem] = []
+
+    /// The editable subset, for the paths that only make sense for notes.
+    var notes: [Note] { items.compactMap { if case .note(let n) = $0 { return n } else { return nil } } }
     @Published private(set) var activeID: UUID?
     @Published var attributed = NSAttributedString(string: "")
     /// An edit lives here that the store doesn't have yet — blocks store→view
@@ -361,6 +445,16 @@ final class StickyTabsModel: ObservableObject {
     /// Closing a tab always confirms; this drives the in-card overlay (an
     /// NSAlert/sheet looks absurd on a small floating card).
     @Published var showingCloseConfirm: Bool = false
+    /// Which of the two sizes the panel is at — the tab strip's toggle glyph
+    /// reads this so it always names the size you'd get by clicking.
+    @Published var mode: StickyPanelMode = .compact
+    /// Where the selection sits, for the floating formatting capsule. Nil when
+    /// nothing is selected, which is also what hides the capsule.
+    @Published var selectionRect: CGRect?
+
+    /// Reaches the live text view, so the capsule's buttons run the same
+    /// styling actions ⌘B/⌘I/⌘U do.
+    let editor = NoteEditorProxy()
 
     /// Set by the panel — this is how a write reaches the store.
     var onCommit: ((UUID, NSAttributedString) -> Void)?
@@ -378,7 +472,14 @@ final class StickyTabsModel: ObservableObject {
     /// the view owned it, those paths silently skipped the flush.
     private var saveTask: Task<Void, Never>?
 
-    var activeNote: Note? { notes.first { $0.id == activeID } }
+    var activeItem: StickyItem? { items.first { $0.id == activeID } }
+
+    /// The active tab **if it is an editable note**. Nil for a document tab,
+    /// which is what keeps every save path a no-op there.
+    var activeNote: Note? {
+        guard case .note(let n) = activeItem else { return nil }
+        return n
+    }
 
     var isActiveEmpty: Bool {
         attributed.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -401,8 +502,8 @@ final class StickyTabsModel: ObservableObject {
     /// decoding a stored note then re-encoding it is not guaranteed to
     /// reproduce the original bytes — so an unconditional flush would write a
     /// cosmetically-identical note back and bump its `modifiedAt`. That is not
-    /// harmless: `modifiedAt` orders the Notes list and the Pinned board's
-    /// on-screen strip, so merely clicking between tabs would reshuffle both.
+    /// harmless: `modifiedAt` orders the Notes list, including its "On your
+    /// screen" group, so merely clicking between tabs would reshuffle it.
     func flushSave() {
         saveTask?.cancel()
         guard let id = activeID, hasPendingEdit else { return }
@@ -410,7 +511,7 @@ final class StickyTabsModel: ObservableObject {
         let plain = attributed.string
         let rich = RichText.data(from: attributed, font: Self.font)
         // Record what we're about to write so the store's echo back through
-        // `apply(notes:)` isn't mistaken for an external edit.
+        // `apply(items:)` isn't mistaken for an external edit.
         guard plain != lastAppliedText || rich != lastAppliedRich else { return }
         lastAppliedText = plain
         lastAppliedRich = rich
@@ -471,11 +572,13 @@ final class StickyTabsModel: ObservableObject {
     /// unless this editor has one of its own pending); the active tab is gone
     /// (fall to the tab that slid into its place, browser-style); or there is
     /// no active tab yet (take the caller's preference, else the first).
-    func apply(notes incoming: [Note], preferredActive: UUID? = nil) {
-        let previousIndex = activeID.flatMap { id in notes.firstIndex { $0.id == id } }
-        notes = incoming
+    func apply(items incoming: [StickyItem], preferredActive: UUID? = nil) {
+        let previousIndex = activeID.flatMap { id in items.firstIndex { $0.id == id } }
+        items = incoming
 
         if let activeID, incoming.contains(where: { $0.id == activeID }) {
+            // A document tab has no editor to push into; its card reads straight
+            // from the item, so surviving the refresh is all it needs.
             guard !hasPendingEdit, let note = activeNote,
                   note.text != lastAppliedText || note.richText != lastAppliedRich else { return }
             lastAppliedText = note.text
@@ -505,7 +608,8 @@ final class StickyTabsModel: ObservableObject {
     /// Tab label: the first non-empty line, short. The **active** tab reads from
     /// the live editor rather than the stored row, so a title you are typing
     /// appears immediately instead of lagging by the save debounce.
-    func label(for note: Note) -> String {
+    func label(for item: StickyItem) -> String {
+        guard case .note(let note) = item else { return item.tabTitle }
         let source = (note.id == activeID) ? attributed.string : note.text
         let firstLine = source
             .split(whereSeparator: \.isNewline)
@@ -524,15 +628,80 @@ private struct StickyView: View {
     let onDelete: (UUID) -> Void
     let onNewTab: () -> Void
     let onActivate: (UUID?) -> Void
+    let onToggleSize: () -> Void
+    /// Live "am I recording" state for the microphone glyph. `AppDelegate`
+    /// always supplies the real one; the default-constructed fallback exists
+    /// only so the panel is constructible in isolation (tests, previews).
+    @ObservedObject var dictation: NoteDictationState
+    let onDictate: (@escaping (String) -> Void) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             tabBar
-            RichTextEditor(
+            if let item = model.activeItem, item.isDocument {
+                documentCard(item)
+            } else {
+                noteEditor
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
+                .strokeBorder(.white.opacity(DesignSystem.strokeSubtle), lineWidth: 1)
+        )
+        .overlay { closeConfirmOverlay }
+        // A swapped-in tab keeps the old tab's selection rect for an instant
+        // otherwise, so the capsule flashes over the wrong note's text.
+        .onChange(of: model.activeID) { _, _ in model.selectionRect = nil }
+        .onDisappear { model.flushSave() }
+    }
+
+    /// A pinned document: **read-only, and showing its summary** rather than the
+    /// transcript (ruled with Hendri 2026-08-30 — a 40-minute transcript is
+    /// unreadable in a small card, and the summary is the part worth having in
+    /// front of you). The header says which it is, so the fallback to the raw
+    /// transcript never reads as a summary that came out wrong.
+    ///
+    /// No editor, no save path, no capsule: `activeNote` is nil for this tab, so
+    /// every commit path upstream is already a no-op.
+    private func documentCard(_ item: StickyItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 5) {
+                Image(systemName: item.isShowingSummary ? "sparkles" : "text.alignleft")
+                Text(item.isShowingSummary ? "Summary" : "Transcript")
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: DesignSystem.ChromeText.micro))
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 9)
+            .padding(.bottom, 4)
+
+            ScrollView {
+                Text(item.documentBody ?? "")
+                    .font(.system(size: DesignSystem.ChromeText.body))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 9)
+            }
+        }
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var noteEditor: some View {
+        RichTextEditor(
                 attributed: $model.attributed,
                 hasPendingEdit: $model.hasPendingEdit,
                 font: StickyTabsModel.font,
-                insets: NSSize(width: 8, height: 4),
+                // Nearly to the edge, Trace-style — the words are the interface.
+                // Not zero: a rounded card clips descenders into its corner
+                // radius, and the caret needs somewhere to sit on line one.
+                insets: NSSize(width: 5, height: 3),
                 onFocusChange: { focused in
                     if focused {
                         // ⌘V/⌘Z/⌘B route through the active app's main menu; as
@@ -549,21 +718,57 @@ private struct StickyView: View {
                 // otherwise ⌘Z would paste the previous note over this one.
                 // Reusing it (rather than rebuilding per tab) is what keeps the
                 // caret alive across a switch, so typing continues uninterrupted.
-                resetsUndoOnExternalChange: true
+                resetsUndoOnExternalChange: true,
+                proxy: model.editor,
+                onSelectionChange: { rect in model.selectionRect = rect }
             )
-            .padding(.bottom, 6)
+        .padding(.bottom, 6)
+        .overlay(alignment: .topLeading) { formattingCapsule }
+        .overlay(alignment: .bottomTrailing) { dictateButton }
+    }
+
+    /// Dictate into the active sticky.
+    ///
+    /// **Permanent, and deliberately not in the formatting capsule**: that
+    /// capsule only exists while there is a selection, and dictation has nothing
+    /// to do with one — you reach for it with an empty note and no caret. It is
+    /// the one control here that has to be visible when nothing is happening.
+    private var dictateButton: some View {
+        Button {
+            // Commit first: dictation appends through the proxy, and a pending
+            // edit not yet in the store would be re-pushed over the result.
+            model.flushSave()
+            onDictate { text in appendDictated(text) }
+        } label: {
+            Image(systemName: dictation.isActive ? "mic.fill" : "mic")
+                .font(.system(size: DesignSystem.ChromeText.control))
+                .foregroundStyle(dictation.isActive ? Color.red : Color.secondary)
+                .frame(width: 24, height: 24)
+                .background(.regularMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(.quaternary, lineWidth: 0.5))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignSystem.radiusCard, style: .continuous)
-                .strokeBorder(.white.opacity(DesignSystem.strokeSubtle), lineWidth: 1)
-        )
-        .overlay { closeConfirmOverlay }
-        .onDisappear { model.flushSave() }
+        .buttonStyle(.plain)
+        .padding(.trailing, 8)
+        .padding(.bottom, 8)
+        .help(dictation.isActive ? "Stop dictating" : "Dictate into this note")
+        .accessibilityLabel(dictation.isActive ? "Stop dictating" : "Dictate into this note")
+    }
+
+    /// Append dictated words to the active sticky, as one undoable edit.
+    ///
+    /// Mirrors `NoteDetail.appendDictated`: through the proxy so ⌘Z takes it
+    /// back out and the save debounce is armed by the editor's own change
+    /// callback, and computed from the text as it is *now* — the user may have
+    /// carried on typing while the words were being transcribed.
+    private func appendDictated(_ text: String) {
+        let font = StickyTabsModel.font
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: RichText.paragraphStyle(for: font),
+        ]
+        model.editor.append(NSAttributedString(string: text, attributes: attributes),
+                            attributes: attributes)
     }
 
     /// Tabs, then the new-tab button. The row's padding doubles as the drag
@@ -573,7 +778,7 @@ private struct StickyView: View {
         HStack(spacing: 4) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
-                    ForEach(model.notes) { note in
+                    ForEach(model.items) { note in
                         tab(for: note)
                     }
                 }
@@ -588,6 +793,19 @@ private struct StickyView: View {
             .buttonStyle(.plain)
             .help("New note")
             .accessibilityLabel("New note")
+
+            // Trailing corner, away from the tabs: it acts on the window, not
+            // on any one note. The glyph names the size you'd get by clicking.
+            Button(action: onToggleSize) {
+                Image(systemName: model.mode.toggleIcon)
+                    .font(.system(size: DesignSystem.ChromeText.micro, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(model.mode.toggleHelp)
+            .accessibilityLabel(model.mode.toggleHelp)
         }
         .padding(.horizontal, 8)
         .padding(.top, 7)
@@ -595,12 +813,119 @@ private struct StickyView: View {
         .contentShape(Rectangle())
     }
 
+    /// Formatting, **summoned over the selection** rather than resident (Trace's
+    /// discipline): a small card has no room for a permanent toolbar, and a
+    /// control you only need while styling shouldn't be on screen while you
+    /// read.
+    ///
+    /// ⌘B/⌘I/⌘U and the right-click menu are untouched and remain the primary
+    /// routes — this is a third way in, for the times your hands are on the
+    /// mouse. All three call the same actions through `NoteEditorProxy`.
+    /// Half the capsule's intrinsic width: 4 buttons at 22, 3 gaps at 2, and
+    /// 8 of padding each side = 110.
+    private static let capsuleWidth: CGFloat = 110
+
+    @ViewBuilder
+    private var formattingCapsule: some View {
+        if let rect = model.selectionRect {
+            // Needs the card's width to keep the capsule inside it — clamping
+            // only the left edge let it run off the right on any selection in
+            // the last tenth of a line, where the panel (borderless, exactly the
+            // card) clipped the Highlight button out of reach.
+            GeometryReader { geo in
+                HStack(spacing: 2) {
+                    // The step leads the capsule: "make this a heading" is the
+                    // thing you reach for most, and it's the one action that had
+                    // no discoverable route at all — ⌘1–⌘5 or a right-click.
+                    stepMenu
+                    Divider().frame(height: 12)
+                    styleButton("bold", "Bold", .bold)
+                    styleButton("italic", "Italic", .italic)
+                    styleButton("underline", "Underline", .underline)
+                    styleButton("highlighter", "Highlight", .highlight)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+                .shadow(color: .black.opacity(DesignSystem.shadowSoft), radius: 6, y: 2)
+                .offset(x: capsuleX(for: rect, in: geo.size.width),
+                        y: capsuleY(for: rect))
+            }
+            .allowsHitTesting(true)
+            .transition(.opacity)
+        }
+    }
+
+    /// Centred on the selection, then held inside the card.
+    private func capsuleX(for rect: CGRect, in cardWidth: CGFloat) -> CGFloat {
+        let centred = rect.midX - Self.capsuleWidth / 2
+        let rightmost = max(cardWidth - Self.capsuleWidth - 6, 6)
+        return min(max(centred, 6), rightmost)
+    }
+
+    /// Above the selection, so it doesn't cover what you just picked — and
+    /// **below** it when there's no room above, rather than sitting on top of
+    /// the first line.
+    private func capsuleY(for rect: CGRect) -> CGFloat {
+        let above = rect.minY - 34
+        return above >= 4 ? above : rect.maxY + 6
+    }
+
+    /// The paragraph ramp, as a menu inside the capsule.
+    ///
+    /// A menu rather than five buttons: the capsule floats over a small card and
+    /// five more glyphs would leave no room for the character formatting beside
+    /// it. The current step is ticked, so the menu also answers "what is this
+    /// line?" — the same reason the right-click submenu ticks it.
+    private var stepMenu: some View {
+        Menu {
+            ForEach(NoteTextStyle.allCases) { step in
+                Button {
+                    model.editor.applyTextStyle(step)
+                } label: {
+                    if model.editor.currentTextStyle == step {
+                        Label(step.label, systemImage: "checkmark")
+                    } else {
+                        Text(step.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(model.editor.currentTextStyle?.label ?? "Body")
+                Image(systemName: "chevron.down").font(.system(size: 7))
+            }
+            .font(.system(size: DesignSystem.ChromeText.secondary))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Text style")
+    }
+
+    private func styleButton(_ icon: String, _ label: String,
+                             _ style: NoteEditorProxy.Style) -> some View {
+        Button {
+            model.editor.apply(style)
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: DesignSystem.ChromeText.secondary, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
     /// One tab. The close control sits on the **active** tab only: a row of ✕s
     /// across a small card is noise, and putting it here keeps the confirmation
     /// unambiguous about which note it is about. Closing an inactive tab is
     /// therefore select-then-close, which is fine — unsticking in bulk belongs
     /// to the Notes pane.
-    private func tab(for note: Note) -> some View {
+    private func tab(for note: StickyItem) -> some View {
         let isActive = note.id == model.activeID
         return HStack(spacing: 3) {
             Text(model.label(for: note))

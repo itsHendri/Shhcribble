@@ -50,22 +50,90 @@ final class TimelineTests: XCTestCase {
                                      transcripts: [late], calendar: calendar).isEmpty)
     }
 
-    /// Dictations and documents share one stream, newest first. **Notes do
-    /// not appear at all** — Today is transcriptions only (2026-08-10), and
-    /// this is the test that fails if they are ever merged back in by accident.
-    func testItemsMergesDictationsAndDocumentsNewestFirstAndExcludesNotes() {
+    /// The stream is **dictations only**, newest first (2026-08-28). Documents
+    /// moved to the Notes shelf and notes were never here; this is the test that
+    /// fails if either is merged back in by accident.
+    func testItemsAreDictationsOnlyNewestFirst() {
         let items = Timeline.items(
             on: date("2026-07-25 12:00"),
             transcripts: [transcript("2026-07-25 09:00", text: "early"),
-                          transcript("2026-07-25 14:00", source: .file, text: "middle"),
+                          transcript("2026-07-25 14:00", source: .file, text: "an import"),
+                          transcript("2026-07-25 16:00", source: .call, text: "a call"),
                           transcript("2026-07-25 18:00", text: "late")],
             calendar: calendar)
 
-        XCTAssertEqual(items.count, 3)
-        XCTAssertEqual(items.map { $0.createdAt }, [date("2026-07-25 18:00"),
-                                                    date("2026-07-25 14:00"),
-                                                    date("2026-07-25 09:00")])
-        XCTAssertEqual(items.map { $0.text }, ["late", "middle", "early"])
+        XCTAssertEqual(items.map { $0.text }, ["late", "early"])
+    }
+
+    /// The dots, the opening day and the stream all have to filter identically —
+    /// a dot over a day that opens empty is exactly the bug the notes exclusion
+    /// fixed, and a document-only day is the new way to reach it.
+    func testDocumentOnlyDayIsInvisibleToEveryDayQuestion() {
+        let docs = [transcript("2026-07-20 10:00", source: .file, text: "import"),
+                    transcript("2026-07-21 10:00", source: .call, text: "call")]
+
+        XCTAssertTrue(Timeline.items(on: date("2026-07-20 12:00"),
+                                     transcripts: docs, calendar: calendar).isEmpty)
+        XCTAssertEqual(Timeline.daysWithContent(inMonthOf: date("2026-07-15 12:00"),
+                                                transcripts: docs, calendar: calendar), [])
+        XCTAssertNil(Timeline.openingDay(around: date("2026-07-25 12:00"),
+                                         transcripts: docs, calendar: calendar))
+        XCTAssertNil(Timeline.mostRecentDayWithContent(atOrBefore: date("2026-07-25 12:00"),
+                                                       transcripts: docs, calendar: calendar))
+    }
+
+    // MARK: - Stepping forward
+
+    /// You cannot dictate into the future, so a forward step from today can only
+    /// land on a blank page — the chevron is dead there.
+    func testCannotStepForwardFromToday() {
+        let now = date("2026-07-25 14:00")
+        XCTAssertFalse(Timeline.canStepForward(from: now, now: now, calendar: calendar))
+        XCTAssertTrue(Timeline.canStepForward(from: date("2026-07-24 09:00"),
+                                              now: now, calendar: calendar))
+    }
+
+    /// Late on the day is still *today*, not yesterday — the clamp must compare
+    /// days, not instants, or the chevron comes alive again at 00:01.
+    func testStepForwardComparesDaysNotInstants() {
+        let now = date("2026-07-25 00:01")
+        XCTAssertFalse(Timeline.canStepForward(from: date("2026-07-25 23:59"),
+                                               now: now, calendar: calendar))
+        XCTAssertTrue(Timeline.canStepForward(from: date("2026-07-24 23:59"),
+                                              now: now, calendar: calendar))
+    }
+
+    /// If clock skew or an import stamped ahead ever parks the stream in the
+    /// future, the only way out is backwards.
+    func testCannotStepForwardFromAFutureDay() {
+        let now = date("2026-07-25 14:00")
+        XCTAssertFalse(Timeline.canStepForward(from: date("2026-07-26 09:00"),
+                                               now: now, calendar: calendar))
+    }
+
+    /// The month grid disables a future day, but `openingDay` will deliberately
+    /// open on one when everything is stamped ahead (clock skew, an import dated
+    /// forward). Those two must not combine into an item you can see a dot for
+    /// and never reach — so a future day that HAS content still reports as
+    /// having it, and the grid is what makes the exception (see `dayCell`).
+    func testAFutureDayWithContentIsStillReportedAsHavingIt() {
+        let now = date("2026-07-25 12:00")
+        let ahead = [transcript("2026-07-27 10:00", text: "stamped ahead")]
+
+        XCTAssertTrue(Timeline.isFutureDay(date("2026-07-27 10:00"), now: now, calendar: calendar))
+        XCTAssertTrue(Timeline.daysWithContent(inMonthOf: now, transcripts: ahead,
+                                               calendar: calendar).contains(27),
+                      "the dot must still be drawn, or the item is invisible")
+        XCTAssertEqual(Timeline.openingDay(around: now, transcripts: ahead, calendar: calendar),
+                       calendar.startOfDay(for: date("2026-07-27 00:00")),
+                       "and the stream still opens there")
+    }
+
+    func testFutureDaysAreMarkedForTheMonthGrid() {
+        let now = date("2026-07-25 14:00")
+        XCTAssertTrue(Timeline.isFutureDay(date("2026-07-26 00:00"), now: now, calendar: calendar))
+        XCTAssertFalse(Timeline.isFutureDay(date("2026-07-25 23:59"), now: now, calendar: calendar))
+        XCTAssertFalse(Timeline.isFutureDay(date("2026-07-24 09:00"), now: now, calendar: calendar))
     }
 
     /// Equal timestamps must produce a stable order, or `ForEach` identity

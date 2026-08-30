@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Pin a document to your screen.** Pinning isn't just for notes any more — a
+  transcribed file or call can sit on your screen too. It shows the summary
+  rather than the whole transcript, since that's the part worth having in front
+  of you, and falls back to the transcript if you haven't generated one yet.
+- **Text styles in the sticky panel.** The heading sizes that were only ever
+  reachable by ⌘1–⌘5 or a right-click now sit in the formatting bar that appears
+  when you select text, with the current one ticked.
+- **Dictate into a sticky note.** The microphone button the Notes pane has now
+  sits in the corner of the sticky panel too, so you can talk into a note
+  without opening the main window.
+- **Images in notes.** Paste a screenshot, or drag a picture in from the desktop
+  — it lands in the note instead of dropping the file's name as text. Wide
+  images are fitted to the note's width.
+
+### Changed
+- **"Stick to screen" is now "Pin to screen".** One verb, the one people reach
+  for. Nothing behaves differently — a pinned note is what a stuck note was.
+- **Hovering a note or document reveals pin, not copy.** Copy moved out of the
+  row: you open something before copying it, because there's usually a lot of it.
 - **Action items, a new writing style.** Where Bullets reformats everything you
   said into points, Action items keeps only the commitments — the things you or
   someone else said would get done — and drops the background, the opinions and
@@ -44,7 +63,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicates are detected and dropped — while short replies like "yeah" or
   "right" are always kept as yours.
 
+### Removed
+- **Pinning and sticking are one thing now, and it's called pinning.** They were
+  two ways of saying "this one matters", and in practice you reached for pin when
+  what you wanted was the note in front of you — so there's one verb left, with
+  the name people actually reach for. Pinning a note puts it on your screen;
+  pinned things gather under **Pinned** at the top of the list. The separate
+  Pinned tab has gone. Nothing was deleted — anything you'd pinned before is
+  still exactly where it was in the list.
+
 ### Changed
+- **Three places instead of five: Dictations, Notes, Settings.** Documents and
+  Notes were the same screen with different words on it, so they're one shelf
+  now — your notes and your transcribed files and calls in a single list, sorted
+  by when they arrived. Opening a note gives you the editor; opening a file or a
+  call gives you the transcript and its summary, exactly as before.
+- **The Today tab is now Dictations, and shows only your dictations.** The name
+  never matched a screen you can page backwards through, and files and call
+  transcripts moved to the Notes shelf with everything else you keep. What's
+  left is one honest thing: the record of what you said, one day at a time.
+- **You can't page into the future any more.** The forward arrow switches off
+  when you're on today, and days after today are greyed out in the month
+  picker — there was nothing to find there.
 - **The writing styles were rebuilt to be far more consistent.** Every style was
   asking for around thirty separate things at once, and repeating a dozen of them
   differently in each style — well past the point where a small on-device model
@@ -66,6 +106,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   single floating panel with a tab per note, so a handful of stickies is one
   tidy window instead of a pile. Click a tab to switch, **+** starts a new note
   right there, and the tab bar doubles as the drag handle.
+- **Sticky notes got quieter, and come in two sizes.** The tab strip is the
+  only chrome now — your writing runs to the edges of the card — and formatting
+  appears as a small bar over the text only when you've selected something,
+  rather than sitting there while you read. ⌘B, ⌘I, ⌘U and right-click all still
+  work exactly as before. Dragging the edges to resize is gone, replaced by one
+  button that swaps between a compact card and a roomier one; the panel keeps
+  its top-left corner where it was, so the tab you're reading doesn't jump.
 - **Closing a tab is still just unsticking.** The ✕ on the active tab asks
   first, exactly as before — the note stays in your Notes list — and the panel
   disappears by itself once you've closed the last tab. Your existing stickies

@@ -3,16 +3,16 @@ import XCTest
 
 /// Guards the Studio's locked information architecture.
 ///
-/// The rail being exactly five destinations, and Settings holding exactly four
-/// pages, is a *design decision* recorded in docs/design/studio-wireframes.md —
+/// The rail's exact destinations, and Settings holding exactly four pages, are
+/// *design decisions* recorded in docs/design/studio-wireframes.md —
 /// not an implementation detail. It's also the kind of thing that drifts one
 /// well-meaning addition at a time, so these tests fail loudly when the shape
 /// changes and make whoever changed it go and update the contract.
 final class StudioShellTests: XCTestCase {
 
-    func testRailIsTheFiveLockedDestinationsInOrder() {
+    func testRailIsTheLockedDestinationsInOrder() {
         XCTAssertEqual(TranscriptionsView.RailSection.allCases,
-                       [.today, .documents, .notes, .pinned, .settings],
+                       [.dictations, .notes, .settings],
                        "The rail's shape is locked in the wireframes decision record — "
                        + "update that first if this is a deliberate change.")
     }
@@ -43,7 +43,7 @@ final class StudioShellTests: XCTestCase {
     /// silently is how a saved selection stops matching.
     func testRailIdentifiersAreStable() {
         XCTAssertEqual(TranscriptionsView.RailSection.allCases.map(\.id),
-                       ["today", "documents", "notes", "pinned", "settings"])
+                       ["dictations", "notes", "settings"])
         XCTAssertEqual(TranscriptionsView.SettingsPage.allCases.map(\.id),
                        ["preferences", "styles", "dictionary", "feedback"])
     }

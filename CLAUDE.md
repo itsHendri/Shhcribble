@@ -200,13 +200,19 @@ This is the first cut of the **"Transcription Studio"** program (see [docs/ROADM
 ### Menu bar is window-first — left-click opens the window, right-click is a minimal menu
 [MenuBarController.swift](Shhhcribble/UI/MenuBarController.swift) is the `NSStatusItem` + a click handler that branches on `NSApp.currentEvent?.type`: **left-click opens the Transcriptions window**; **right-click pops a small `NSMenu`** with **Upload Audio…** (file transcription) and **Quit** (via `menu.popUp(...)`, not a persistent `statusItem.menu`, so left-click keeps firing the action). The old full dropdown is still gone — recent transcripts, Settings, engine status live only in the window ([TranscriptionsView.swift](Shhhcribble/UI/TranscriptionsView.swift)). The right-click menu revived the `MenuBarControllerDelegate` `transcribeFile`/`quit` methods (they're now wired to `presentFilePicker()` / `NSApp.terminate`, not dead code); `repaste`/`checkForUpdates` remain unused. Because there's no app menu (`LSUIElement`), **Quit must stay reachable** — it now has two homes: the window rail button *and* the right-click menu. Having the right-click Quit is what made the window rail safe to **collapse** (see the Transcriptions window decisions).
 
-### Studio shell: five-item rail + Settings-as-an-environment (redesign phase 1)
-The Studio window's IA now follows the locked redesign in
+### Studio shell: three-item rail + Settings-as-an-environment
+The Studio window's IA follows the locked redesign in
 [docs/design/studio-wireframes.md](docs/design/studio-wireframes.md) — **read that
-file before ANY Studio UI work; it is the contract.** Rail is **Today · Notes ·
-Documents · Pinned · Settings** on every screen, and the titlebar always reads
-"Shhhcribble" (the rail's active state is the location indicator — don't restate
-it in the title).
+file before ANY Studio UI work; it is the contract.** Rail is **Dictations ·
+Notes · Settings** on every screen (2026-08-28, down from five), and the titlebar
+always reads "Shhhcribble" (the rail's active state is the location indicator —
+don't restate it in the title).
+
+**The app is two halves and the rail says so**: the stream of what you *said*,
+and the shelf of what you *keep*. Documents was folded into Notes because the two
+were the same master-detail with different nouns — a note and a document differ
+in how they were made and how they're read, not in what they're for. Pinned went
+with the pin feature.
 
 - **Settings is one rail item that opens its own master-detail**: a subnav column
   (**Preferences · Styles · Dictionary · Feedback**) with **Check for updates**
@@ -217,40 +223,126 @@ it in the title).
 - **Quit left the rail.** The "Quit must stay reachable" invariant now rests on
   the menu-bar right-click menu (which is also why collapsing the rail is safe).
   Don't remove it from there.
-- **Two panes are still stand-ins**, each replaced by its owning phase and each
-  marked in code: **Today** = the pre-redesign transcripts master-detail (the
-  chronological two-weight timeline is phase 4); **Documents** = that same reader
-  over `store.documents(matching:)`, which today means file imports only (call
-  captures still store as `.dictation`, so they stay in Today until phase 3 gives
-  documents a real source category). Don't "finish" a stand-in without doing its
-  phase properly. **Pinned is real** as of phase 2 (below).
-- `NotesView`'s selection is now a `@Binding` owned by `TranscriptionsView` —
-  that's what lets the Pinned board open a note in its home tab, and it keeps the
-  selection across a rail round-trip.
+- **The Notes shelf's selection is an enum, not an id**:
+  `NoteListSelection { case note(UUID); case document(UUID) }`, in
+  [Storage/NotesLibrary.swift](Shhhcribble/Storage/NotesLibrary.swift). Two
+  optionals would need a third bit saying which is current and could silently
+  disagree; here the illegal state can't be written down, and search's two jump
+  destinations set it directly. **Owned by `TranscriptionsView`, not `NotesView`**
+  — the detail `switch` is a `_ConditionalContent`, so leaving a branch destroys
+  its `@State` (the same trap that bit `todayDay` and `FeedbackDraft`).
+- **The merged list is pure and tested** (`NotesLibrary.merged`), interleaving
+  both kinds newest-first with an id tie-break — a note promoted from a
+  document's action item can share its second, and an unstable sort churns
+  `ForEach` identity. Only the *detail* forks on the kind; the row does not,
+  beyond a quiet `source.icon` glyph.
 - **The category predicates live on the store, not in the views**:
-  `TranscriptStore.documents(matching:)` and `.pinnedNotes` are exactly what
-  phases 3 and 2 redefine, so the change lands in one unit-tested place and the
-  view diff is a rename. Don't inline `filter { $0.source == .file }` /
-  `filter(\.pinned)` back into a pane.
-- **`TranscriptListPane` is a component, not a pair of helper funcs** — a `func`
-  can't own state, so sharing the master-detail that way forced every list's
-  hover/toast state up into the window. Transient state stays in the component;
-  only the selection and query (which must survive a rail round-trip) are passed
-  in. `SearchPill` and `TagCapsule` in [DesignSystem.swift](Shhhcribble/UI/DesignSystem.swift)
+  `TranscriptStore.documents(matching:)` and `.notes(matching:)`. Don't inline
+  `filter { $0.source == .file }` back into a pane.
+- `SearchPill` and `TagCapsule` in [DesignSystem.swift](Shhhcribble/UI/DesignSystem.swift)
   are the shared chrome for the search field and the little neutral label —
-  reach for them instead of re-stacking the modifiers.
+  reach for them instead of re-stacking the modifiers. (`TranscriptListPane` and
+  `TranscriptRow` were **deleted** with the Documents pane; `TranscriptDetail`
+  moved to its own file and is now the shelf's document reader.)
+- **One capsule per column still holds.** The Notes column's is **Add Note**;
+  **Upload Audio…** lives on the menu-bar right-click menu (plus Finder
+  Open-With and the Dictations empty state — note the latter only renders on a
+  day with no dictations, so it is not a standing fallback). A file job in progress jumps to
+  Notes, which is where its banner, its Cancel, and eventually the transcript
+  itself all are.
 
-### Pin vs stick — two lifecycles, one auto-coupling (redesign phase 2)
-`Note.pinned` used to mean "on screen as a sticky". It now means **importance**,
-and the new `Note.stuck` carries the sticky. They are different lifecycles and
-the words are reserved: **pin** is always the durable favourite, **stick/unstick**
-is always the floating sticky. Never call a sticky "pinned to screen" in UI copy.
+### Pin is the word again, and it applies to documents too (2026-08-30)
+**The lifecycle did not come back — the name did.** "Stick/unstick" is now
+spelled **pin/unpin** everywhere in the UI (pin glyph, "Pinned" list group,
+"Pin to screen" capsule). The importance lifecycle stays dead; there is still
+exactly one thing pinning can mean, and it is "put this on my screen". Reaching
+for the word *pin* and meaning that is precisely what the 2026-07-25 split got
+wrong, so the fix was to give the surviving verb the name people reach for.
+`Note.stuck` keeps its name in the schema — the same harmless code-says-stick /
+column-says-pin mismatch `pinX/pinY` already carries in the other direction.
 
-- **Sticking auto-pins** (`setNoteStuck` sets `pinned = true`) — urgency is a
-  subset of importance, so anything worth putting on screen is worth finding on
-  the Pinned board later. **Unsticking leaves the pin**; unpinning a stuck note
-  is a deliberate override and does *not* take it off screen. Pinned by
-  `NoteStoreTests`.
+- **Documents can be pinned** (Hendri's ruling). **Schema v14** adds
+  `transcripts.stuck`. It deliberately does **not** reuse the retired
+  `transcripts.pinned`, which was sitting empty and would have been a one-line
+  backfill: that column holds values written under the *old* meaning, so a user
+  who favourited ten documents would have found all ten thrown onto the screen
+  at once — and overloading a retired column with a second meaning is the exact
+  confusion this whole change removes. No backfill at all: nothing is on screen
+  unless the user puts it there.
+- **A pinned document shows its summary**, falling back to the transcript when
+  none exists, and the card says which. A 40-minute transcript is unreadable in
+  a small card. The tab is **read-only** — `activeNote` is nil for a document,
+  which is what makes every save/flush path upstream a no-op with no new guards.
+- **`StickyPanelManager` sinks on `$transcripts` as well as `$notes`.** Without
+  it, pinning a document writes `stuck` and nothing appears.
+- **Tab order is `stuckItemsInTabOrder`** — both kinds by `createdAt` (creation
+  order), never recency, which changes on every keystroke and would reshuffle
+  tabs mid-sentence.
+- **Row hover is pin only; copy was removed** from the shelf row: you select an
+  item before copying because there's a lot of it, and a one-click copy of
+  something you haven't read can't be verified. Pin is the opposite — its whole
+  result is visible the instant you click.
+- **The list's pin does not flush the editor, and that's correct.** The editor
+  refuses store pushes while an edit is pending (`RichTextEditor.swift:811`),
+  and the debounce then writes over the briefly-stale row. The *capsule* flushes
+  only because it sits inside the editor and can.
+
+### The sticky is a real editor now (2026-08-30)
+Prompted by Trace (https://john-mrty.github.io/Trace/ — **MIT, but a MarkEdit
+fork: CodeMirror 6 + TypeScript in an AppKit shell, 62% Swift / 36% TS**. Its
+images and tables render because they're Markdown widgets; **none of that ports
+to our `NSTextView`**, so take ideas, not code).
+
+- **The formatting capsule carries the paragraph ramp**, which previously had no
+  discoverable route at all — ⌘1–⌘5 or a right-click. A menu, not five more
+  glyphs: the capsule floats over a small card. It ticks the current step, so it
+  also answers "what is this line?".
+- **Dictation is a permanent corner button, NOT in the capsule.** The capsule
+  exists only while there's a selection; you reach for the microphone with an
+  empty note and no caret. Wired from `AppDelegate` after construction (handing
+  the manager `self` would be a retain cycle).
+- **Images paste and drop.** The paste path read only `NSAttributedString`, and a
+  file copied in the Finder satisfies that read *as its own filename* — which is
+  why pasting a picture dropped its name. `RichTextView.image(from:)` checks
+  `NSImage` then image-conforming file URLs; drops need
+  `registerForDraggedTypes` because `NSTextView` advertises only text.
+  **Fitted to the column width, never native size** (a 4000px screenshot in a
+  320pt card is the entire problem); smaller images are left alone.
+  **Storage needed no work** — `NSTextAttachment`/`NSImage` were already in the
+  archive allowlist.
+- **Tables are NOT built.** `NSTextTable` renders, but every authoring behaviour
+  (Tab across, Return-adds-row, insert/delete column) is hand-built **and
+  `NSTextTable`/`NSTextTableBlock` are absent from `RichText.decodableClasses`**,
+  so a table would encode and then fail to decode, silently dropping the note to
+  its plain-text mirror. Extend that list *first*.
+
+### Stick is a note's only lifecycle — PIN IS RETIRED (2026-08-28)
+*(Superseded in naming by the 2026-08-30 entry above — the lifecycle notes below
+still hold; only the word changed, and documents joined it.)*
+`Note.pinned` once meant "on screen as a sticky"; the 2026-07-25 split made it
+mean **importance**, with `Note.stuck` carrying the sticky. **Pin was removed
+entirely on 2026-08-28** — the split failed in use: *"I keep pinning things but
+actually I'm wanting to just stick them to my screen."* Two verbs where the user
+only ever meant one, and the Pinned board's stated job ("the only place to manage
+stickies") had already evaporated when stickies became tabs in one self-managing
+panel.
+
+- **`stuck` is the only lifecycle.** `setNoteStuck` no longer touches `pinned`.
+  Stuck notes group under **"On your screen"** at the top of the Notes list
+  (`stuckNotes`, recency-ordered). Notes only — a document isn't something you
+  put on your screen.
+- **`notes.pinned` and `transcripts.pinned` are retired columns**, kept unwritten
+  for rollback exactly like `pinX/pinY/pinW/pinH` and the legacy pref keys.
+  Deleted with pin: `setNotePinned`, `setTranscriptPinned`, `pinnedNotes`,
+  `pinnedTranscripts`, `pinnedBoardContents`, the `PinnedBoard` view and the
+  `.pinned` rail case. **The v10/v11 migrations are untouched and must stay that
+  way** — they still need to do exactly what they did, or an upgrading DB won't
+  match what a rolled-back build expects. Pinned by
+  `testStickingDoesNotWritePinned` and
+  `testAddedTranscriptKeepsItsRetiredPinColumn`.
+- **Don't rebuild pin from the presence of the columns or an old doc.** That is
+  the specific failure mode this note exists to prevent; the field docs say the
+  same thing at the declaration.
 - **The v10 step is wrapped in a transaction, and that's load-bearing.** Its
   backfill reads `pinned` *as if it still meant stuck* — a one-time
   interpretation. If the column landed but the backfill or version bump didn't,
@@ -267,31 +359,29 @@ is always the floating sticky. Never call a sticky "pinned to screen" in UI copy
   empty arrays sets a UserDefaults flag that never runs again, permanently
   skipping real work while reporting success. Don't add a `…IfNeeded` without
   that guard.
-- **Schema v10** adds `notes.stuck` and seeds it `= pinned`. That's what makes
-  the upgrade correct with no row to fix by hand: every existing sticky comes out
-  stuck *and* pinned, which is exactly what auto-pin says it should be. **Schema
-  v11** adds `transcripts.pinned` — transcripts join the pin lifecycle only;
-  a document isn't something you put on your screen, so there's no `stuck`
-  counterpart.
-- **`StickyPanelManager` diffs on `store.stuckNotes`, never `pinnedNotes`** —
-  diffing on pinned would throw every favourite onto the screen, which is the
-  exact thing the split exists to stop.
-- **Controls follow the split:** pin is a quiet glyph toggle in the header action
-  row (filled when on); stick is the **floating capsule over the editor** whose
-  label *is* the state ("Stick to screen" ↔ "Unstick") — which is why there's no
-  separate "on screen" tag to keep in sync.
-- **Action rows are pin · copy · delete.** Save-as-.txt (notes + transcripts) and
-  reveal-in-Finder (transcripts) were **removed**: copy covers export, a `.txt`
-  sidecar is already written at transcription time, and a source file is often
-  ephemeral while the transcript is the durable artifact.
+- **Schema v10** adds `notes.stuck` and seeds it `= pinned` (correct at the time:
+  `pinned` then meant "on screen"). **Schema v11** adds `transcripts.pinned`.
+  Both remain in place unchanged; only the *feature* on top of them went.
+- **`StickyPanelManager` diffs on `store.stuckNotes`** — the only accessor left,
+  and the only one that ever described what's on screen.
+- **The stick control spells out its action:** the floating capsule over the
+  editor whose label *is* the state ("Stick to screen" ↔ "Unstick") — which is
+  why there's no separate "on screen" tag to keep in sync. Don't demote it to a
+  bare glyph; nothing else on screen says whether a note is stuck.
+- **Action rows are copy · delete** (a note also carries dictate). Save-as-.txt
+  (notes + transcripts) and reveal-in-Finder (transcripts) were **removed**: copy
+  covers export, a `.txt` sidecar is already written at transcription time, and a
+  source file is often ephemeral while the transcript is the durable artifact.
 
-### Documents vs dictations — a real source category (redesign phase 3)
+### Documents vs dictations — a real source category
 `TranscriptSource` gained **`.call`**, and the split it encodes is the one the
 redesign is built on: **`.dictation` is the quick, semi-throwaway half** (kept
 for recovery and reuse), while **`.file` and `.call` are long-form material you
-keep**. `TranscriptSource.isDocument` is that line, `TranscriptStore.documents(matching:)`
-is the single place it's applied, and the Documents tab is what it feeds. A new
-long-form source joins Documents by flipping `isDocument` — don't re-inline
+keep**. `TranscriptSource.isDocument` is that line and `TranscriptStore.documents(matching:)`
+is the single place it's applied. **It no longer feeds a tab of its own**
+(2026-08-28): documents live on the Notes shelf, and `isDocument` now decides
+which detail pane a shelf row opens and what the day stream leaves out. A new
+long-form source joins the shelf by flipping `isDocument` — don't re-inline
 `source == .file` in a view.
 
 - **Schema v12 reclassifies the call captures that shipped before the case
@@ -304,7 +394,7 @@ long-form source joins Documents by flipping `isDocument` — don't re-inline
 - Summaries stay a **Documents-only** affordance per the design contract; the
   reader is still shared with Today until phase 4 takes it out of the timeline.
 
-### Today is a stream of transcriptions, not a master-detail (redesign phase 4)
+### Dictations is a stream, not a master-detail
 [TodayView.swift](Shhhcribble/UI/TodayView.swift) replaced the transcripts
 master-detail. **Transcriptions only** (ruled 2026-08-10): Today is the record
 of what you *said*, and a note is something you *wrote* — mixing them made
@@ -371,7 +461,7 @@ again — the tie-break rule itself stands); **dictations cannot be pinned**
 appears for a document, and a row pinned by an older build stays off the board);
 and these day groups, which the build had skipped.
 
-### Search: only Today crosses categories (redesign phase 5)
+### Search: only the Dictations pane crosses categories
 [Storage/Search.swift](Shhhcribble/Storage/Search.swift) is pure and tested;
 `TodayView` renders it. A query **replaces** the day stream with results grouped
 **Notes → Dictations → Documents**, dated within each, the match picked out in
@@ -655,7 +745,8 @@ Only required deadlock protection **if VP-for-BT is ever reintroduced** — VP t
 | `didMigrateDictionaryToSQLite` | Bool | `false` | One-shot flag: legacy Personal Dictionary has been imported into the SQLite `TranscriptStore` |
 | `didMigrateTranscriptNotesToNotes` | Bool | `false` | One-shot flag: per-transcript notes (the retired reader tab) have been lifted into standalone `Note` rows, linked back by `sourceTranscriptID`. The `transcripts.notes` column is left in place for rollback — see Notes |
 | `callBothSidesEnabled` | Bool | `false` | Also capture **system output audio** during a call capture, so the transcript carries the other side labelled "Me"/"Others". **Off by default** — it needs the Screen & System Audio Recording grant, and capturing what leaves the speakers is a bigger claim than recording your own mic. A missing/refused grant degrades to mic-only. See Both-sides call capture |
-| `stickyPanelFrame` | String | — | **Window state, not a setting.** The sticky panel's frame (`NSStringFromRect`). Replaced the per-note `pinX/pinY/pinW/pinH` columns when stickies became tabs in one panel; those columns stay in the schema for rollback and are still read *once*, to place the panel where the user's last sticky sat |
+| `stickyPanelFrame` | String | — | **Window state, not a setting.** The sticky panel's frame (`NSStringFromRect`). Only its **origin** is read back as of 2026-08-28 — the size now comes from `stickyPanelMode`. Replaced the per-note `pinX/pinY/pinW/pinH` columns when stickies became tabs in one panel; those columns stay in the schema for rollback and are still read *once*, to place the panel where the user's last sticky sat |
+| `stickyPanelMode` | String | `"compact"` | **Window state, not a setting.** Which of the sticky panel's two sizes it is at (`compact` / `expanded`). Replaced free resize 2026-08-28 — see the sticky-panel decision |
 | `stickyActiveNoteID` | String | — | **Window state, not a setting.** The sticky panel's open tab, so it reopens where you left it |
 
 Sparkle also manages its own `SU*` UserDefaults keys automatically (e.g. `SUEnableAutomaticChecks`, `SULastCheckTime`, `SUAutomaticallyUpdate`) — don't hand-edit them. `SUFeedURL` / `SUPublicEDKey` are **Info.plist** keys, not prefs (see the Sparkle decision above).
@@ -720,6 +811,24 @@ This project runs a **largely-autonomous research→build→verify loop** over t
 8. **Backlog re-evaluation** (added 2026-07-08): after a feature ships, re-scan [docs/ROADMAP.md](docs/ROADMAP.md) and the backlog against any new signal (user feedback, competitive finds, what the feature unlocked) and re-prioritize; record the shift in the loop-progress note. New feedback often converges or reshuffles items — don't just march the old order.
 
 Iterate implement→review→fix up to ~3 rounds; if still failing or low-confidence, **stop and escalate** rather than loop. Use the **Workflow tool** for each sprint's implement→parallel-review→verify pipeline; keep a short loop-progress note here (current sprint / last done / next / blocker).
+
+**Loop progress (2026-08-28 — the IA rework: three-item rail, pin retired, Trace-style stickies):** Design session + four build phases, each its own branch, **none merged, none pushed**. Plan at `~/.claude/plans/okay-so-i-want-radiant-stroustrup.md`; the contract in [docs/design/studio-wireframes.md](docs/design/studio-wireframes.md) + `.html` was rewritten **in place** before any code moved.
+
+**Triggered by three failures Hendri hit in live use**, all confirmed real: "Today" is a day navigator whose name only describes its opening position, and whose forward chevron could only ever reach a blank page; Documents and Notes were two rail slots spent on a distinction he doesn't feel (they were the same master-detail with different nouns); and the pin/stick split failed outright — *"I keep pinning things but actually I'm wanting to just stick them to my screen."* Wireframed five concepts across two batches, four forks ruled by structured question, all recommendations accepted. Reference for the sticky redesign: **Trace** (https://john-mrty.github.io/Trace/).
+
+**Branches, in order (each builds on the last):** `shhhcribble/timeline-dictations-only` → `shhhcribble/remove-pin` → `shhhcribble/notes-library-merge` → `shhhcribble/sticky-two-modes` (HEAD). **375 tests green** (up from 366) with the two live-model suites skipped; build green at every phase. **No `AudioRecorder`/routing/`MusicPauser`/`TextInserter` touch and no schema bump (still v13) anywhere — no hardware smoke test triggered.**
+
+**What shipped:** (1) the stream is **dictations only** and every day query filters through one predicate (`Timeline.streamable`), so month dots, opening day and stream can't disagree; forward chevron dead on today, month future days inert, both pure and tested. (2) **Pin retired entirely** — `PinnedBoard`, the rail tab, both pin accessors and both mutators deleted; `setNoteStuck` no longer auto-pins; stuck notes group under "On your screen". **The `pinned` columns stay unwritten for rollback**, and the v10/v11 migrations are untouched. (3) **Documents merged into Notes**, rail five → three (**Dictations · Notes · Settings**), new pure `Storage/NotesLibrary.swift` + a shell-owned `NoteListSelection` enum, `TranscriptDetail` moved to its own file, `TranscriptListPane`/`TranscriptRow` deleted. (4) **Sticky panel**: free resize → compact ⇄ expanded via pure `StickyPanelGeometry` (top-left anchored, screen-clamped), edge-to-edge insets, and a formatting capsule summoned over a selection that calls the *existing* ⌘B/⌘I/⌘U actions through `NoteEditorProxy` — **still no Format menu**.
+
+**⚠ THE HONEST GATE — nothing has had a visual pass.** Every claim is build-and-test verified, not eyes-verified; Hendri's own dev build was running throughout, so launching a second instance would have fought it for the hotkey. **His next session starts with a UI review**, and expects an Accessibility re-grant (fresh build signature). Specifically worth judging by eye: the Dictations rail icon (mic, changed from calendar), the document-row glyph on the merged shelf, whether **Upload Audio…** is discoverable now that the Notes column keeps "Add Note" as its single capsule (it lives on the menu-bar right-click and the Dictations empty state — a fallback drawing exists in the plan), and the sticky panel's two sizes, insets and capsule placement.
+
+**A QC finding worth acting on:** `PromptBenchTests.testRunBench` is **genuinely flaky and takes 29 minutes**, so the full suite is red-by-default on this machine. Reproduced deliberately: it failed twice and passed once on the working tree, and passed twice on a clean one, always on `Agent/dictation-agent-bug` with coverage at 0.24–0.27 against the 0.3 floor — i.e. a coin flip on exactly the "speech → coding-agent prompt" problem CLAUDE.md already records as open. It cannot be affected by this session's diff (no call path from `Timeline`/`TodayView` to the prompt code). **Every phase here was gated on the suite with `-skip-testing:PromptBenchTests -skip-testing:TranscriptCleanerLiveTests`; run those two separately and judge the report as a sample.**
+
+**Two adversarial reviews ran and both found real defects; all fixed, in two commits.** The worst was mine and newly introduced: publishing the selection rect re-ran the view body, and `updateNSView`'s change guard compared the text view's string against the binding — but **`NSTextStorage` *fixes* attributes on assignment**, so for any note containing emoji or CJK that comparison is permanently unequal. The push re-ran, collapsed the selection, posted another selection change, and looped, wiping the sticky's undo stack each pass. Reachable by sticking a plain-text-path note (promoted action item, dictation, migrated transcript note) containing "✅" and selecting a word. The guard now compares against **what we last pushed**, which holds regardless of what fixing did. Also fixed: the merged shelf was rebuilt 3–4× per render (each pass lowercasing every transcript — the same "search ran the whole library twice per keystroke" defect review caught once already); a deleted selection stranded the detail pane permanently; a future-stamped dictation could be dotted-but-unreachable, contradicting `Timeline.items`' own doc; `NotesView.onUpload` was declared, passed and never read; the capsule ran off the card's right edge; the clamp bottom-aligned an oversized panel while its comment and test claimed the opposite; and four comments asserted the opposite of the code. **The first-responder risk flagged above was checked and is a non-issue** — the toggles read `selectedRange()` rather than requiring first-responder status, and `NotesView`'s existing stick capsule is the same overlay-over-this-editor shape.
+
+**Still unverified by hand:** type → style-via-capsule → tab-switch (no keystrokes lost) — the mechanism is sound and reviewed, but not exercised.
+
+**⚠ FRESH EVIDENCE on two already-open items, caught incidentally by the review's bench run (2026-08-28) — not a re-reading of the old note.** The run logged **three** occurrences of `[cleanup] Style transform failed in 51063 ms: Exceeded model context window size — falling back to FillerWordFilter` against the macOS 27 on-device model. So the ~50 s degenerate-input stall and the context-window ceiling are **both live and both reproducing today**, and under the deliberate no-timeout policy each one blocks the *next dictation* for the full 51 seconds. This is the strongest evidence yet for reinstating the `withTimeout` cap the cleanup decision says to bring back "if paste ever feels laggy" — it is now measurably worse than laggy. Prior progress ↓.
 
 **Loop progress (2026-08-11 — prompt bench + the style/summary rebuild):** Branch `shhhcribble/prompt-bench-and-styles`, **not merged/pushed**. Triggered by the human asking whether a downloadable local LLM should replace Apple FoundationModels, and wanting styles that give consistent results. Three research agents ran (local-LLM landscape, ASR/FluidAudio, prompt design); the full prompt report is kept at `~/.claude/plans/okay-so-what-i-m-expressive-parasol-agent-a9dd69e135d467e9a.md` and is worth reading before touching a prompt again.
 

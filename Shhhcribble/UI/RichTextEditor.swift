@@ -447,6 +447,14 @@ final class RichTextView: NSTextView {
     /// already discards all formatting, so there is nothing to normalise.
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
+        // Images first. A screenshot on the pasteboard, or a file copied in the
+        // Finder, *also* satisfies the NSAttributedString read below — as a
+        // string of the file's name — which is why pasting a picture used to
+        // drop its filename into the note and nothing else.
+        if let image = Self.image(from: pasteboard) {
+            insertImage(image)
+            return
+        }
         guard let incoming = pasteboard.readObjects(
                 forClasses: [NSAttributedString.self], options: nil)?.first as? NSAttributedString,
               incoming.length > 0 else {
@@ -461,6 +469,94 @@ final class RichTextView: NSTextView {
             return
         }
         textStorage?.replaceCharacters(in: range, with: normalized)
+        didChangeText()
+    }
+
+    // MARK: - Dropped images
+
+    /// Accept image drags. `NSTextView` advertises only what its own
+    /// `readablePasteboardTypes` covers, which is text — so a picture dragged
+    /// from the desktop is refused before any drop handler runs.
+    func registerImageDragging() {
+        registerForDraggedTypes([.fileURL, .tiff, .png])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        Self.image(from: sender.draggingPasteboard) != nil ? .copy : super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        Self.image(from: sender.draggingPasteboard) != nil ? .copy : super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let image = Self.image(from: sender.draggingPasteboard) else {
+            return super.performDragOperation(sender)
+        }
+        // Drop at the pointer, not at the old caret — a drop names its own
+        // insertion point, and landing text somewhere else is disorienting.
+        let point = convert(sender.draggingLocation, from: nil)
+        let index = characterIndexForInsertion(at: point)
+        setSelectedRange(NSRange(location: index, length: 0))
+        insertImage(image)
+        return true
+    }
+
+    /// An image on the pasteboard, whether pasted directly (a screenshot) or as
+    /// a file (copied in the Finder, dragged from a browser).
+    ///
+    /// The file branch matters more than it looks: copying a picture in the
+    /// Finder puts a *file URL* on the pasteboard, not image data, and every
+    /// "paste an image" implementation that reads only `NSImage` silently
+    /// degrades to pasting the path.
+    static func image(from pasteboard: NSPasteboard) -> NSImage? {
+        if let images = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
+           let image = images.first {
+            return image
+        }
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingContentsConformToTypes: ["public.image"]]
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
+              let url = urls.first else { return nil }
+        return NSImage(contentsOf: url)
+    }
+
+    /// Insert an image at the caret as one undoable edit.
+    ///
+    /// **Fitted to the text container's width, never native size.** A 4000-pixel
+    /// screenshot in a 320-point sticky is the whole reason this needs handling:
+    /// an attachment carries its own bounds, and left alone it would render at
+    /// full size and push every line off the card. Images narrower than the
+    /// column keep their size — upscaling a small image is never what's wanted.
+    ///
+    /// Storage needs no work: `NSTextAttachment` and `NSImage` are already in
+    /// the archive's allowlist, so an image round-trips through save/reload as
+    /// it stands.
+    func insertImage(_ image: NSImage) {
+        let attachment = NSTextAttachment()
+        let cell = NSTextAttachmentCell(imageCell: image)
+        attachment.attachmentCell = cell
+
+        let available = (textContainer?.size.width ?? bounds.width)
+            - (textContainerInset.width * 2) - 8
+        let size = image.size
+        if size.width > available, size.width > 0 {
+            let scaled = NSSize(width: available, height: size.height * (available / size.width))
+            image.size = scaled
+            cell.image = image
+        }
+
+        let piece = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
+        // An attachment inherits the run's paragraph style; without an explicit
+        // one it picks up whatever step the caret is in, so an image dropped
+        // into a heading would carry the heading's line height.
+        piece.addAttribute(.paragraphStyle,
+                           value: RichText.paragraphStyle(for: RichText.baseFont),
+                           range: NSRange(location: 0, length: piece.length))
+
+        let range = rangeForUserTextChange
+        guard range.location != NSNotFound,
+              shouldChangeText(in: range, replacementString: piece.string) else { return }
+        textStorage?.replaceCharacters(in: range, with: piece)
         didChangeText()
     }
 
@@ -608,6 +704,39 @@ final class NoteEditorProxy: ObservableObject {
     /// Is an editor currently attached? False while no note is open.
     var isAttached: Bool { textView != nil }
 
+    /// The styling a floating capsule can apply. Named rather than passed as a
+    /// selector so the call site can't reach an arbitrary action.
+    enum Style { case bold, italic, underline, highlight }
+
+    /// Apply `style` to the current selection.
+    ///
+    /// Goes through the text view's own actions — the same ones ⌘B/⌘I/⌘U and
+    /// the right-click menu use — so all three routes share one implementation
+    /// and one set of `shouldChangeText`/`didChangeText` calls, which is what
+    /// keeps undo and the save debounce working.
+    func apply(_ style: Style) {
+        guard let textView else { return }
+        switch style {
+        case .bold:      textView.toggleBoldTrait(nil)
+        case .italic:    textView.toggleItalicTrait(nil)
+        case .underline: textView.toggleUnderlineTrait(nil)
+        case .highlight: textView.toggleHighlight(nil)
+        }
+    }
+
+    /// Apply a paragraph step (Display … Caption) to whatever the selection
+    /// touches — the same action ⌘1–⌘5 and the right-click Style submenu run.
+    ///
+    /// Paragraph-scoped, like those: a heading is a property of the line, not of
+    /// the characters that happen to be selected.
+    func applyTextStyle(_ style: NoteTextStyle) {
+        textView?.applyTextStyle(style)
+    }
+
+    /// The step the caret currently sits in, so a menu can tick it. Nil when no
+    /// editor is attached or the run matches no step.
+    var currentTextStyle: NoteTextStyle? { textView?.currentTextStyle }
+
     /// Replace the entire contents as **one** undoable edit. Returns false if
     /// there's no editor attached or the text system refused the change.
     @discardableResult
@@ -699,6 +828,12 @@ struct RichTextEditor: NSViewRepresentable {
     /// Optional handle for edits that must be undoable — see `NoteEditorProxy`.
     var proxy: NoteEditorProxy? = nil
 
+    /// Where the selection is on screen, in the editor's own coordinate space,
+    /// or `nil` when nothing is selected. Drives the sticky panel's floating
+    /// formatting capsule; unset everywhere else, so nothing is computed for
+    /// the surfaces that don't want it.
+    var onSelectionChange: ((CGRect?) -> Void)? = nil
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -726,6 +861,10 @@ struct RichTextEditor: NSViewRepresentable {
         let textView = RichTextView(frame: .zero, textContainer: container)
         textView.delegate = context.coordinator
         textView.isRichText = true
+        // Images arrive by paste or by drag; the drag half needs the view to
+        // advertise the types, which NSTextView doesn't do for pictures.
+        textView.importsGraphics = true
+        textView.registerImageDragging()
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -764,6 +903,14 @@ struct RichTextEditor: NSViewRepresentable {
         scroll.documentView = textView
         context.coordinator.textView = textView
         proxy?.textView = textView
+
+        // Scrolling moves the text under a selection without changing it, so
+        // without this the floating capsule would stay put while the words it
+        // points at slid away. Only armed when someone is listening.
+        if onSelectionChange != nil {
+            scroll.contentView.postsBoundsChangedNotifications = true
+            context.coordinator.observeScroll(of: scroll)
+        }
         return scroll
     }
 
@@ -774,12 +921,25 @@ struct RichTextEditor: NSViewRepresentable {
         // Never overwrite an edit that hasn't been saved yet: the binding lags
         // the view by the owner's save debounce, so pushing it back in would
         // fight the cursor — or drop the keystrokes outright.
-        guard !hasPendingEdit, textView.attributedString() != attributed else { return }
+        guard !hasPendingEdit else { return }
+        // **Compare against what we last pushed, not against the text view.**
+        // `NSTextStorage` *fixes* attributes on assignment — it substitutes the
+        // font on runs the base face can't render — so for a note containing
+        // emoji or CJK the stored string never compares equal to the one we
+        // handed it, and `textView.attributedString() != attributed` is
+        // permanently true. Any view update then re-pushes the text, which
+        // collapses the selection and (for stickies) wipes the undo stack.
+        // Recording what we pushed makes the second push a no-op regardless of
+        // what fixing did to it. The text-view comparison stays as a cheap
+        // second gate for the first push of a value.
+        guard attributed != context.coordinator.lastPushed,
+              textView.attributedString() != attributed else { return }
         // Flagged so the resulting text-storage change can't be mistaken for
         // the user typing (which would re-arm `hasPendingEdit` forever).
         context.coordinator.isApplyingProgrammaticChange = true
         textView.textStorage?.setAttributedString(attributed)
         context.coordinator.isApplyingProgrammaticChange = false
+        context.coordinator.lastPushed = attributed
         if resetsUndoOnExternalChange { textView.undoManager?.removeAllActions() }
     }
 
@@ -794,12 +954,81 @@ struct RichTextEditor: NSViewRepresentable {
         /// isn't counted as the user typing.
         var isApplyingProgrammaticChange = false
 
+        /// The value `updateNSView` last pushed into the text view. Guards
+        /// against re-pushing the same content — see the comment there for why
+        /// comparing against the text view alone is not enough.
+        var lastPushed: NSAttributedString?
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             parent.attributed = textView.attributedString()
             guard !isApplyingProgrammaticChange else { return }
             parent.hasPendingEdit = true
             parent.onUserEdit?()
+        }
+
+        /// Report where a non-empty selection sits, so a floating control can
+        /// be positioned over it. Fires for programmatic selection changes too,
+        /// which is what clears the rect when a tab switch swaps the content.
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard parent.onSelectionChange != nil else { return }
+            guard let textView = notification.object as? NSTextView else { return }
+            reportSelection(in: textView)
+        }
+
+        /// Publish where the selection sits, or `nil` when there isn't one.
+        ///
+        /// **Only when it actually moved.** The callback drives `@Published`
+        /// state, so re-publishing an unchanged value re-runs the owner's body
+        /// for nothing — and this fires on every keystroke and every mouse-move
+        /// of a drag-select.
+        func reportSelection(in textView: NSTextView) {
+            guard parent.onSelectionChange != nil else { return }
+            let range = textView.selectedRange()
+            guard range.length > 0, let layout = textView.layoutManager,
+                  let container = textView.textContainer else {
+                if lastReportedRect != nil {
+                    lastReportedRect = nil
+                    parent.onSelectionChange?(nil)
+                }
+                return
+            }
+            let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            rect.origin.x += textView.textContainerOrigin.x
+            rect.origin.y += textView.textContainerOrigin.y
+            // Into the enclosing scroll view's space, so the rect accounts for
+            // how far the note is scrolled.
+            if let scroll = textView.enclosingScrollView {
+                rect = textView.convert(rect, to: scroll)
+            }
+            guard rect != lastReportedRect else { return }
+            lastReportedRect = rect
+            parent.onSelectionChange?(rect)
+        }
+
+        /// What was last handed to `onSelectionChange`, so an unchanged value
+        /// isn't republished.
+        private var lastReportedRect: CGRect?
+
+        private var scrollObserver: NSObjectProtocol?
+
+        /// Re-report the selection as the note scrolls.
+        func observeScroll(of scroll: NSScrollView) {
+            guard scrollObserver == nil else { return }
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scroll.contentView, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let textView = self.textView else { return }
+                    self.reportSelection(in: textView)
+                }
+            }
+        }
+
+        deinit {
+            if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         }
 
         /// Focus gained/lost, from `RichTextView`'s first-responder overrides.

@@ -88,60 +88,58 @@ p.meta{font-size:12px;color:var(--text-muted);margin:4px 0 0}
 <div class="wrap">
 
 <h1>Shhhcribble — Studio wireframes</h1>
-<p class="note">Living set — updated in place as iterations continue. Direction: "one timeline, two weights". Dictations are a high-frequency, semi-throwaway log; notes are the durable library; documents are long-form transcripts. Decision record: <code>studio-wireframes.md</code> beside this file.</p>
-<p class="meta">Last major revision 2026-07-25 (direction locked with Hendri). Rail is five items on every screen; the titlebar always reads Shhhcribble.</p>
+<p class="note">Living set — updated in place as iterations continue. Direction: <b>two halves</b> — the stream of what you said (Dictations) and the shelf of what you keep (Notes, which holds written notes and long-form documents together). Decision record: <code>studio-wireframes.md</code> beside this file.</p>
+<p class="meta">Last major revision 2026-08-28 (IA rework locked with Hendri; supersedes the five-item shell). Rail is three items on every screen; the titlebar always reads Shhhcribble.</p>
 
-<h2>1 · Today</h2>
-<p class="note">Single chronological stream of <b>transcriptions only</b> — notes live in their own tab. Documents anchor as bordered cards; dictations pass through as borderless lines at full-strength text, always fully expanded — no truncation. Every item's content starts on one left edge; the time sits at the trailing edge, permanently. Copy leads the meta line and is always visible; delete sits far right and appears on hover only (third row shown hovered). Chevrons step a day; the day label opens the month popover (screen 8).</p>
+<h2>1 · Dictations</h2>
+<p class="note">Single chronological stream of <b>dictations only</b> — notes and documents both live on the Notes shelf. Rows are borderless lines at full-strength text, always fully expanded — no truncation. Every item's content starts on one left edge; the time sits at the trailing edge, permanently. Copy leads the meta line and is always visible; delete sits far right and appears on hover only (third row shown hovered). Chevrons step a day, and <b>forward is disabled here because the stream is on today</b> — you can't dictate into the future. The day label opens the month popover (screen 6).</p>
 <div class="win">
   <div class="tb"><span class="dot"></span><span class="dot"></span><span class="dot"></span><i class="ti ti-layout-sidebar" style="margin-left:6px"></i><span style="flex:1;text-align:center"><i class="ti ti-microphone"></i> Shhhcribble</span><span style="width:36px"></span></div>
   <div class="bd">
     <div class="rl">
-      <div class="rw on"><i class="ti ti-calendar"></i>Today</div>
-      <div class="rw"><i class="ti ti-box-multiple"></i>Documents</div>
+      <div class="rw on"><i class="ti ti-microphone"></i>Dictations</div>
       <div class="rw"><i class="ti ti-note"></i>Notes</div>
-      <div class="rw"><i class="ti ti-pin"></i>Pinned</div>
       <div style="flex:1"></div>
       <div class="rw"><i class="ti ti-settings"></i>Settings</div>
     </div>
     <div class="mn">
-      <div class="sp"><i class="ti ti-search"></i>Search everything<span style="flex:1"></span><i class="ti ti-chevron-left"></i><span style="color:var(--text-secondary)">Fri 24 Jul</span><i class="ti ti-chevron-right"></i></div>
+      <div class="sp"><i class="ti ti-search"></i>Search everything<span style="flex:1"></span><i class="ti ti-chevron-left"></i><span style="color:var(--text-secondary)">Today</span><i class="ti ti-chevron-right" style="opacity:.3"></i></div>
       <div style="display:flex;gap:10px;padding:2px 14px 10px"><div style="flex:1"><div class="cx">Summarise the pricing thread for Ben and pull out anything that looks like a commitment. Keep it under ten bullets, note who said what, and flag the two places where we promised dates. Then add a closing line asking whether he wants me on the call on Friday.</div><div class="mt"><span class="ia"><i class="ti ti-copy"></i></span><span>64 words</span><span class="pil">Email</span></div></div><span class="gt">18:02</span></div>
       <div style="display:flex;gap:10px;padding:0 14px 10px"><div style="flex:1"><div class="cx">Bump the plist version, then run the notarise script before you tag anything.</div><div class="mt"><span class="ia"><i class="ti ti-copy"></i></span><span>13 words</span></div></div><span class="gt">14:50</span></div>
       <div style="display:flex;gap:10px;padding:0 14px 10px"><div style="flex:1"><div class="cx">Rewrite this so it sounds less formal, and cut the second paragraph entirely — it repeats what's already above it.</div><div class="mt"><span class="ia"><i class="ti ti-copy"></i></span><span>19 words</span><span style="flex:1"></span><span class="ia"><i class="ti ti-trash"></i></span></div></div><span class="gt">14:47</span></div>
-      <div style="display:flex;gap:10px;padding:0 14px"><div style="flex:1;border:1px solid var(--border);border-radius:var(--radius);padding:8px 11px"><div class="ttl">standup.m4a <span class="pil">Document</span></div><div class="mt"><span class="ia"><i class="ti ti-copy"></i></span><span>18 min · summary ready</span></div></div><span class="gt" style="padding-top:8px">11:08</span></div>
+      <div style="display:flex;gap:10px;padding:0 14px"><div style="flex:1"><div class="cx">Remind me to re-grant accessibility after the rebuild — escape to cancel stopped working again.</div><div class="mt"><span class="ia"><i class="ti ti-copy"></i></span><span>15 words</span></div></div><span class="gt">11:08</span></div>
     </div>
   </div>
 </div>
 
-<h2>2 · Notes</h2>
-<p class="note">Master-detail. List groups: Pinned, then day groups. Header actions pared to pin · copy · delete; the stick toggle is the floating capsule over the editor (label is the state: "Stick to screen" ↔ "Unstick"). Sticking auto-pins. Rich-text editor with the note type ramp; embedded dictation blocks carry a left rule + mic attribution.</p>
+<h2>2 · Notes — one shelf, a note selected</h2>
+<p class="note">Master-detail over <b>notes and documents together</b>, told apart by a quiet glyph on the document rows. List groups: <b>On your screen</b> (stuck notes, recency-ordered), then day groups. A note opens the rich-text editor; header actions are dictate · copy · delete. The stick toggle is the floating capsule over the editor and its label <i>is</i> the state ("Stick to screen" ↔ "Unstick") — nothing else on screen says whether a note is stuck. Embedded dictation blocks carry a left rule + mic attribution. <b>Add Note is the column's one capsule</b>; Upload Audio… lives on the menu-bar right-click and the Dictations empty state.</p>
 <div class="win">
   <div class="tb"><span class="dot"></span><span class="dot"></span><span class="dot"></span><i class="ti ti-layout-sidebar" style="margin-left:6px"></i><span style="flex:1;text-align:center"><i class="ti ti-microphone"></i> Shhhcribble</span><span style="width:36px"></span></div>
   <div class="bd">
     <div class="rl">
-      <div class="rw"><i class="ti ti-calendar"></i>Today</div>
-      <div class="rw"><i class="ti ti-box-multiple"></i>Documents</div>
+      <div class="rw"><i class="ti ti-microphone"></i>Dictations</div>
       <div class="rw on"><i class="ti ti-note"></i>Notes</div>
-      <div class="rw"><i class="ti ti-pin"></i>Pinned</div>
       <div style="flex:1"></div>
       <div class="rw"><i class="ti ti-settings"></i>Settings</div>
     </div>
     <div class="lc">
-      <div class="sp" style="margin:10px 8px"><i class="ti ti-search"></i>Search notes</div>
-      <div class="dh" style="padding:0 14px 4px">Pinned</div>
-      <div class="lr on"><span style="flex:1;overflow:hidden">Ship checklist</span><i class="ti ti-device-desktop" style="font-size:11px"></i></div>
-      <div class="lr"><span style="flex:1;overflow:hidden">Reading list</span><i class="ti ti-pin" style="font-size:11px"></i></div>
+      <div class="sp" style="margin:10px 8px"><i class="ti ti-search"></i>Search notes and documents</div>
+      <div class="dh" style="padding:0 14px 4px"><i class="ti ti-device-desktop" style="font-size:11px"></i> On your screen</div>
+      <div class="lr on"><span style="flex:1;overflow:hidden">Ship checklist</span></div>
+      <div class="lr"><span style="flex:1;overflow:hidden">Call Tiuri back</span></div>
+      <div class="dh" style="padding:6px 14px 4px">Today</div>
+      <div class="lr"><i class="ti ti-phone" style="font-size:11px"></i><span style="flex:1;overflow:hidden">Call — WhatsApp</span></div>
       <div class="dh" style="padding:6px 14px 4px">Earlier this week</div>
+      <div class="lr"><i class="ti ti-waveform" style="font-size:11px"></i><span style="flex:1;overflow:hidden">standup.m4a</span></div>
       <div class="lr"><span style="flex:1;overflow:hidden">Pricing ideas</span></div>
-      <div class="lr"><span style="flex:1;overflow:hidden">Interview prep</span></div>
       <div style="flex:1"></div>
       <div style="text-align:center;padding-bottom:10px"><span class="cap"><i class="ti ti-pencil"></i>Add note</span></div>
     </div>
     <div class="mn">
       <div class="hdr">
-        <div style="flex:1;min-width:0"><div class="ttl">Ship checklist <span class="pil">Pinned</span></div><div class="sub">24 Jul, 09:12 · edited 14:50</div></div>
-        <i class="ti ti-pinned ico" style="color:var(--text-accent)"></i><i class="ti ti-copy ico"></i><i class="ti ti-trash ico"></i>
+        <div style="flex:1;min-width:0"><div class="ttl">Ship checklist</div><div class="sub">24 Jul, 09:12 · edited 14:50</div></div>
+        <i class="ti ti-microphone ico"></i><i class="ti ti-copy ico"></i><i class="ti ti-trash ico"></i>
       </div>
       <div class="h14">Before tagging</div>
       <div class="pg">Bump the plist version, then run the notarise script — it fails silently if the profile isn't exported first.</div>
@@ -151,33 +149,34 @@ p.meta{font-size:12px;color:var(--text-muted);margin:4px 0 0}
   </div>
 </div>
 
-<h2>3 · Documents</h2>
-<p class="note">Files, videos and call captures only — never quick dictations. The tabbed Transcript | Summary reader lives here exclusively. Actions: pin · copy · delete (reveal-in-Finder and download dropped — sources are often ephemeral, and a .txt sidecar is already written automatically). List groups: Pinned, then recency.</p>
+<h2>3 · Notes — the same shelf, a document selected</h2>
+<p class="note">Same list, different detail. A document (file, video or call capture) opens the tabbed <b>Transcript | Summary</b> reader; <b>summaries exist only here</b>. Actions: copy · delete — no stick (a document isn't something you put on your screen), no reveal-in-Finder (sources are often ephemeral) and no download (a .txt sidecar is already written automatically at transcription time).</p>
 <div class="win">
   <div class="tb"><span class="dot"></span><span class="dot"></span><span class="dot"></span><i class="ti ti-layout-sidebar" style="margin-left:6px"></i><span style="flex:1;text-align:center"><i class="ti ti-microphone"></i> Shhhcribble</span><span style="width:36px"></span></div>
   <div class="bd">
     <div class="rl">
-      <div class="rw"><i class="ti ti-calendar"></i>Today</div>
-      <div class="rw on"><i class="ti ti-box-multiple"></i>Documents</div>
-      <div class="rw"><i class="ti ti-note"></i>Notes</div>
-      <div class="rw"><i class="ti ti-pin"></i>Pinned</div>
+      <div class="rw"><i class="ti ti-microphone"></i>Dictations</div>
+      <div class="rw on"><i class="ti ti-note"></i>Notes</div>
       <div style="flex:1"></div>
       <div class="rw"><i class="ti ti-settings"></i>Settings</div>
     </div>
     <div class="lc">
-      <div class="sp" style="margin:10px 8px"><i class="ti ti-search"></i>Search documents</div>
-      <div class="dh" style="padding:0 14px 4px">Pinned</div>
-      <div class="lr on"><i class="ti ti-waveform" style="font-size:11px"></i><span style="flex:1;overflow:hidden">standup.m4a</span><i class="ti ti-pin" style="font-size:11px"></i></div>
-      <div class="dh" style="padding:6px 14px 4px">This week</div>
-      <div class="lr"><i class="ti ti-phone" style="font-size:11px"></i><span style="flex:1;overflow:hidden">Call — WhatsApp</span><span style="font-size:11px">6:12</span></div>
-      <div class="lr"><i class="ti ti-video" style="font-size:11px"></i><span style="flex:1;overflow:hidden">interview.mp4</span><span style="font-size:11px">47:31</span></div>
+      <div class="sp" style="margin:10px 8px"><i class="ti ti-search"></i>Search notes and documents</div>
+      <div class="dh" style="padding:0 14px 4px"><i class="ti ti-device-desktop" style="font-size:11px"></i> On your screen</div>
+      <div class="lr"><span style="flex:1;overflow:hidden">Ship checklist</span></div>
+      <div class="lr"><span style="flex:1;overflow:hidden">Call Tiuri back</span></div>
+      <div class="dh" style="padding:6px 14px 4px">Today</div>
+      <div class="lr"><i class="ti ti-phone" style="font-size:11px"></i><span style="flex:1;overflow:hidden">Call — WhatsApp</span></div>
+      <div class="dh" style="padding:6px 14px 4px">Earlier this week</div>
+      <div class="lr on"><i class="ti ti-waveform" style="font-size:11px"></i><span style="flex:1;overflow:hidden">standup.m4a</span></div>
+      <div class="lr"><span style="flex:1;overflow:hidden">Pricing ideas</span></div>
       <div style="flex:1"></div>
-      <div style="text-align:center;padding-bottom:10px"><span class="cap"><i class="ti ti-waveform"></i>Upload audio…</span></div>
+      <div style="text-align:center;padding-bottom:10px"><span class="cap"><i class="ti ti-pencil"></i>Add note</span></div>
     </div>
     <div class="mn">
       <div class="hdr">
-        <div style="flex:1;min-width:0"><div class="ttl">standup.m4a <span class="pil">Pinned</span></div><div class="sub">Imported · 24 Jul, 11:08 · 18:04</div></div>
-        <i class="ti ti-pinned ico" style="color:var(--text-accent)"></i><i class="ti ti-copy ico"></i><i class="ti ti-trash ico"></i>
+        <div style="flex:1;min-width:0"><div class="ttl">standup.m4a</div><div class="sub">Imported · 24 Jul, 11:08 · 18:04</div></div>
+        <i class="ti ti-copy ico"></i><i class="ti ti-trash ico"></i>
       </div>
       <div class="seg"><span class="sg">Transcript</span><span class="sg sgo">Summary</span></div>
       <div class="pg" style="padding-top:2px">The team agreed to hold the migration until after the release, and to confirm the Mac mini crash before tagging.</div>
@@ -188,34 +187,32 @@ p.meta{font-size:12px;color:var(--text-muted);margin:4px 0 0}
   </div>
 </div>
 
-<h2>4 · Pinned</h2>
-<p class="note">Importance above, urgency on top. "On your screen" strip = active stickies with Unstick. Below, the cross-type board of pinned notes + documents. Stuck notes are always pinned (default coupling), so they appear in both — the strip manages the screen, the grid indexes importance. Cards are a fixed height and roughly square — a wall of stickies, not a list — each carrying real preview text so the board can be scanned without opening anything. Clicking a card jumps to the item in its home tab.</p>
-<div class="win">
-  <div class="tb"><span class="dot"></span><span class="dot"></span><span class="dot"></span><i class="ti ti-layout-sidebar" style="margin-left:6px"></i><span style="flex:1;text-align:center"><i class="ti ti-microphone"></i> Shhhcribble</span><span style="width:36px"></span></div>
-  <div class="bd">
-    <div class="rl">
-      <div class="rw"><i class="ti ti-calendar"></i>Today</div>
-      <div class="rw"><i class="ti ti-box-multiple"></i>Documents</div>
-      <div class="rw"><i class="ti ti-note"></i>Notes</div>
-      <div class="rw on"><i class="ti ti-pin"></i>Pinned</div>
-      <div style="flex:1"></div>
-      <div class="rw"><i class="ti ti-settings"></i>Settings</div>
+<h2>4 · The sticky panel</h2>
+<p class="note">Trace's chrome discipline: <b>the tab strip is the only chrome</b> — no titlebar band, text to the edges, formatting summoned over a selection rather than resident. Closing a tab unsticks that note; the panel disappears with the last tab, so there is no window close button. Tab order is creation order, never recency (recency changes on every keystroke and would reshuffle tabs mid-sentence). <b>Two sizes, not free resize</b> — the toggle at the strip's trailing edge swaps compact ⇄ expanded and anchors the top-left corner.</p>
+<div class="win" style="min-height:280px;display:flex;align-items:flex-start;justify-content:center;gap:26px;background:var(--surface-1);padding:26px 0">
+  <div style="background:var(--surface-2);border:1px solid var(--border-strong);border-radius:12px;width:270px;position:relative">
+    <div style="display:flex;align-items:center;gap:2px;padding:8px 9px 0;font-size:11px">
+      <span style="background:var(--surface-1);color:var(--text-primary);border-radius:6px;padding:3px 8px;display:inline-flex;gap:5px;align-items:center">Ship checklist <i class="ti ti-x" style="font-size:10px;color:var(--text-muted)"></i></span>
+      <span style="color:var(--text-muted);padding:3px 8px">Call Tiuri</span>
+      <span style="color:var(--text-muted);padding:3px 6px"><i class="ti ti-plus" style="font-size:11px"></i></span>
+      <span style="flex:1"></span>
+      <i class="ti ti-arrows-diagonal" style="font-size:12px;color:var(--text-muted)"></i>
     </div>
-    <div class="mn">
-      <div class="dh" style="padding:12px 16px 5px"><i class="ti ti-device-desktop"></i> On your screen · 2</div>
-      <div class="pgrid">
-        <div class="pcard"><div class="pt">Ship checklist</div><div class="pp">Bump the plist version, then run the notarise script — it fails silently if the profile isn't exported. Check the entitlements survived the deep sign.</div><div class="mt"><span class="btn" style="padding:1px 8px">Unstick</span></div></div>
-        <div class="pcard"><div class="pt">Call Tiuri back</div><div class="pp">Before 5 — about the DMG. He couldn't open it on the Mac mini, no crash report.</div><div class="mt"><span class="btn" style="padding:1px 8px">Unstick</span></div></div>
-      </div>
-      <div class="dh" style="padding:12px 16px 5px"><i class="ti ti-pin"></i> Pinned · 3</div>
-      <div class="pgrid">
-        <div class="pcard"><div class="pt">Ship checklist</div><div class="pp">Bump the plist version, then run the notarise script — it fails silently if the profile isn't exported.</div><div class="mt"><span class="pil">Note</span><i class="ti ti-device-desktop" style="font-size:11px"></i></div></div>
-        <div class="pcard"><div class="pt">standup.m4a</div><div class="pp">Right, so this week the main thing is the redesign landing. Today's stream is done, search crosses categories now, and the pinned board is real.</div><div class="mt"><span class="pil">Document</span></div></div>
-        <div class="pcard"><div class="pt">Reading list</div><div class="pp">Ghost Pepper source — the ScreenCaptureKit route for both-sides capture. FluidAudio 0.15.5 release notes.</div><div class="mt"><span class="pil">Note</span></div></div>
-      </div>
+    <div style="padding:10px 13px 34px;font-size:12px;line-height:1.6;color:var(--text-primary)">Bump the plist version<br>Run the notarise script<br><span style="background:var(--bg-warning)">Check entitlements survived</span> the deep sign<br>Tag only after the smoke test</div>
+    <div style="position:absolute;bottom:9px;left:50%;transform:translateX(-50%);display:flex;gap:3px;border:1px solid var(--border);border-radius:99px;background:var(--surface-2);padding:3px 9px;font-size:11px;color:var(--text-secondary)"><span style="font-weight:500;padding:0 4px">B</span><span style="font-style:italic;padding:0 4px">I</span><span style="text-decoration:underline;padding:0 4px">U</span><span style="padding:0 4px"><i class="ti ti-highlight" style="font-size:11px"></i></span></div>
+  </div>
+  <div style="background:var(--surface-2);border:1px solid var(--border-strong);border-radius:12px;width:330px">
+    <div style="display:flex;align-items:center;gap:2px;padding:8px 9px 0;font-size:11px">
+      <span style="color:var(--text-muted);padding:3px 8px">Ship checklist</span>
+      <span style="background:var(--surface-1);color:var(--text-primary);border-radius:6px;padding:3px 8px;display:inline-flex;gap:5px;align-items:center">Call Tiuri <i class="ti ti-x" style="font-size:10px;color:var(--text-muted)"></i></span>
+      <span style="color:var(--text-muted);padding:3px 6px"><i class="ti ti-plus" style="font-size:11px"></i></span>
+      <span style="flex:1"></span>
+      <i class="ti ti-arrows-diagonal-minimize-2" style="font-size:12px;color:var(--text-muted)"></i>
     </div>
+    <div style="padding:12px 18px 18px;font-size:12px;line-height:1.6;color:var(--text-primary)"><span style="font-size:14px;font-weight:500;display:block;margin-bottom:5px">Call Tiuri back</span>Before 5 — about the DMG. He couldn't open it on the Mac mini and there was no crash report, so ask him to try the notarised build and check Console while it launches.</div>
   </div>
 </div>
+<p class="meta">Left: compact, with the summoned formatting capsule over a selection. Right: expanded — the same panel, one toggle wider.</p>
 
 <h2>5 · Settings</h2>
 <p class="note">One rail item, master-detail like Notes. Subnav: Preferences / Styles / Dictionary / Feedback, with Check for updates + Quit anchored at the subnav bottom (menu-bar right-click Quit remains). Quick style switching stays in the menu-bar submenu; this page is for authoring.</p>
@@ -223,10 +220,8 @@ p.meta{font-size:12px;color:var(--text-muted);margin:4px 0 0}
   <div class="tb"><span class="dot"></span><span class="dot"></span><span class="dot"></span><i class="ti ti-layout-sidebar" style="margin-left:6px"></i><span style="flex:1;text-align:center"><i class="ti ti-microphone"></i> Shhhcribble</span><span style="width:36px"></span></div>
   <div class="bd">
     <div class="rl">
-      <div class="rw"><i class="ti ti-calendar"></i>Today</div>
-      <div class="rw"><i class="ti ti-box-multiple"></i>Documents</div>
+      <div class="rw"><i class="ti ti-microphone"></i>Dictations</div>
       <div class="rw"><i class="ti ti-note"></i>Notes</div>
-      <div class="rw"><i class="ti ti-pin"></i>Pinned</div>
       <div style="flex:1"></div>
       <div class="rw on"><i class="ti ti-settings"></i>Settings</div>
     </div>
@@ -257,15 +252,13 @@ p.meta{font-size:12px;color:var(--text-muted);margin:4px 0 0}
 </div>
 
 <h2>6 · Search everything</h2>
-<p class="note">Only Today's search crosses categories; Notes/Documents pills filter their own lists inline. Results replace the timeline, grouped by category in library order, dated within each, matches highlighted. Esc or ✕ returns to the day.</p>
+<p class="note">Only the Dictations pane's search crosses categories; the Notes pill filters its own shelf inline. Results replace the timeline, grouped Notes → Dictations → Documents, dated within each, matches highlighted. <b>Note and document results both open on the Notes shelf</b>; a dictation result returns to its day. Esc or ✕ returns to the day.</p>
 <div class="win">
   <div class="tb"><span class="dot"></span><span class="dot"></span><span class="dot"></span><i class="ti ti-layout-sidebar" style="margin-left:6px"></i><span style="flex:1;text-align:center"><i class="ti ti-microphone"></i> Shhhcribble</span><span style="width:36px"></span></div>
   <div class="bd">
     <div class="rl">
-      <div class="rw on"><i class="ti ti-calendar"></i>Today</div>
-      <div class="rw"><i class="ti ti-box-multiple"></i>Documents</div>
+      <div class="rw on"><i class="ti ti-microphone"></i>Dictations</div>
       <div class="rw"><i class="ti ti-note"></i>Notes</div>
-      <div class="rw"><i class="ti ti-pin"></i>Pinned</div>
       <div style="flex:1"></div>
       <div class="rw"><i class="ti ti-settings"></i>Settings</div>
     </div>
@@ -283,16 +276,16 @@ p.meta{font-size:12px;color:var(--text-muted);margin:4px 0 0}
 </div>
 
 <h2>7 · Empty states</h2>
-<p class="note">Every pane teaches its own verb with a concrete call to action. Pinned carries the one-sentence pin-vs-stick explainer.</p>
+<p class="note">Every pane teaches its own verb with a concrete call to action. The Notes shelf holds two kinds of thing, so its empty state has to speak for both. Dictations also has a <i>quiet-day</i> variant for a past day that happens to be empty — distinct from a library that has nothing in it at all.</p>
 <div class="gr2">
-  <div class="pn"><span class="ptag">Today</span><i class="ti ti-microphone ei"></i><div class="et">Nothing captured yet</div><div class="ed">Hold <span class="kc">⌥ Space</span> and speak — your dictation pastes where you're typing and lands here.</div><span class="cap"><i class="ti ti-waveform"></i>Upload audio…</span></div>
-  <div class="pn"><span class="ptag">Notes</span><i class="ti ti-note ei"></i><div class="et">No notes yet</div><div class="ed">Keep what's worth keeping. Start one from scratch, or send a dictation here from Today.</div><span class="cap"><i class="ti ti-pencil"></i>Add note</span></div>
-  <div class="pn"><span class="ptag">Documents</span><i class="ti ti-file-text ei"></i><div class="et">No documents yet</div><div class="ed">Audio files, videos and call recordings you transcribe end up here — with a summary a tap away.</div><span class="cap"><i class="ti ti-waveform"></i>Upload audio…</span></div>
-  <div class="pn"><span class="ptag">Pinned</span><i class="ti ti-pin ei"></i><div class="et">Nothing pinned yet</div><div class="ed">Pin a note or document to keep it here and at the top of its list. Stick a note to float it on your screen — stuck notes are pinned automatically.</div><span class="cap"><i class="ti ti-note"></i>Browse notes</span></div>
+  <div class="pn"><span class="ptag">Dictations · empty library</span><i class="ti ti-microphone ei"></i><div class="et">Nothing captured yet</div><div class="ed">Hold <span class="kc">⌥ Space</span> and speak — your dictation pastes where you're typing and lands here.</div><span class="cap"><i class="ti ti-waveform"></i>Upload audio…</span></div>
+  <div class="pn"><span class="ptag">Dictations · quiet day</span><i class="ti ti-calendar ei"></i><div class="et">Nothing on this day</div><div class="ed">Hold <span class="kc">⌥ Space</span> and speak — your dictation lands on today.</div></div>
+  <div class="pn"><span class="ptag">Notes</span><i class="ti ti-note ei"></i><div class="et">Nothing kept yet</div><div class="ed">This is the shelf for what you keep — notes you write, and the files and calls you transcribe.</div><span class="cap"><i class="ti ti-pencil"></i>Add note</span></div>
+  <div class="pn"><span class="ptag">Sticky panel</span><i class="ti ti-device-desktop ei"></i><div class="et">Nothing on your screen</div><div class="ed">Stick a note to float it above whatever you're doing. It stays until you unstick it.</div></div>
 </div>
 
 <h2>8 · Date navigation — month popover</h2>
-<p class="note">The day label is a button. Chevrons step a day; the label opens a month with dots on days that have anything. "Jump to today" closes the loop.</p>
+<p class="note">The day label is a button. Chevrons step a day; the label opens a month with dots on days that have anything. <b>Days after today are inert and dimmed</b> — same rule as the forward chevron, since nothing can land there. Dots come from the same filter as the stream, so a dot can never open an empty day. "Jump to today" closes the loop.</p>
 <div class="win" style="min-height:260px;display:flex;align-items:flex-start;justify-content:center;background:var(--surface-1)">
   <div style="background:var(--surface-2);border:1px solid var(--border-strong);border-radius:12px;padding:12px 14px;margin-top:20px">
     <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px"><i class="ti ti-chevron-left" style="color:var(--text-muted)"></i><span style="flex:1;text-align:center;font-weight:500">July 2026</span><i class="ti ti-chevron-right" style="color:var(--text-muted)"></i></div>
@@ -301,8 +294,8 @@ p.meta{font-size:12px;color:var(--text-muted);margin:4px 0 0}
       <span class="cd2" style="color:var(--text-muted)">29</span><span class="cd2" style="color:var(--text-muted)">30</span><span class="cd2 hasdot">1</span><span class="cd2 hasdot">2</span><span class="cd2 hasdot">3</span><span class="cd2">4</span><span class="cd2">5</span>
       <span class="cd2 hasdot">6</span><span class="cd2 hasdot">7</span><span class="cd2 hasdot">8</span><span class="cd2 hasdot">9</span><span class="cd2 hasdot">10</span><span class="cd2">11</span><span class="cd2">12</span>
       <span class="cd2 hasdot">13</span><span class="cd2 hasdot">14</span><span class="cd2 hasdot">15</span><span class="cd2 hasdot">16</span><span class="cd2 hasdot">17</span><span class="cd2">18</span><span class="cd2">19</span>
-      <span class="cd2 hasdot">20</span><span class="cd2 hasdot">21</span><span class="cd2 hasdot">22</span><span class="cd2 hasdot">23</span><span class="cd2 hasdot" style="background:var(--bg-accent);color:var(--text-accent)">24</span><span class="cd2">25</span><span class="cd2">26</span>
-      <span class="cd2">27</span><span class="cd2">28</span><span class="cd2">29</span><span class="cd2">30</span><span class="cd2">31</span><span class="cd2" style="color:var(--text-muted)">1</span><span class="cd2" style="color:var(--text-muted)">2</span>
+      <span class="cd2 hasdot">20</span><span class="cd2 hasdot">21</span><span class="cd2 hasdot">22</span><span class="cd2 hasdot">23</span><span class="cd2 hasdot" style="background:var(--bg-accent);color:var(--text-accent)">24</span><span class="cd2" style="opacity:.4">25</span><span class="cd2" style="opacity:.4">26</span>
+      <span class="cd2" style="opacity:.4">27</span><span class="cd2" style="opacity:.4">28</span><span class="cd2" style="opacity:.4">29</span><span class="cd2" style="opacity:.4">30</span><span class="cd2" style="opacity:.4">31</span><span class="cd2" style="color:var(--text-muted);opacity:.4">1</span><span class="cd2" style="color:var(--text-muted);opacity:.4">2</span>
     </div>
     <div style="font-size:11px;color:var(--text-accent);text-align:center;margin-top:8px">Jump to today</div>
   </div>

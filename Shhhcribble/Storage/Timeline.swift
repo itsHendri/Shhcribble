@@ -45,24 +45,38 @@ enum RecencyGroup: String, CaseIterable, Identifiable {
 /// user's today rather than UTC's.
 enum Timeline {
 
-    /// Everything transcribed on `day`, newest first.
+    /// Everything dictated on `day`, newest first.
     ///
-    /// **Transcriptions only — notes are not part of the stream** (Hendri,
-    /// 2026-08-10). Today is the record of what you *said*; a note is something
-    /// you *wrote*, and mixing the two made turning one into the other look
-    /// like the obvious move. Notes live in their own tab. If they ever come
-    /// back here, this signature is where it starts.
+    /// **Dictations only** (Hendri, 2026-08-28). Notes left the stream in
+    /// 2026-08-10 — Today is the record of what you *said*, a note is something
+    /// you *wrote* — and documents left it now, for the neighbouring reason:
+    /// an import or a call is long-form material you *keep*, so it lives on the
+    /// shelf with the notes rather than passing through the day. What's left is
+    /// one honest thing, which is why the tab is called Dictations.
+    ///
+    /// This is the single predicate the whole pane hangs off: every day question
+    /// below filters identically, so the month dots, the opening day and the
+    /// stream can never disagree. A dot over a day that opens empty is exactly
+    /// the bug the notes exclusion fixed; don't reintroduce it by filtering in
+    /// only one of these.
     ///
     /// Newest-first matches the rest of the app (the lists, the menu's recents)
     /// and puts what you just dictated where you're already looking.
     static func items(on day: Date,
                       transcripts: [Transcript],
                       calendar: Calendar = .current) -> [Transcript] {
-        transcripts
+        streamable(transcripts)
             .filter { calendar.isDate($0.createdAt, inSameDayAs: day) }
             // Tie-break on id so equal timestamps can't reorder between renders
-            // and churn `ForEach` identity — same reason as `pinnedNotes`.
+            // and churn `ForEach` identity.
             .sorted { ($0.createdAt, $0.id.uuidString) > ($1.createdAt, $1.id.uuidString) }
+    }
+
+    /// What the stream is made of — see `items(on:)`. Every day question here
+    /// goes through this, so there is one place to change if documents ever
+    /// come back.
+    private static func streamable(_ transcripts: [Transcript]) -> [Transcript] {
+        transcripts.filter { !$0.source.isDocument }
     }
 
     /// The days in `month` that have anything on them — the dots in the month
@@ -71,7 +85,7 @@ enum Timeline {
     static func daysWithContent(inMonthOf month: Date,
                                 transcripts: [Transcript],
                                 calendar: Calendar = .current) -> Set<Int> {
-        let stamps = transcripts.map(\.createdAt)
+        let stamps = streamable(transcripts).map(\.createdAt)
         var days: Set<Int> = []
         for stamp in stamps where calendar.isDate(stamp, equalTo: month, toGranularity: .month) {
             days.insert(calendar.component(.day, from: stamp))
@@ -93,7 +107,7 @@ enum Timeline {
                                                calendar: calendar) {
             return past
         }
-        let stamps = transcripts.map(\.createdAt)
+        let stamps = streamable(transcripts).map(\.createdAt)
         guard let soonest = stamps.min() else { return nil }
         return calendar.startOfDay(for: soonest)
     }
@@ -107,7 +121,7 @@ enum Timeline {
                                          calendar: Calendar = .current) -> Date? {
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: day))
             ?? day
-        let stamps = transcripts.map(\.createdAt).filter { $0 < endOfDay }
+        let stamps = streamable(transcripts).map(\.createdAt).filter { $0 < endOfDay }
         guard let latest = stamps.max() else { return nil }
         return calendar.startOfDay(for: latest)
     }
@@ -153,6 +167,25 @@ enum Timeline {
     static func day(_ day: Date, steppedBy days: Int, calendar: Calendar = .current) -> Date {
         calendar.date(byAdding: .day, value: days, to: calendar.startOfDay(for: day))
             ?? day
+    }
+
+    /// Whether the forward chevron has anywhere to go.
+    ///
+    /// You cannot dictate into the future, so a forward step from today can only
+    /// ever land on an empty day — an enabled control whose only outcome is a
+    /// blank page (Hendri, 2026-08-28). A day *ahead* of today also returns
+    /// false: if clock skew or an import stamped ahead ever puts the stream
+    /// there, the way out is backwards.
+    static func canStepForward(from day: Date, now: Date = Date(),
+                               calendar: Calendar = .current) -> Bool {
+        calendar.startOfDay(for: day) < calendar.startOfDay(for: now)
+    }
+
+    /// Whether a day sits after today — the month popover greys these out for
+    /// the same reason the chevron stops.
+    static func isFutureDay(_ day: Date, now: Date = Date(),
+                            calendar: Calendar = .current) -> Bool {
+        calendar.startOfDay(for: day) > calendar.startOfDay(for: now)
     }
 
     /// Label for the day header: "Today" / "Yesterday" for the two days that

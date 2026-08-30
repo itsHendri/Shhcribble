@@ -270,6 +270,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Notes: restore any pinned stickies from the store.
         stickyPanelManager = StickyPanelManager(store: transcriptStore)
+        // Dictation into a sticky, wired after construction: the manager is
+        // built here, and handing it `self` would be a retain cycle.
+        stickyPanelManager?.dictation = noteDictation
+        stickyPanelManager?.onToggleDictation = { [weak self] insert in
+            self?.toggleNoteDictation(insert: insert)
+        }
 
         // Call detection: when a known call app starts using the mic, offer to
         // transcribe via our own in-app banner (CallOfferPanel), NOT a macOS

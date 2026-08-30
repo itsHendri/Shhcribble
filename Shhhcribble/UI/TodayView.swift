@@ -1,23 +1,25 @@
 import SwiftUI
 import AppKit
 
-/// The Today stream — **one timeline, two weights**, and the thing that replaced
-/// the transcripts master-detail (redesign phase 4).
+/// The Dictations stream — the day-scoped record of what you said.
 ///
-/// **Transcriptions only** (2026-08-10): this is the record of what you *said*
-/// today. Notes are something you *wrote* and live in their own tab — mixing
-/// them in made turning a transcription into a note look like the obvious move,
-/// which was the wrong shape for a log you mostly read and copy from.
+/// **Dictations only** (2026-08-28). Notes left in 2026-08-10 (this is what you
+/// *said*; a note is what you *wrote*), and documents left now: an import or a
+/// call is long-form material you *keep*, so it belongs on the shelf beside the
+/// notes, not passing through a day. What's left is one honest thing — which is
+/// why the tab says Dictations rather than Today, a name that never matched a
+/// pane you can page backwards through.
 ///
 /// A dictation is high-frequency and semi-throwaway: you keep it to recover a
 /// paste that missed or to re-use an old prompt. It never needed a reader, and
 /// it never needed a list row that hides four fifths of it behind an ellipsis —
-/// so dictations render as **borderless lines, always fully expanded**.
-/// Documents are long-form material you deliberately kept, so they **anchor**
-/// the day as bordered cards you can click through to.
+/// so dictations render as **borderless lines, always fully expanded**. The
+/// two-weights treatment survives only in search results, where a document match
+/// still reads as the document it is.
 ///
-/// The stream is scoped to one day. Chevrons step a day; the day label opens a
-/// month popover with dots on the days that have anything, so finding older work
+/// The stream is scoped to one day. Chevrons step a day — **forward is dead on
+/// today**, since you can't dictate into the future; the day label opens a month
+/// popover with dots on the days that have anything, so finding older work
 /// doesn't mean clicking backwards through empty days.
 struct TodayView: View {
     @ObservedObject var store: TranscriptStore
@@ -42,6 +44,9 @@ struct TodayView: View {
     /// Whether the stream is on today. Asked of the calendar, never of the
     /// day *label* — that's user-facing text and will be localised.
     private var isShowingToday: Bool { Calendar.current.isDateInToday(shownDay) }
+
+    /// Whether the forward chevron has anywhere to go — see `Timeline`.
+    private var canStepForward: Bool { Timeline.canStepForward(from: shownDay) }
 
     /// The day being shown, falling back to today until the opening pick lands.
     private var shownDay: Date { day ?? Calendar.current.startOfDay(for: Date()) }
@@ -91,6 +96,9 @@ struct TodayView: View {
         // here — the most likely confusion in the whole redesign.
         .onChange(of: store.transcripts.first?.id) { _, _ in
             guard let newest = store.transcripts.first else { return }
+            // A finishing import is not stream material, so it must not yank the
+            // day — the shell moves you to Notes for that instead.
+            guard !newest.source.isDocument else { return }
             let landed = Calendar.current.startOfDay(for: newest.createdAt)
             guard !Calendar.current.isDate(landed, inSameDayAs: shownDay) else { return }
             withAnimation(DesignSystem.motion(.easeOut(duration: DesignSystem.motionQuick))) {
@@ -157,8 +165,11 @@ struct TodayView: View {
                 .id(shownDay)
             }
 
+            // Dead on today: there is no dictating into the future, so the only
+            // thing a forward step could reach is a blank page.
             Button { step(1) } label: { Image(systemName: "chevron.right") }
                 .buttonStyle(.borderless)
+                .disabled(!canStepForward)
                 .help("Next day")
                 .accessibilityLabel("Next day")
         }
@@ -190,10 +201,8 @@ struct TodayView: View {
 
     private func row(_ item: Transcript) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Group {
-                if item.source.isDocument { documentCard(item) } else { dictationLine(item) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            dictationLine(item)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             // Time far right, permanently. It puts every item's content on one
             // left edge — a left time gutter indented the content past the day
@@ -206,7 +215,7 @@ struct TodayView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(width: trailingWidth, alignment: .trailing)
-                .padding(.top, item.isAnchored ? 10 : 1)
+                .padding(.top, 1)
         }
         // Delete is the one hover-revealed control left here, so the whole row
         // has to be the hover target: `onHover` hit-tests *drawn* content, and
@@ -240,29 +249,9 @@ struct TodayView: View {
         }
     }
 
-    /// A document anchors: bordered card, click to read it.
-    private func documentCard(_ t: Transcript) -> some View {
-        card(open: { onOpenTranscript(t.id) }) {
-            HStack(spacing: 6) {
-                Text(t.menuTitle)
-                    .font(.system(size: DesignSystem.ChromeText.body, weight: .medium))
-                    .lineLimit(1)
-                TagCapsule("Document")
-                if t.pinned { pinGlyph }
-            }
-            metaLine(for: t) {
-                Text(documentSubtitle(t))
-            }
-        }
-    }
-
-    private var pinGlyph: some View {
-        Image(systemName: "pin.fill")
-            .font(.system(size: DesignSystem.ChromeText.micro))
-            .foregroundStyle(.tertiary)
-            .help("Pinned")
-    }
-
+    /// Still used by the search results, which keep the two weights — a
+    /// document match reads as the document it is. The stream itself no longer
+    /// has an anchored branch.
     private func card<Content: View>(open: @escaping () -> Void,
                                      @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 4, content: content)
@@ -465,21 +454,6 @@ struct TodayView: View {
         return "\(n) word\(n == 1 ? "" : "s")"
     }
 
-    private func documentSubtitle(_ t: Transcript) -> String {
-        var parts: [String] = [t.source.label]
-        if let d = t.durationSec, d > 0 { parts.append(Transcript.durationString(d)) }
-        if t.summary != nil { parts.append("summary ready") }
-        return parts.joined(separator: " · ")
-    }
-
-    /// The line *under* a note card's title — what the note says next, not the
-    /// title again.
-    private func noteSubtitle(_ n: Note) -> String {
-        let body = NotesView.bodyPreview(n.text)
-        if !body.isEmpty { return body }
-        return n.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty note" : "Note"
-    }
-
     private func copy(_ item: Transcript) {
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -571,11 +545,19 @@ private struct MonthPicker: View {
         let dayNumber = calendar.component(.day, from: date)
         let isSelected = calendar.isDate(date, inSameDayAs: selected)
         let hasContent = filled.contains(dayNumber)
+        // Inert for the same reason the forward chevron is dead on today — but
+        // only when the day is *also* empty. A future-stamped item is reachable
+        // (clock skew, an import dated ahead: `Timeline.openingDay` will even
+        // open on it), so disabling a day that draws a content dot would render
+        // a dot the grid refuses to honour, which is precisely the
+        // dots-disagree-with-the-stream bug the day filter exists to prevent.
+        let isFuture = Timeline.isFutureDay(date, calendar: calendar) && !hasContent
         return Button { onPick(calendar.startOfDay(for: date)) } label: {
             VStack(spacing: 1) {
                 Text("\(dayNumber)")
                     .font(.system(size: DesignSystem.ChromeText.secondary))
-                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    .foregroundStyle(isFuture ? Color.secondary.opacity(0.4)
+                                     : (isSelected ? Color.primary : Color.secondary))
                 Circle()
                     .fill(hasContent ? Color.secondary : Color.clear)
                     .frame(width: 3, height: 3)
@@ -588,6 +570,7 @@ private struct MonthPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isFuture)
         .accessibilityLabel(accessibilityLabel(for: date, hasContent: hasContent))
     }
 
