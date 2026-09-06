@@ -123,8 +123,20 @@ hdiutil create \
 
 # ── 6. Mount, write Finder layout, harvest .DS_Store, unmount ─────────────────
 echo "▶ Configuring Finder layout..."
+# Take everything from /Volumes to end of line, NOT the last whitespace field:
+# if a previous run aborted before its detach, macOS mounts this one as
+# "Shhhcribble 1" and `awk '{print $NF}'` yields the bare "1". That produced a
+# baffling FileNotFoundError on '1/.DS_Store' rather than naming the real
+# problem, so fail loudly here instead.
 MOUNT_POINT=$(hdiutil attach "${DMG_RW}.dmg" -readwrite -noverify -noautoopen \
-              | grep "/Volumes" | awk '{print $NF}')
+              | grep -o '/Volumes/.*$' | tail -1)
+if [ ! -d "${MOUNT_POINT}" ]; then
+  echo "❌ Could not resolve the scratch DMG's mount point (got: '${MOUNT_POINT}')."
+  echo "   A stale mount from an aborted run is the usual cause — check:"
+  echo "     ls -d /Volumes/${APP_NAME}*"
+  echo "     hdiutil detach '/Volumes/${APP_NAME} 1' -force"
+  exit 1
+fi
 python3 "${PROJECT_ROOT}/Distribution/set-dmg-layout.py" "${MOUNT_POINT}"
 # Copy the generated .DS_Store back into staging so the final UDZO image
 # carries the same icon layout without ever mounting it.

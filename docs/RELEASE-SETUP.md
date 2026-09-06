@@ -43,6 +43,30 @@ deliberately abandoned rather than migrated:
   erased, so re-keying cost nothing. **This will not be true a second time.**
   Once other people run Shhhcribble, back that key up before any machine move.
 
+## One prerequisite that isn't a credential
+
+`create-dmg.sh` sets the DMG's Finder icon layout via `set-dmg-layout.py`, which
+needs the **`ds-store`** Python module. Install it before the first release on a
+new machine:
+
+```bash
+python3 -m pip install --user ds-store
+```
+
+The script tries to self-install it and **that cannot work the first time**:
+Python resolves `site-packages` at interpreter startup, so a module installed
+into a directory that did not exist when the process began is not importable in
+that same process. The intended graceful skip is therefore bypassed and the run
+aborts *after* notarizing — i.e. after the slowest step. Cost on 2026-09-06: one
+wasted ~9-minute notarization round-trip.
+
+**If a run aborts, detach the scratch mount before retrying.** It is left behind
+mounted, so the next run mounts as `/Volumes/Shhhcribble 1`:
+
+```bash
+hdiutil detach "/Volumes/Shhhcribble 1" -force; hdiutil detach /Volumes/Shhhcribble -force
+```
+
 ## Setup, in order
 
 1. **Developer ID certificate.** In Xcode → Settings → Accounts, sign in with
