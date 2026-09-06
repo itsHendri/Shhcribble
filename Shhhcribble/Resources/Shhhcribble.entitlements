@@ -14,5 +14,19 @@
     <!-- Microphone access under Hardened Runtime -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+
+    <!-- Sending Apple events to Spotify / Music under Hardened Runtime.
+         REQUIRED BY HARDENED RUNTIME, NOT BY SANDBOXING — this app is not
+         sandboxed, and that is irrelevant here. Without this entitlement macOS
+         refuses every Apple event with -1743 (errAEEventNotPermitted) *before
+         TCC is consulted*: no prompt appears, no entry is created, and
+         System Settings > Privacy & Security > Automation stays empty, so the
+         failure looks like a permission the user has no way to grant.
+         Debug builds hide this — Xcode auto-disables Hardened Runtime for
+         ad-hoc signing, so music pause works in development and only breaks in
+         notarized Release builds. Found 2026-09-06; it had been broken in
+         every signed release since v1.7.0 turned Hardened Runtime on. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
 </dict>
 </plist>

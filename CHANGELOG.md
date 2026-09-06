@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-09-06
+
+### Fixed
+- **Music pauses again while you dictate.** Spotify and Apple Music stopped
+  being paused in every signed release since 1.7.0, and no amount of granting
+  permissions could fix it: the app was missing an entitlement that macOS
+  requires before it will even *ask* you for Automation access. Because it was
+  never asking, Shhhcribble never appeared under Privacy & Security →
+  Automation, so there was nothing to switch on. It asks now, and the first
+  time you dictate with music playing you'll be prompted to allow it.
+
 ## [1.15.0] - 2026-09-06
 
 ### Added
@@ -626,7 +637,8 @@ First public release (as Shhhcribble; formerly FieldWhisperer).
 - Replaced WhisperKit with Parakeet V3 (FluidAudio).
 - Renamed FieldWhisperer → Shhhcribble.
 
-[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.15.0...HEAD
+[Unreleased]: https://github.com/itsHendri/Shhhcribble/compare/v1.15.1...HEAD
+[1.15.1]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.15.1
 [1.15.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.15.0
 [1.14.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.14.0
 [1.13.0]: https://github.com/itsHendri/Shhhcribble/releases/tag/v1.13.0
