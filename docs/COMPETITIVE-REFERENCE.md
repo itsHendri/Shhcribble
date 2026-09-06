@@ -1,8 +1,10 @@
-# Shhhcribble — Competitive Reference (2026-06, re-reviewed 2026-07, full re-audit 2026-07-26, Wispr re-audit 2026-08-10)
+# Shhhcribble — Competitive Reference (2026-06, re-reviewed 2026-07, full re-audit 2026-07-26, Wispr re-audit 2026-08-10, Loqua added 2026-09-06)
 
 > Durable reference so we don't re-run the competitor audit each time. Original findings from **static analysis of the installed app bundles, prefs, and on-disk SQLite/JSON state** — not marketing pages. The **2026-07-26 full re-audit** adds **Ghost Pepper** (source read) and refreshes every prior competitor; where the installed bundle hadn't moved, the delta comes from release notes and is **labelled as such**. The **2026-08-10 Wispr re-audit** replaces the vendor-stated Wispr section with real bundle analysis — their app finally moved.
 
-**Competitors tracked:** SuperWhisper · Wispr Flow · FluidVoice · VoiceInk · Granola · Aqua · Willow · Ghost Pepper.
+**Competitors tracked:** SuperWhisper · Wispr Flow · FluidVoice · VoiceInk · Granola · Aqua · Willow · Ghost Pepper · Loqua.
+
+> **Loqua (added 2026-09-06) is site-and-FAQ only, not static analysis** — the sole entry here not read from a bundle. Its section says so at the top; don't let it drift into the same confidence class as the rest.
 
 ---
 
@@ -150,6 +152,72 @@ The bundle ships `ax-inspect.mjs` / `ax-inspect-lib.mjs` — an internal tool th
 
 ---
 
+## Loqua — profile (2026-09-06)
+
+**⚠ METHOD CAVEAT, read first: this is the only entry in this document not
+based on static analysis.** Loqua is not installed on this Mac; everything below
+comes from **their own marketing site and FAQ**. Treat every capability claim as
+vendor-stated. It is here because of what it says about the *category*, not
+because we have measured it. If it starts mattering, install it and read the
+bundle like the others.
+
+**What it is:** cross-platform (Mac **and Windows**) voice dictation, positioned
+on context — *"From voice to text / From screen to insight."* $12/mo, free tier
+at 5,000 words/week and 10 screen-captures/week. Claims 40+ app integrations
+(Slack, Notion, VS Code, Figma, Zoom) and ~100 translation languages. No model
+or provider is disclosed anywhere.
+
+### The finding that matters: it is cloud-only and account-gated, and says so
+
+Straight from their FAQ, not inferred:
+
+> *"Loqua currently needs an internet connection for speech processing and
+> related AI features."*
+
+Sign-in with Google or email is **mandatory**. Their privacy language is
+carefully drawn — *"Zero cloud data retention"*, *"Never trained on your data"*,
+*"On-device history storage"* — and the last of those is the tell: **history is
+local, processing is not.** Screenshots are stored locally; the ones you ask
+about are uploaded to be answered.
+
+**This sharpens our pitch rather than threatening it.** The best-marketed
+positioning in this category is now explicitly *"it goes to the cloud, but we
+don't keep it"*. Ours is *"it never leaves the Mac, and there is no account"* —
+a different claim, and the stronger one. Loqua makes the contrast legible in a
+way Wispr's quieter cloud dependency never did.
+
+### Voice-edit-existing-text is now table stakes, not a gap we are early to
+
+Their **Voice Editing** (highlight text, speak a change) makes **four**
+independent shippers: FluidVoice, Wispr Command Mode, Aqua Edit Mode, now Loqua.
+The *Emerging gaps* entry below was written when it was two.
+
+**The framing has to change.** It is no longer "our biggest capability gap" in
+the sense of an opportunity — it is the feature every serious competitor has and
+we do not. That is a different kind of argument for building it: parity, not
+differentiation.
+
+### Capture-to-Ask is C5 with a product name
+
+Screenshot → ask a question about it, without leaving the app. Same shape as our
+parked **C5 screen context**, and the third shipper after Ghost Pepper (opt-in,
+default off) and VoiceInk (default on, no guard). **Nothing here changes the C5
+gate** — CLAUDE.md already requires `CleanupGuard` to cover that path before
+screen text reaches a prompt, and Loqua discloses no guard of any kind.
+
+### The rest, briefly
+
+**Command to Go** (voice-triggered actions — reminders, launching apps, calls)
+is the same species as FluidVoice's terminal agent, and carries the same blast
+radius we declined to take on. **AI Podcast** is text-to-speech read-aloud —
+genuinely absent from every other competitor here, and genuinely not something
+we want. They claim to **learn from your corrections**, which is our parked
+**C1 self-learning dictionary**, now claimed by a second competitor after Ghost
+Pepper.
+
+**Nothing here is worth copying.** The whole feature set is downstream of having
+a cloud, which is the thing we have chosen not to have.
+
 ## Verified capabilities in our current stack
 
 **⚠ We pin FluidAudio `0.13.6` (revision `57551cd9`); current is `0.15.5` (2026-07-07) — two minor versions behind.** Three parked candidates matured inside our own dependency:
@@ -175,22 +243,24 @@ The bundle ships `ax-inspect.mjs` / `ax-inspect-lib.mjs` — an internal tool th
 
 ## Side-by-side
 
-| | **SuperWhisper** | **Wispr Flow** | **Ghost Pepper** | **FluidVoice** | **Shhhcribble** |
-|---|---|---|---|---|---|
-| Stack | Native Swift, **macOS 14+** | Electron, macOS 12+ | Native Swift, macOS 14+, **AS-only** | Native Swift | Native Swift, macOS 14+ |
-| Version | 2.16.5 | **1.6.447** | — | — | **1.14.0** |
-| Bundle | 133 MB | **572 MB** | ~30 MB + models | ~3.5 GB w/ model | **~30 MB** |
-| ASR | WhisperKit + Parakeet V3 | Cloud-only | Whisper / Parakeet / Qwen3-ASR | **7 engines** | Parakeet V3 (FluidAudio) |
-| Local LLM | llama.cpp, 6 families | None | **Qwen 3.5 GGUF** (LLM.swift) | **"Fluid Intelligence" 3.5 GB, closed** | Apple FoundationModels |
-| Cloud LLM | 8 via proxy | All cloud | Opt-in only | Opt-in | **None** |
-| Cleanup guard | — | "Undo AI Edit" | **None** | — | **`CleanupGuard` + `PromptFence`** |
-| Storage | GRDB SQLite | `flow.sqlite` (14 tables) | Markdown on disk | — | **SQLite (schema v12)** |
-| Auto-update | Sparkle | Squirrel | Sparkle | — | **Sparkle** |
-| Telemetry | Sentry | Sentry | **None** (local counters) | — | **None** |
-| Accounts | Yes | Yes | **No** | No | **No** |
-| Both-sides capture | `useSystemAudio` | **ScreenCaptureKit** (cloud-gated) | **ScreenCaptureKit** | — | Not built |
-| Voice-edit mode | — | **Command Mode** | — | **Command + Write Mode** | **Not built** |
-| Licence | Proprietary | Proprietary | **None (badge lies)** | GPLv3 | **GPLv3** |
+| | **SuperWhisper** | **Wispr Flow** | **Ghost Pepper** | **FluidVoice** | **Loqua** ⚠ | **Shhhcribble** |
+|---|---|---|---|---|---|---|
+| Stack | Native Swift, **macOS 14+** | Electron, macOS 12+ | Native Swift, macOS 14+, **AS-only** | Native Swift | Undisclosed; **Mac + Windows** | Native Swift, macOS 14+ |
+| Version | 2.16.5 | **1.6.447** | — | — | not analysed | **1.15.0** |
+| Bundle | 133 MB | **572 MB** | ~30 MB + models | ~3.5 GB w/ model | not analysed | **~30 MB** |
+| ASR | WhisperKit + Parakeet V3 | Cloud-only | Whisper / Parakeet / Qwen3-ASR | **7 engines** | **Cloud-only** | Parakeet V3 (FluidAudio) |
+| Local LLM | llama.cpp, 6 families | None | **Qwen 3.5 GGUF** (LLM.swift) | **"Fluid Intelligence" 3.5 GB, closed** | None | Apple FoundationModels |
+| Cloud LLM | 8 via proxy | All cloud | Opt-in only | Opt-in | All cloud, undisclosed | **None** |
+| Cleanup guard | — | "Undo AI Edit" | **None** | — | none disclosed | **`CleanupGuard` + `PromptFence`** |
+| Storage | GRDB SQLite | `flow.sqlite` (14 tables) | Markdown on disk | — | local history (claimed) | **SQLite (schema v14)** |
+| Auto-update | Sparkle | Squirrel | Sparkle | — | not analysed | **Sparkle** |
+| Telemetry | Sentry | Sentry | **None** (local counters) | — | not analysed | **None** |
+| Accounts | Yes | Yes | **No** | No | **Yes, mandatory** | **No** |
+| Both-sides capture | `useSystemAudio` | **ScreenCaptureKit** (cloud-gated) | **ScreenCaptureKit** | — | — | Not built |
+| Voice-edit mode | — | **Command Mode** | — | **Command + Write Mode** | **Voice Editing** | **Not built** |
+| Licence | Proprietary | Proprietary | **None (badge lies)** | GPLv3 | Proprietary | **GPLv3** |
+
+⚠ **The Loqua column is vendor-stated, not measured** — see the method caveat in its profile above.
 
 ---
 
@@ -258,7 +328,7 @@ Note the `editedText` column and `formattingDivergenceScore`: **they have been r
 - **Cleanup output validation** (`CleanupGuard` + `PromptFence`) — nobody else validates that cleanup didn't fabricate or drop the user's words.
 - **Deterministic dictionary substitution before cleanup** — vs Ghost Pepper's soft prompt hints.
 - **Music-pause via AppleScript** — SuperWhisper bundles `MediaRemoteAdapter.framework`, dead on macOS 26 per our 2026-05-06 testing.
-- **~30 MB native bundle**; **zero telemetry, zero cloud, zero accounts.**
+- **~30 MB native bundle**; **zero telemetry, zero cloud, zero accounts.** *(2026-09-06: Loqua makes this contrast sharper than it has been. Their pitch is "zero cloud data **retention**" with mandatory sign-in and no offline mode; ours is that the audio never leaves the machine and there is nothing to sign in to. Two of the eight tracked competitors run on-device at all, and only one of those — us — has no account.)*
 - **Modular codebase** — the clearest structural advantage over Ghost Pepper.
 
 ---
@@ -268,10 +338,10 @@ Note the `editedText` column and `formattingDivergenceScore`: **they have been r
 *Re-ranked 2026-08-10: both-sides capture moves to the top. It is the only gap where the competition has converged on a mechanism **and** left the on-device version unclaimed — Wispr gates Notetaker behind cloud sync, Granola is cloud, and the one local implementation is all-rights-reserved. Everything below it is a feature we lack; this one is a position we can still hold alone.*
 
 1. **Both-sides capture** — Ghost Pepper and now Wispr, both via ScreenCaptureKit. **On-device remains unoccupied.** Carries the echo-gate cost (below).
-2. **Voice-edit-existing-text** (Command / Write Mode) — FluidVoice **and** Wispr. Our biggest pure-capability gap. Wispr takes the selection via Cmd+C to the pasteboard, which we already have plumbing for.
+2. **Voice-edit-existing-text** (Command / Write Mode) — FluidVoice, Wispr, Aqua **and now Loqua** (2026-09-06). Wispr takes the selection via Cmd+C to the pasteboard, which we already have plumbing for. **Re-framed 2026-09-06: this stopped being an opportunity and became a deficit.** At two shippers it was a gap we were early to; at four it is the feature every serious competitor has and we do not. Build it for parity, and don't expect credit for it.
 3. **Revert-to-raw / cleanup intensity dial** — Wispr shipped it; we already store `rawText`. Cheapest win.
 4. **Self-learning dictionary** — Ghost Pepper shipped it; Wispr's `edit` traces show they're building toward it.
-5. **Screen context for cleanup** — Ghost Pepper (OCR) and SuperWhisper (`contextFrom*`).
+5. **Screen context for cleanup** — Ghost Pepper (OCR), SuperWhisper (`contextFrom*`), and Loqua headlines it as **Capture to Ask**. Three shippers; the `CleanupGuard`-covers-that-path gate is unchanged.
 6. **Browser meeting detection** — AX window titles reach what our HAL path can't name; Wispr's `browser_move_rebind` does the same job.
 7. **Local usage stats** — Ghost Pepper and FluidVoice; costless, privacy-safe.
 

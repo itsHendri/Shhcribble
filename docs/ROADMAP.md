@@ -4,7 +4,63 @@
 
 ---
 
-## Running order (2026-08-10) — LIVE pointer, supersedes everything below
+## Running order (2026-09-06) — LIVE pointer, supersedes everything below
+
+> **Re-prioritized 2026-09-06 with Hendri. Backup / sync (Phase B) takes #1**,
+> displacing both-sides call capture. The 2026-08-10 order below is kept intact
+> as history — read it for the C2/C3 scoping, which is unchanged and still
+> correct.
+
+**1. Backup + cross-device sync — Phase B.** *(design-gated → human)*
+The forcing event, recorded plainly: the last commit before the old Mac was
+wiped was *"Raise sync's priority: the data has no backup story at all"* — and
+then the machine was wiped and **the entire transcript library went with it**.
+The database on the new Mac begins 2026-08-31 with 23 dictations and 0 notes;
+the ~1,100-dictation corpus the prompt bench ran against, and every note and
+sticky, are gone. The risk was identified, written down, ranked — and landed
+before it was acted on. There is still no Time Machine destination configured.
+
+**Do not start building this without a design session.** Real prerequisites,
+already recorded: CloudKit entitlements need an **embedded provisioning
+profile** that `create-dmg.sh` does not currently produce; the iOS half lives in
+a **separate Xcode project** (`~/ShhhcribbleiOS`, not present on this machine —
+verify it survived the wipe before scoping); CloudKit forbids unique
+constraints; and the *"nothing leaves your Mac"* pitch demands opt-in plus
+disclosure. That pitch got **more** load-bearing on 2026-09-06, not less — see
+the Loqua profile in COMPETITIVE-REFERENCE.md, where the best-marketed
+competitor in the category is cloud-only and account-gated.
+
+> **Worth separating two problems.** Sync is a program; *backup* is not. A local
+> encrypted copy of `transcripts.sqlite` addresses the failure that actually
+> happened, needs no CloudKit, no entitlement, no iOS app and no design session.
+> If Phase B slips again, that is the thing to do anyway.
+
+**2. Both-sides call capture — C2 + C3.** *(design-gated + audio-gated → human)*
+Demoted from #1, and it costs less than it looks: the 2026-09-06 signed build is
+the vehicle that finally unblocks the verification this feature has been waiting
+on since 2026-08-10 (an ad-hoc Debug build cannot hold the Screen Recording
+grant). Once that verification passes, C3 is largely *finished* rather than
+pending. **C2 (chunked capture) remains genuinely open** and still touches
+`AudioRecorder`. Full scoping in the 2026-08-10 order below — unchanged.
+
+**3. Voice-edit existing text — C8.** *(promoted from parked)*
+Not because it got more attractive, but because it stopped being optional:
+**Loqua is the fourth shipper** after FluidVoice, Wispr and Aqua. At two it was
+a gap we were early to; at four it is the one capability every serious
+competitor has and we do not. `TextInserter` already owns pasteboard
+snapshot/restore with change-count gating, so the capture half is plumbing we
+have. The open question is the guard — `StyleGuard`'s coverage floor was built
+for "reshape what you just said", not "reshape a document you didn't write".
+
+**4. Tabbed sticky panel.** ✅ **SHIPPED** 2026-08-10 — see CHANGELOG 1.15.0.
+
+**5. Dictate into a note + transforms on note text.** *(design-gated → human)*
+Was #3; the dictate-into-a-sticky half **shipped in 1.15.0**. The transforms
+half is still open and still needs its own design session.
+
+---
+
+## Running order (2026-08-10) — superseded 2026-09-06, kept for the C2/C3 scoping
 
 > This is the re-prioritization that was deferred on 2026-07-26 (*"we'll re-prioritize features another time"*). Agreed with the human 2026-08-10, after re-auditing **Wispr Flow 1.6.447** — which shipped **Notetaker**, their meeting-notes product, and confirmed the mechanism for our biggest open item.
 
