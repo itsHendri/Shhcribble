@@ -22,3 +22,6 @@ build/
 
 # Sampled real dictations — personal content, never committed.
 *.jsonl
+
+# Claude Code per-machine settings and worktrees
+.claude/

@@ -7,6 +7,29 @@ signing chain up again is a checklist rather than an archaeology exercise.
 (`9W82X49JZS`) and onto Hendri's own.** Nothing of the old chain is carried
 across — that's the point, and the wipe is what makes it cheap.
 
+## Status: DONE — 2026-09-06
+
+Executed on the new MacBook Pro. What replaced the old chain:
+
+| | |
+|---|---|
+| Developer ID | `Developer ID Application: Hendri van Niekerk (L9T3PX7HVH)` |
+| Team ID | **`L9T3PX7HVH`** (was `9W82X49JZS`) |
+| Notary profile | `shhhcribble-notary` — validated against Apple |
+| Sparkle public key | `3X0/cUYw7Cy9cJzmDyduqIfUTXnQ6fBENIK8tZ8BI9k=` (in `Info.plist`) |
+
+The Apple ID is deliberately not recorded here — this repo is public.
+
+**One snag worth knowing if this is ever redone:** `notarytool store-credentials`
+returned `401 — Your Apple ID has been locked` when given the wrong Apple ID.
+The account was never locked; a mismatched app-specific password produces that
+message. Check the Apple ID before starting an unlock you don't need.
+
+**The Sparkle private key is in the login Keychain and has no backup.** It is the
+only credential in this chain with no recovery path — the certificate and the
+notary password can both be regenerated from Apple, this cannot. Back it up
+before the next machine move, per the warning below.
+
 ## Why nothing needed exporting
 
 Two credentials existed only in the old login Keychain, and both were
