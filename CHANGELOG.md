@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.15.0] - 2026-08-30
+## [1.15.0] - 2026-09-06
 
 ### Added
 - **Pin a document to your screen.** Pinning isn't just for notes any more — a
